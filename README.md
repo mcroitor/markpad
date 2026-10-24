@@ -56,7 +56,7 @@ ctest --test-dir build --output-on-failure
 ./build/markpad
 ```
 
-The current project bootstrap is a minimal empty Qt window and a smoke test. Other editor features listed above are planned and are not implemented yet. Clean configure/build/test runs have passed locally on Windows UCRT64 and Ubuntu in WSL. The GitHub Actions workflow is configured for both platforms; its remote run is pending.
+The current project bootstrap is a minimal empty Qt window and a smoke test. Other editor features listed above are planned and are not implemented yet. Clean configure/build/test runs have passed locally on Windows UCRT64 and Ubuntu in WSL. The GitHub Actions workflow is configured for both platforms, and its CI/CD run has passed.
 
 ## License
 

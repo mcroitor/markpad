@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `In Progress`
+- Статус: `Done`
 - Владелец: исполнитель C++/CI; архитектор принимает контракты
 - Приоритет: P0
 
@@ -66,8 +66,8 @@ Markpad — Qt 6 / C++20 desktop-приложение для Windows и Linux. �
 - Чистая Ubuntu Debug-конфигурация в WSL прошла: `cmake -S /mnt/c/projects/git/markpad -B /tmp/markpad-task001-verify -G Ninja -DCMAKE_BUILD_TYPE=Debug`.
 - Ubuntu сборка прошла: `cmake --build /tmp/markpad-task001-verify --parallel`.
 - Ubuntu CTest прошёл: `ctest --test-dir /tmp/markpad-task001-verify --output-on-failure` — 1/1 passed.
-- GitHub Actions workflow содержит отдельные Ubuntu/GCC и Windows/MSYS2 UCRT64 jobs. CI ещё не запускался; отправка ветки должна запустить workflow, результат требуется проверить перед закрытием задачи.
-- Локальные критерии обеих платформ подтверждены. Задача остаётся In Progress до успешного запуска обеих GitHub Actions jobs.
+- GitHub Actions workflow содержит отдельные Ubuntu/GCC и Windows/MSYS2 UCRT64 jobs; по подтверждению пользователя, CI/CD на GitHub завершился успешно.
+- Локальные критерии обеих платформ и удалённый CI подтверждены; задача завершена.
 
 ## Примечания завершения
 
