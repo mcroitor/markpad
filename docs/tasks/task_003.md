@@ -24,6 +24,12 @@
 
 - Не связывать domain model с Qt Widgets.
 - Перед реализацией согласовать результат Task 002 и контракт GFM.
+- Направление из Task 002: MD4C + собственная модель; неизменённые участки исходника сохранять, нормализовать только изменённые блоки. MD4C-прототип доказал лишь text/task patch operations, а не полные block ranges и сериализацию; не переносить экспериментальную Qt Core-модель как утверждённое domain API.
+- Продолжение Task 012 доказало частичную карту paragraph/ATX и versioned heading
+  edits. Task 013 объединяет text/task/heading commands с UUID/revision/digest
+  и nested quote mapping. В контракте session всё ещё необходимо определить
+  владение identity/revision при open/replace/undo/save и UTF-16 mapping;
+  прототип этих гарантий за session не даёт.
 - Чтение/запись UTF-8 — предлагаемое поведение, но определить обработку BOM/невалидных байтов и совместимости до `Ready`.
 - Сохранение не должно очищать dirty state при ошибке.
 
@@ -43,7 +49,7 @@
 ## Зависимости и открытые вопросы
 
 - Зависимости: Tasks 001 и 002.
-- Блокеры `Draft`: утверждение уровня сохранения Markdown из результата spike; UTF-8/BOM/error policy.
+- Блокеры `Draft`: контракт source mapping/версий и операций модели для выбранной политики сохранения; UTF-8/BOM/error policy. Сам уровень сохранения Markdown уже выбран: неизменённые участки сохраняются в исходном виде.
 
 ## Исполнительский промпт
 
@@ -53,4 +59,4 @@
 
 - Не начато.
 - Проверки: не запускались.
-- Блокеры: UTF-8/BOM policy; формат хранения source при round-trip.
+- Блокеры: UTF-8/BOM policy; контракт source mapping и versioned edit operations.

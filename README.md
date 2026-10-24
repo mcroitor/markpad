@@ -58,6 +58,44 @@ ctest --test-dir build --output-on-failure
 
 The current project bootstrap is a minimal empty Qt window and a smoke test. Other editor features listed above are planned and are not implemented yet. Clean configure/build/test runs have passed locally on Windows UCRT64 and Ubuntu in WSL. The GitHub Actions workflow is configured for both platforms, and its CI/CD run has passed.
 
+### Optional MD4C source-preserving experiment
+
+Task 002 focuses on MD4C and a custom document model, not editor functionality or
+an approved production integration. The experiment is disabled by default. Use a
+separate build directory and add `-DMARKPAD_BUILD_MD4C_SPIKE=ON` to the configure
+command above (keeping the Windows Qt prefix and `PATH` when applicable):
+
+```sh
+cmake -S . -B build-md4c -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMARKPAD_BUILD_MD4C_SPIKE=ON
+cmake --build build-md4c --parallel
+ctest --test-dir build-md4c --output-on-failure
+ctest --test-dir build-md4c -L md4c --verbose
+```
+
+The first opt-in configure requires network access to fetch pinned, SHA256-checked
+MD4C sources from GitHub. No system-wide package is installed. The prototype builds
+a callback tree and checks localized text/task edits that preserve all other source
+bytes. Tasks 012/013 add a partial block map and paragraph/ATX heading conversions,
+including single-line blocks within explicit nested quotes. All edits use
+`applyEdit` with document identity, revision and source digest; successful changes
+return a reparsed snapshot and no-op preserves the original revision. Parent links
+and evidence envelopes describe known source bytes, **not** complete container
+ownership. Quote prefixes and bytes outside the changed block are preserved. Unsupported
+forms return an explicit error. It is **not** a complete block serializer or a
+full GFM conformance suite.
+The MD4C tests pass locally on Windows and Ubuntu, including Linux ASan/UBSan.
+See [Task 002](docs/tasks/task_002.md) for limits, licensing and reproduction.
+See [Task 012](docs/tasks/task_012.md) for structural edits and snapshot guarantees.
+See [Task 013](docs/tasks/task_013.md) for the unified command contract and nested
+mapping limits. Next: [lists/quotes](docs/tasks/task_014.md), then
+[GFM tables](docs/tasks/task_015.md); their structural operations are not implemented.
+CI now enables the MD4C experiment on both platforms; the updated workflow has not
+yet been run remotely.
+
+The earlier `cmark-gfm`/Qt comparison remains available separately through
+`-DMARKPAD_BUILD_GFM_SPIKE=ON`. It is disabled by default, is not required by MD4C,
+and is no longer the focus of development.
+
 ## License
 
 Markpad is licensed under the MIT License.

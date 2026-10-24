@@ -29,6 +29,18 @@ endif()
 
 include(CTest)
 
+option(MARKPAD_BUILD_GFM_SPIKE "Build the isolated Task 002 GFM experiment" OFF)
+option(MARKPAD_BUILD_MD4C_SPIKE "Build the isolated Task 002 MD4C experiment" OFF)
+if((MARKPAD_BUILD_GFM_SPIKE OR MARKPAD_BUILD_MD4C_SPIKE) AND NOT BUILD_TESTING)
+    message(FATAL_ERROR "Markdown spikes require BUILD_TESTING=ON")
+endif()
+if(MARKPAD_BUILD_GFM_SPIKE)
+    add_subdirectory(experiments/gfm)
+endif()
+if(MARKPAD_BUILD_MD4C_SPIKE)
+    add_subdirectory(experiments/md4c)
+endif()
+
 if(BUILD_TESTING)
     find_package(Qt6 REQUIRED COMPONENTS Test)
 
