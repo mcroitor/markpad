@@ -214,6 +214,18 @@ class Md4cSourceTest : public QObject {
     QCOMPARE(*result.source, QByteArray("same\n\n_other_\n\n> same\n"));
   }
 
+  void textEditRejectsReferenceLinkRebinding() {
+    auto parsed = parse(
+        "[before]\n\n[before]: /a&amp;b\n[after]: /a\\&amp;b\n");
+    QVERIFY(parsed.document);
+    const auto index =
+        find(*parsed.document, NodeKind::kText, MD_TEXT_NORMAL, "before");
+    QVERIFY(index < parsed.document->nodes.size());
+    const auto result = replaceText(*parsed.document, index, "after");
+    QVERIFY(!result.source);
+    QVERIFY(result.error.contains("semantics"));
+  }
+
   void escapesAndUnicode_data() {
     QTest::addColumn<QByteArray>("text");
     QTest::newRow("markup") << QByteArray("*bold* | [link](target) & <tag>");

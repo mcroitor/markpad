@@ -24,6 +24,28 @@ QString attribute(const MD_ATTRIBUTE& value) {
   return QString::fromUtf8(value.text, value.size);
 }
 
+QJsonArray attributeSegments(const MD_ATTRIBUTE& value) {
+  QJsonArray segments;
+  if (value.size == 0) {
+    return segments;
+  }
+  for (MD_SIZE index = 0; value.substr_offsets[index] < value.size; ++index) {
+    const auto start = value.substr_offsets[index];
+    const auto size = value.substr_offsets[index + 1] - start;
+    segments.append(QJsonObject{
+        {"type", int(value.substr_types[index])},
+        {"text", QString::fromUtf8(value.text + start, size)}});
+  }
+  return segments;
+}
+
+void addAttribute(QJsonObject& attributes, const char* name,
+                  const MD_ATTRIBUTE& value) {
+  attributes[name] = attribute(value);
+  attributes[QString::fromLatin1(name) + QStringLiteral("_segments")] =
+      attributeSegments(value);
+}
+
 class Builder {
  public:
   Document document;
@@ -91,8 +113,8 @@ class Builder {
       }
       case MD_BLOCK_CODE: {
         const auto& code = *static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
-        attributes["info"] = attribute(code.info);
-        attributes["lang"] = attribute(code.lang);
+        addAttribute(attributes, "info", code.info);
+        addAttribute(attributes, "lang", code.lang);
         break;
       }
       case MD_BLOCK_TABLE: {
@@ -117,12 +139,12 @@ class Builder {
     QJsonObject attributes;
     if (type == MD_SPAN_A) {
       const auto& link = *static_cast<MD_SPAN_A_DETAIL*>(detail);
-      attributes["href"] = attribute(link.href);
-      attributes["title"] = attribute(link.title);
+      addAttribute(attributes, "href", link.href);
+      addAttribute(attributes, "title", link.title);
     } else if (type == MD_SPAN_IMG) {
       const auto& image = *static_cast<MD_SPAN_IMG_DETAIL*>(detail);
-      attributes["src"] = attribute(image.src);
-      attributes["title"] = attribute(image.title);
+      addAttribute(attributes, "src", image.src);
+      addAttribute(attributes, "title", image.title);
     }
     return static_cast<Builder*>(data)->enter(NodeKind::kSpan, type,
                                               std::move(attributes));
