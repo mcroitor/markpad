@@ -547,6 +547,8 @@ EditResult setHeadingLevelSource(const Document& document, size_t index,
     ending = "\r\n";
   } else if (original.endsWith('\n')) {
     ending = "\n";
+  } else if (original.endsWith('\r')) {
+    ending = "\r";
   }
   auto replacement =
       document.source.mid(mapped->content.offset, mapped->content.size);
