@@ -21,7 +21,8 @@
 | `"```\nx\n```\n"` / wrap | Success: `"> ```\n> x\n> ```\n"`, code literal `x\n` |
 | `"> a\nlazy\n"` / unwrap | Unsupported: lazy continuation |
 | `"> a\n\n<!-- keep -->\n\n> b\n"` / unwrap первой quote | Success: остальные bytes неизменны |
-| `"a\n\n> b\n"` / wrap только a без изменения separator | Structural mismatch: quote merge запрещён |
+| `"a\n\n> b\n"` / wrap только a без изменения separator | Success: `"> a\n\n> b\n"`, две отдельные QUOTE с paragraphs a и b |
+| `"a\n> b\n"` / wrap только a | Structural mismatch: результат `"> a\n> b\n"` сливает quotes; нет нового документа |
 | Пустой selection / first за границами / parent span | Invalid target/index |
 
 Обязательны UTF-8/CRLF/EOF варианты, nested explicit quote как выбранный
