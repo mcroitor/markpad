@@ -24,11 +24,17 @@ add_library(markpad_files
 target_link_libraries(markpad_files PUBLIC markpad_document PRIVATE Qt6::Core)
 
 add_library(markpad_ui
+    src/application_controller.cc
+    src/application_controller.h
+    src/document_dialogs.cc
+    src/document_dialogs.h
+    src/markdown_highlighter.cc
+    src/markdown_highlighter.h
     src/main_window.cc
     src/main_window.h
 )
 target_include_directories(markpad_ui PUBLIC src)
-target_link_libraries(markpad_ui PUBLIC Qt6::Widgets)
+target_link_libraries(markpad_ui PUBLIC Qt6::Widgets markpad_files)
 target_compile_features(markpad_ui PUBLIC cxx_std_20)
 
 add_executable(markpad

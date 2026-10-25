@@ -56,12 +56,18 @@ ctest --test-dir build --output-on-failure
 ./build/markpad
 ```
 
-The application still shows a minimal empty Qt window. The headless document
-library adds versioned UTF-8 source snapshots, dirty tracking and open/save/save-as;
-the UI does not expose these operations yet. Other editor features are planned.
-Clean configure/build/test runs have passed locally on Windows UCRT64 and Ubuntu
-in WSL. GitHub Actions covers both platforms; the Task 003 changes have not yet
-been run remotely.
+The application provides an SDI Markdown source editor: each document has its own
+window, session and undo/redo history. File commands include New, Open, Save,
+Save As and guarded Close/Exit. New always creates a window; Open reuses only a
+clean, empty, unnamed window. The editor includes basic visual syntax highlighting,
+standard editing shortcuts, an Edit context menu and a cursor/dirty status bar.
+WYSIWYG, pagination, export and persistent settings are still planned.
+
+Pass file paths as command-line arguments (for example, `markpad document.md`).
+Local `QFileOpenEvent` requests are handled too; OS file associations and
+single-instance IPC are not installed. Clean builds and automated tests pass
+locally on Windows UCRT64 and Ubuntu in WSL. Task 004 has not yet run in remote CI;
+native-dialog and visual manual QA remain to be performed.
 
 ### Document core and file formats
 
@@ -80,8 +86,18 @@ Save preserves encoding/BOM; Save As may select a different format. A literal
 leading U+FEFF requires a transport BOM to avoid losing it on the next open.
 Dirty compares source/format against the last successful open/save. Failed
 operations preserve session state. Opening a dirty session requires explicit
-discard permission. No external-file conflict detection or UI dialogs are
+discard permission. The UI offers explicit encoding retry on decode errors and
+encoding/BOM selection on Save As. No external-file conflict detection is
 implemented. See [Task 003](docs/tasks/task_003.md).
+
+The source editor preserves untouched Unicode and line endings, including mixed
+CRLF/CR/LF files. Newly inserted line breaks use the source's first EOL sequence,
+or LF for a new document. Undo restores exact source content; the widget is a
+projection, not a second canonical document. History currently stores full source
+snapshots per edit, without a large-file performance guarantee. Highlighting is
+heuristic, not a GFM parser; raw HTML remains inert text and no external resources
+are loaded. GUI tests inject dialogs and run offscreen. See
+[Task 004](docs/tasks/task_004.md).
 
 ### Optional MD4C source-preserving experiment
 
