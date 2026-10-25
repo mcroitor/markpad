@@ -56,7 +56,32 @@ ctest --test-dir build --output-on-failure
 ./build/markpad
 ```
 
-The current project bootstrap is a minimal empty Qt window and a smoke test. Other editor features listed above are planned and are not implemented yet. Clean configure/build/test runs have passed locally on Windows UCRT64 and Ubuntu in WSL. The GitHub Actions workflow is configured for both platforms, and its CI/CD run has passed.
+The application still shows a minimal empty Qt window. The headless document
+library adds versioned UTF-8 source snapshots, dirty tracking and open/save/save-as;
+the UI does not expose these operations yet. Other editor features are planned.
+Clean configure/build/test runs have passed locally on Windows UCRT64 and Ubuntu
+in WSL. GitHub Actions covers both platforms; the Task 003 changes have not yet
+been run remotely.
+
+### Document core and file formats
+
+`markpad_document` is a standard C++20 library without Qt dependencies.
+`markpad_files` provides a Qt Core adapter using `QSaveFile` with direct-write
+fallback disabled. Tests run without a GUI (`markpad_document` in CTest).
+
+The model stores strict UTF-8, preserving line endings. Files support UTF-8,
+UTF-16 LE/BE and UTF-32 LE/BE. BOM detection takes precedence; without a BOM,
+valid UTF-8 is preferred, otherwise a conservative zero-byte-pattern heuristic
+is used. Uncertain detection returns an error; callers may specify an encoding.
+Detection is not guaranteed for every BOM-less file, especially non-ASCII text.
+Invalid Unicode and U+0000 are rejected rather than replaced.
+
+Save preserves encoding/BOM; Save As may select a different format. A literal
+leading U+FEFF requires a transport BOM to avoid losing it on the next open.
+Dirty compares source/format against the last successful open/save. Failed
+operations preserve session state. Opening a dirty session requires explicit
+discard permission. No external-file conflict detection or UI dialogs are
+implemented. See [Task 003](docs/tasks/task_003.md).
 
 ### Optional MD4C source-preserving experiment
 

@@ -1,6 +1,8 @@
 # Архитектура Markpad
 
-Статус: проектное предложение на основе требований из [README.md](./README.md) и [AGENTS.md](./AGENTS.md). Исходный код и инфраструктура сборки пока отсутствуют; детали, зависящие от конкретных библиотек, нужно подтвердить при реализации.
+Статус: архитектурное направление на основе [README.md](./README.md) и
+[AGENTS.md](./AGENTS.md). Каркас/CI, отдельные MD4C experiments и headless
+Document Session реализованы; UI редактора, layout и export пока проектируются.
 
 ## Цели и принципы
 
@@ -65,6 +67,33 @@ flowchart TB
 Модули могут быть обычными библиотечными границами внутри одного процесса; не вводить отдельные процессы и абстрактные интерфейсы на каждую функцию без причины.
 
 ## Потоки данных и интерфейсные контракты
+
+### Реализованный source/session слой (Task 003)
+
+- `markpad_document`: стандартный C++20, source UTF-8, value snapshot, process-local
+  identity и revision. Сессия не копируется; снимки копируются. Replace требует
+  актуальный token. Revision относится к изменениям source, open создаёт новую
+  identity с revision 0; save/save-as identity/revision не меняют.
+- Session владеет source/format, абсолютным path и saved checkpoint. Dirty
+  сравнивает source/format с checkpoint. No-op не повышает revision; возврат
+  содержимого снимает dirty без отката revision. Undo ещё не реализован.
+- `DocumentFileService` — небольшая boundary для synchronous read/write и
+  deterministic failure tests. Qt Core adapter не зависит от Widgets,
+  использует QSaveFile без fallback на прямую запись. Ошибка не меняет path,
+  format, checkpoint или token. Вызов open при dirty требует explicit discard.
+- UTF-8/16/32 LE/BE decode строгий: BOM/explicit encoding, затем conservative
+  heuristic для файлов без BOM. EOL сохраняется, NUL/invalid Unicode отклоняются.
+  Heuristic uncertainty — явная ошибка, не обещание универсального autodetect.
+  Save сохраняет исходную encoding/BOM; Save As может выбрать другие.
+- UI ещё не связан с Session, source не разбирается MD4C автоматически.
+  Production Session token и experiment UUID token — разные контракты; будущий
+  адаптер pipeline обязан связывать parser output с session snapshot, а не
+  передавать индексы узлов между снимками. Source-map/UTF-16 cursor mapping —
+  не часть Task 003.
+
+Подробные правила и проверки — [Task 003](docs/tasks/task_003.md).
+
+### Исследовательский GFM слой
 
 Результаты [Task 002](docs/tasks/task_002.md#итог-выполнения) не подтверждают готовый lossless pipeline: обнаружены ограничения task lists/сериализации `cmark-gfm` и потери при Qt Markdown round-trip. Прототип изолирован от приложения. По решению владельца дальнейшее исследование направлено на **MD4C с собственной моделью/сериализатором**; production-интеграция требует отдельного подтверждения. Следующие контракты остаются логическими требованиями, а не подтверждённым API выбранной библиотеки.
 
