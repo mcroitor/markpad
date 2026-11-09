@@ -61,12 +61,14 @@ window, session and undo/redo history. File commands include New, Open, Save,
 Save As and guarded Close/Exit. New always creates a window; Open reuses only a
 clean, empty, unnamed window. The editor includes basic visual syntax highlighting,
 standard editing shortcuts, an Edit context menu and a cursor/dirty status bar.
-WYSIWYG, pagination, export and persistent settings are still planned.
+A first limited continuous WYSIWYG slice is available through
+**View > Switch mode**. Full WYSIWYG editing, pagination, export and persistent
+settings are still in development/planned.
 
 Pass file paths as command-line arguments (for example, `markpad document.md`).
 Local `QFileOpenEvent` requests are handled too; OS file associations and
 single-instance IPC are not installed. Clean builds and automated tests pass
-locally on Windows UCRT64 and Ubuntu in WSL. Task 004 has not yet run in remote CI;
+locally on Windows UCRT64 and Ubuntu in WSL. Task 005 changes have not yet run in remote CI;
 native-dialog and visual manual QA remain to be performed.
 
 ### Document core and file formats
@@ -99,12 +101,53 @@ heuristic, not a GFM parser; raw HTML remains inert text and no external resourc
 are loaded. GUI tests inject dialogs and run offscreen. See
 [Task 004](docs/tasks/task_004.md).
 
-### Optional MD4C source-preserving experiment
+### Continuous WYSIWYG (first slice)
 
-Task 002 focuses on MD4C and a custom document model, not editor functionality or
-an approved production integration. The experiment is disabled by default. Use a
-separate build directory and add `-DMARKPAD_BUILD_MD4C_SPIKE=ON` to the configure
-command above (keeping the Windows Qt prefix and `PATH` when applicable):
+Continuous mode formats headings, paragraphs, emphasis/strong/strikethrough and
+list/quote content. Blue-background text runs support local text edits; grey
+fragments/placeholders are protected. **Format > Heading** and **Toggle task
+checked** are available only where the source map proves the operation safe.
+**Bold**, **Italic** and **Strikethrough** operate on a nonempty selection within
+one editable text run; Bold/Italic also support their standard keyboard shortcuts.
+Repeating a style removes it only when the entire simple span is selected.
+Selections and their direction are retained after formatting. Partial removal,
+cross-run formatting and future-input formatting are not supported yet.
+Unavailable commands are disabled with an explanatory tooltip; unsupported keyboard
+requests report an error. Delimiter collisions that would change the surrounding
+Markdown semantics are rejected rather than normalized globally.
+Other edits, including Enter, cross-run replacements and deleting an entire text
+run, explicitly return you to Markdown for the change. Empty documents start in
+Markdown. Images, code, HTML and tables are currently read-only placeholders,
+not fully rendered/editable features. No external resources are loaded.
+
+Links show their labels as inert text, never as clickable Qt anchors. You can
+edit a mapped label run in inline/full-reference links while keeping the address,
+title and reference definitions unchanged. Label formatting commands and
+address edits still require Markdown. Autolink text is visible but read-only;
+shortcut/collapsed reference edits that change the binding are explicitly
+rejected. Click, Ctrl+click and keyboard do not open links, for any URL scheme.
+See [Task 028](docs/tasks/task_028.md).
+
+Both modes share one session, Save and undo/redo history. Switching modes does
+not serialize or modify the source. Cursor/selection mapping is exact for mapped
+text; protected positions use an explained approximation. Unchanged switch-back
+restores the original selection, including delimiter-boundary affinity.
+See [Task 026](docs/tasks/task_026.md) and [Task 027](docs/tasks/task_027.md);
+the full [Task 005](docs/tasks/task_005.md)
+is **not complete**.
+
+### MD4C dependency and optional regression suite
+
+The verified source-preserving API now lives in `markpad_markdown`
+(`src/markdown_document.*`) and is used by the first WYSIWYG slice.
+MD4C is a required build dependency, fetched from a pinned, SHA256-checked source
+archive on the first configure; network access to GitHub is required then.
+No system-wide package is installed. CMake copies the upstream MIT notice to
+`MD4C-LICENSE.md` in the build directory: include it when distributing binaries.
+
+The extended MD4C regression suite remains opt-in. Add
+`-DMARKPAD_BUILD_MD4C_SPIKE=ON` (keeping the Windows Qt prefix and `PATH` when
+applicable):
 
 ```sh
 cmake -S . -B build-md4c -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMARKPAD_BUILD_MD4C_SPIKE=ON
@@ -113,10 +156,9 @@ ctest --test-dir build-md4c --output-on-failure
 ctest --test-dir build-md4c -L md4c --verbose
 ```
 
-The first opt-in configure requires network access to fetch pinned, SHA256-checked
-MD4C sources from GitHub. No system-wide package is installed. The prototype builds
-a callback tree and checks localized text/task edits that preserve all other source
-bytes. Tasks 012/013 add a partial block map and paragraph/ATX heading conversions,
+The shared API builds a callback tree and checks localized text/task edits that preserve all other source
+bytes. Task 027 adds selected inline style wrapping/simple unwrapping.
+Tasks 012/013 add a partial block map and paragraph/ATX heading conversions,
 including single-line blocks within explicit nested quotes. All edits use
 `applyEdit` with document identity, revision and source digest; successful changes
 return a reparsed snapshot and no-op preserves the original revision. Parent links
@@ -124,14 +166,39 @@ and evidence envelopes describe known source bytes, **not** complete container
 ownership. Quote prefixes and bytes outside the changed block are preserved. Unsupported
 forms return an explicit error. It is **not** a complete block serializer or a
 full GFM conformance suite.
+Task 016 adds read-only `mapList` ownership ranges for canonical top-level lists
+and their items/content lines, including multiline paragraphs and closed fenced
+code. Ranges are checked against both the parsed subtree and absolute callback
+offsets; trailing separator lines remain outside the list. Nested containers,
+lazy continuations, structural tabs, indented code and external definition
+contexts outside the supported canonical form return diagnostics rather than
+guessed ranges. Task 017 adds source-preserving `InsertListItem`,
+`RemoveListItem`, `SetListKind` and `SetItemTask`. Ordered start is preserved and
+changed lists renumber sequentially; task conversion does not renumber; removing
+the last item deletes the list. Definitions use document-global MD4C/GFM label
+equivalence: collisions and changes to surviving bindings are rejected atomically,
+used definitions cannot be removed, and unused definitions are deleted with their
+owner. There are still no list command entry points in the UI; internal
+definitions before the first rendered paragraph cannot be combined with task
+toggling, and nested containers remain future work. Task 018 adds exact
+top-level quote ranges and source-preserving `WrapInQuote`/`UnwrapQuote` for the
+document parent: explicit `>` prefixes, quoted blank lines, multiline paragraphs,
+closed fenced code and inline HTML are supported; lazy continuations are rejected.
+See [Task 016](docs/tasks/task_016.md), [Task 017](docs/tasks/task_017.md) and
+[Task 018](docs/tasks/task_018.md).
 The MD4C tests pass locally on Windows and Ubuntu, including Linux ASan/UBSan.
 See [Task 002](docs/tasks/task_002.md) for limits, licensing and reproduction.
 See [Task 012](docs/tasks/task_012.md) for structural edits and snapshot guarantees.
 See [Task 013](docs/tasks/task_013.md) for the unified command contract and nested
-mapping limits. Next: [lists/quotes](docs/tasks/task_014.md), then
-[GFM tables](docs/tasks/task_015.md); their structural operations are not implemented.
-CI now enables the MD4C experiment on both platforms; the updated workflow has not
-yet been run remotely.
+mapping limits. Next: nested list/quote containers in
+[Task 019](docs/tasks/task_019.md), then [GFM tables](docs/tasks/task_015.md);
+their remaining structural operations are not implemented.
+The agreed [reference-definition policy](docs/tasks/task_025.md) uses document-wide
+scope: future structural edits reject normalized label collisions or changes to
+surviving reference bindings, and reject removal of a definition still in use.
+Definitions are not silently renamed or moved. Parser characterization is tested;
+the definition inventory and structural commands are not yet implemented.
+CI enables the MD4C regression suite on both platforms.
 
 The earlier `cmark-gfm`/Qt comparison remains available separately through
 `-DMARKPAD_BUILD_GFM_SPIKE=ON`. It is disabled by default, is not required by MD4C,

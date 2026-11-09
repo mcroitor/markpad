@@ -8,12 +8,16 @@
 
 #include "document_dialogs.h"
 #include "document_session.h"
+#include "markdown_document.h"
 
 class QAction;
 class QCloseEvent;
 class QPlainTextEdit;
+class QStackedWidget;
 
 namespace markpad {
+
+class ContinuousEditor;
 
 class MainWindow final : public QMainWindow {
   Q_OBJECT
@@ -28,6 +32,12 @@ class MainWindow final : public QMainWindow {
   bool saveDocumentAs();
   void undo();
   void redo();
+  ContinuousEditor* continuousEditor() const { return continuous_; }
+  bool continuousMode() const { return continuousMode_; }
+  bool setContinuousMode(bool enabled);
+  bool applyContinuousCommand(const DocumentToken& token,
+                              const markdown::EditCommand& command,
+                              int cursor = -1);
 
  signals:
   void newRequested();
@@ -50,6 +60,13 @@ class MainWindow final : public QMainWindow {
     int removed;
     int added;
   };
+  struct ModeSelection {
+    DocumentToken token;
+    int sourceAnchor;
+    int sourcePosition;
+    int viewAnchor;
+    int viewPosition;
+  };
   bool applySource(const std::string& source, int cursor);
   void editorChanged();
   void refreshEditor(int cursor = 0);
@@ -61,6 +78,17 @@ class MainWindow final : public QMainWindow {
   QPlainTextEdit* editor_;
   QAction* undoAction_;
   QAction* redoAction_;
+  QAction* cutAction_;
+  QAction* copyAction_;
+  QAction* markdownAction_;
+  QAction* continuousAction_;
+  std::vector<QAction*> headingActions_;
+  std::vector<QAction*> inlineActions_;
+  QAction* taskAction_;
+  QStackedWidget* workspace_;
+  ContinuousEditor* continuous_;
+  bool continuousMode_ = false;
+  std::optional<ModeSelection> modeSelection_;
   std::vector<Edit> history_;
   size_t historyPosition_ = 0;
   QString editorText_;

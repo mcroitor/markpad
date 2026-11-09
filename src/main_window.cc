@@ -9,12 +9,15 @@
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QSignalBlocker>
+#include <QStackedWidget>
 #include <QStatusBar>
 #include <QStringConverter>
 #include <QTextCursor>
+#include <QTextEdit>
 #include <QToolBar>
 #include <algorithm>
 
+#include "continuous_editor.h"
 #include "markdown_highlighter.h"
 
 namespace markpad {
@@ -79,7 +82,12 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   editor_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
   editor_->setUndoRedoEnabled(false);
   editor_->installEventFilter(this);
-  setCentralWidget(editor_);
+  workspace_ = new QStackedWidget(this);
+  continuous_ = new ContinuousEditor(this);
+  workspace_->addWidget(editor_);
+  workspace_->addWidget(continuous_);
+  setCentralWidget(workspace_);
+  continuous_->editor()->installEventFilter(this);
   new MarkdownHighlighter(editor_->document());
   auto* file = menuBar()->addMenu(QStringLiteral("&File"));
   auto* toolbar = addToolBar(QStringLiteral("File"));
@@ -125,27 +133,92 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   connect(redoAction_, &QAction::triggered, this, &MainWindow::redo);
   edit->addSeparator();
   const auto editAction = [&](const QString& name,
-                              QKeySequence::StandardKey key, auto slot) {
+                              QKeySequence::StandardKey key, auto plainSlot,
+                              auto richSlot) {
     auto* value = edit->addAction(name);
     value->setShortcut(key);
-    connect(value, &QAction::triggered, editor_, slot);
+    connect(value, &QAction::triggered, this, [this, plainSlot, richSlot] {
+      if (continuousMode_) {
+        (continuous_->editor()->*richSlot)();
+      } else {
+        (editor_->*plainSlot)();
+      }
+    });
     return value;
   };
-  auto* cut = editAction(QStringLiteral("Cu&t"), QKeySequence::Cut,
-                         &QPlainTextEdit::cut);
-  auto* copy = editAction(QStringLiteral("&Copy"), QKeySequence::Copy,
-                          &QPlainTextEdit::copy);
-  cut->setEnabled(false);
-  copy->setEnabled(false);
-  connect(editor_, &QPlainTextEdit::copyAvailable, cut, &QAction::setEnabled);
-  connect(editor_, &QPlainTextEdit::copyAvailable, copy, &QAction::setEnabled);
+  cutAction_ = editAction(QStringLiteral("Cu&t"), QKeySequence::Cut,
+                          &QPlainTextEdit::cut, &QTextEdit::cut);
+  copyAction_ = editAction(QStringLiteral("&Copy"), QKeySequence::Copy,
+                           &QPlainTextEdit::copy, &QTextEdit::copy);
+  connect(editor_, &QPlainTextEdit::copyAvailable, this,
+          &MainWindow::refreshState);
   editAction(QStringLiteral("&Paste"), QKeySequence::Paste,
-             &QPlainTextEdit::paste);
+             &QPlainTextEdit::paste, &QTextEdit::paste);
   editAction(QStringLiteral("Select &All"), QKeySequence::SelectAll,
-             &QPlainTextEdit::selectAll);
+             &QPlainTextEdit::selectAll, &QTextEdit::selectAll);
   editor_->addActions(edit->actions());
   editor_->setContextMenuPolicy(Qt::ActionsContextMenu);
+  continuous_->editor()->addActions(edit->actions());
+  continuous_->editor()->setContextMenuPolicy(Qt::ActionsContextMenu);
+  auto* format = menuBar()->addMenu(QStringLiteral("F&ormat"));
+  const QStringList inlineNames{QStringLiteral("&Bold"),
+                                QStringLiteral("&Italic"),
+                                QStringLiteral("&Strikethrough")};
+  const QStringList inlineIds{QStringLiteral("boldAction"),
+                              QStringLiteral("italicAction"),
+                              QStringLiteral("strikethroughAction")};
+  for (int index = 0; index < inlineNames.size(); ++index) {
+    auto* value = format->addAction(inlineNames[index]);
+    value->setObjectName(inlineIds[index]);
+    value->setCheckable(true);
+    const auto style = static_cast<markdown::InlineStyle>(index);
+    if (style == markdown::InlineStyle::kBold) {
+      value->setShortcut(QKeySequence::Bold);
+    } else if (style == markdown::InlineStyle::kItalic) {
+      value->setShortcut(QKeySequence::Italic);
+    }
+    inlineActions_.push_back(value);
+    connect(value, &QAction::triggered, this,
+            [this, style] { continuous_->toggleInlineStyle(style); });
+  }
+  auto* headings = format->addMenu(QStringLiteral("Heading"));
+  for (int level = 0; level <= 6; ++level) {
+    auto* value =
+        headings->addAction(level == 0 ? QStringLiteral("Paragraph")
+                                       : QStringLiteral("H%1").arg(level));
+    value->setObjectName(QStringLiteral("heading%1Action").arg(level));
+    headingActions_.push_back(value);
+    connect(value, &QAction::triggered, this, [this, level] {
+      const auto node = continuous_->headingNode();
+      if (node) {
+        applyContinuousCommand(continuous_->token(),
+                               markdown::SetHeadingLevel{*node, level});
+      }
+    });
+  }
+  taskAction_ = format->addAction(QStringLiteral("Toggle task checked"));
+  taskAction_->setObjectName(QStringLiteral("toggleTaskAction"));
+  connect(taskAction_, &QAction::triggered, this, [this] {
+    const auto node = continuous_->taskNode();
+    if (node) {
+      applyContinuousCommand(
+          continuous_->token(),
+          markdown::SetTaskChecked{*node, !continuous_->taskChecked()});
+    }
+  });
   auto* view = menuBar()->addMenu(QStringLiteral("&View"));
+  auto* modes = view->addMenu(QStringLiteral("Switch mode"));
+  markdownAction_ = modes->addAction(QStringLiteral("Markdown"));
+  markdownAction_->setObjectName(QStringLiteral("markdownModeAction"));
+  markdownAction_->setCheckable(true);
+  continuousAction_ =
+      modes->addAction(QStringLiteral("WYSIWYG (continuous, limited)"));
+  continuousAction_->setObjectName(QStringLiteral("continuousModeAction"));
+  continuousAction_->setCheckable(true);
+  connect(markdownAction_, &QAction::triggered, this,
+          [this] { setContinuousMode(false); });
+  connect(continuousAction_, &QAction::triggered, this,
+          [this] { setContinuousMode(true); });
   view->addAction(toolbar->toggleViewAction());
   auto* status = view->addAction(QStringLiteral("Status bar"));
   status->setCheckable(true);
@@ -168,6 +241,14 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
           &MainWindow::editorChanged);
   connect(editor_, &QPlainTextEdit::cursorPositionChanged, this,
           &MainWindow::refreshState);
+  connect(continuous_->editor(), &QTextEdit::cursorPositionChanged, this,
+          &MainWindow::refreshState);
+  connect(continuous_->editor(), &QTextEdit::selectionChanged, this,
+          &MainWindow::refreshState);
+  connect(continuous_, &ContinuousEditor::errorOccurred, this,
+          [this](const QString& error) { dialogs_.showError(this, error); });
+  connect(continuous_, &ContinuousEditor::commandRequested, this,
+          &MainWindow::applyContinuousCommand);
   refreshEditor();
 }
 
@@ -240,6 +321,22 @@ void MainWindow::refreshEditor(int position) {
   editor_->setTextCursor(cursor);
   refreshing_ = false;
   pendingChange_.reset();
+  if (continuousMode_) {
+    const auto error = continuous_->render(snapshot);
+    if (!error.isEmpty()) {
+      dialogs_.showError(this, error);
+    }
+    const auto raw = sourceText(snapshot.source);
+    const auto projection = project(raw);
+    const auto offset = projection.offsets[size_t(cursor.position())];
+    bool exact = false;
+    const int richPosition =
+        continuous_->viewPosition(raw.left(offset).toUtf8().size(), &exact);
+    auto richCursor = continuous_->editor()->textCursor();
+    richCursor.setPosition(richPosition);
+    continuous_->editor()->setTextCursor(richCursor);
+    continuous_->explainCursorMapping(exact);
+  }
   refreshState();
 }
 
@@ -252,13 +349,36 @@ void MainWindow::refreshState() {
   setWindowFilePath(path);
   undoAction_->setEnabled(historyPosition_ > 0);
   redoAction_->setEnabled(historyPosition_ < history_.size());
-  const auto cursor = editor_->textCursor();
-  statusBar()->showMessage(QStringLiteral("Markdown | Ln %1, Col %2 | %3")
-                               .arg(cursor.blockNumber() + 1)
-                               .arg(cursor.positionInBlock() + 1)
-                               .arg(session_.dirty()
-                                        ? QStringLiteral("Modified")
-                                        : QStringLiteral("Saved")));
+  const auto cursor = continuousMode_ ? continuous_->editor()->textCursor()
+                                      : editor_->textCursor();
+  cutAction_->setEnabled(cursor.hasSelection());
+  copyAction_->setEnabled(cursor.hasSelection());
+  markdownAction_->setChecked(!continuousMode_);
+  continuousAction_->setChecked(continuousMode_);
+  for (auto* action : headingActions_) {
+    action->setEnabled(continuousMode_ &&
+                       continuous_->headingNode().has_value());
+  }
+  taskAction_->setEnabled(continuousMode_ &&
+                          continuous_->taskNode().has_value());
+  for (size_t index = 0; index < inlineActions_.size(); ++index) {
+    const auto state = continuousMode_
+                           ? continuous_->inlineState(
+                                 static_cast<markdown::InlineStyle>(index))
+                           : ContinuousEditor::InlineState{};
+    auto* action = inlineActions_[index];
+    action->setEnabled(continuousMode_ && state.command.has_value());
+    action->setChecked(continuousMode_ && state.checked);
+    action->setToolTip(state.reason);
+  }
+  statusBar()->showMessage(
+      QStringLiteral("%1 | Ln %2, Col %3 | %4")
+          .arg(continuousMode_ ? QStringLiteral("WYSIWYG (limited)")
+                               : QStringLiteral("Markdown"))
+          .arg(cursor.blockNumber() + 1)
+          .arg(cursor.positionInBlock() + 1)
+          .arg(session_.dirty() ? QStringLiteral("Modified")
+                                : QStringLiteral("Saved")));
 }
 
 bool MainWindow::applySource(const std::string& source, int cursor) {
@@ -268,6 +388,147 @@ bool MainWindow::applySource(const std::string& source, int cursor) {
     return false;
   }
   refreshEditor(cursor);
+  return true;
+}
+
+bool MainWindow::setContinuousMode(bool enabled) {
+  if (continuousMode_ == enabled) {
+    refreshState();
+    return true;
+  }
+  const auto snapshot = session_.snapshot();
+  const auto raw = sourceText(snapshot.source);
+  const auto projection = project(raw);
+  bool exact = true;
+  if (enabled) {
+    const auto error = continuous_->render(snapshot);
+    if (!error.isEmpty()) {
+      dialogs_.showError(this, error);
+      refreshState();
+      return false;
+    }
+    const auto sourceCursor = editor_->textCursor();
+    const auto map = [&](int position) {
+      bool mapped = false;
+      const auto offset = projection.offsets[size_t(position)];
+      const auto result =
+          continuous_->viewPosition(raw.left(offset).toUtf8().size(), &mapped);
+      exact = exact && mapped;
+      return result;
+    };
+    auto cursor = continuous_->editor()->textCursor();
+    cursor.setPosition(map(sourceCursor.anchor()));
+    cursor.setPosition(map(sourceCursor.position()), QTextCursor::KeepAnchor);
+    continuous_->editor()->setTextCursor(cursor);
+    continuous_->explainCursorMapping(exact);
+    modeSelection_ = ModeSelection{snapshot.token, sourceCursor.anchor(),
+                                   sourceCursor.position(), cursor.anchor(),
+                                   cursor.position()};
+  } else {
+    const auto richCursor = continuous_->editor()->textCursor();
+    const auto anchor = continuous_->sourcePosition(
+        richCursor.anchor(), richCursor.anchor() <= richCursor.position());
+    const auto position = continuous_->sourcePosition(
+        richCursor.position(), richCursor.position() <= richCursor.anchor());
+    if (modeSelection_ && modeSelection_->token == snapshot.token &&
+        modeSelection_->viewAnchor == richCursor.anchor() &&
+        modeSelection_->viewPosition == richCursor.position()) {
+      auto cursor = editor_->textCursor();
+      cursor.setPosition(modeSelection_->sourceAnchor);
+      cursor.setPosition(modeSelection_->sourcePosition,
+                         QTextCursor::KeepAnchor);
+      editor_->setTextCursor(cursor);
+    } else if (anchor && position) {
+      const auto map = [&](qsizetype offset) {
+        return int(
+            project(sourceText(snapshot.source.substr(0, size_t(offset))))
+                .text.size());
+      };
+      auto cursor = editor_->textCursor();
+      cursor.setPosition(map(*anchor));
+      cursor.setPosition(map(*position), QTextCursor::KeepAnchor);
+      editor_->setTextCursor(cursor);
+    } else {
+      exact = false;
+    }
+    modeSelection_.reset();
+  }
+  continuousMode_ = enabled;
+  workspace_->setCurrentWidget(enabled ? static_cast<QWidget*>(continuous_)
+                                       : static_cast<QWidget*>(editor_));
+  if (enabled) {
+    continuous_->editor()->setFocus();
+  } else {
+    editor_->setFocus();
+  }
+  refreshState();
+  if (!exact && !enabled) {
+    statusBar()->showMessage(
+        QStringLiteral("Markdown | Cursor/selection retained: protected "
+                       "fragment has no exact source mapping."));
+  }
+  return true;
+}
+
+bool MainWindow::applyContinuousCommand(const DocumentToken& token,
+                                        const markdown::EditCommand& command,
+                                        int cursor) {
+  const auto before = session_.snapshot();
+  const auto fail = [&](const QString& error) {
+    continuous_->render(before);
+    dialogs_.showError(this, error);
+    refreshState();
+    return false;
+  };
+  if (!continuousMode_ || token != before.token ||
+      token != continuous_->token()) {
+    return fail(QStringLiteral("Stale or foreign WYSIWYG snapshot"));
+  }
+  const auto result = continuous_->apply(command);
+  if (!result.document) {
+    return fail(result.error);
+  }
+  if (cursor < 0) {
+    cursor = continuous_->editor()->textCursor().position();
+  }
+  const auto after = result.document->source.toStdString();
+  if (after == before.source) {
+    continuous_->render(before);
+    auto richCursor = continuous_->editor()->textCursor();
+    richCursor.setPosition(std::clamp(
+        cursor, 0, continuous_->editor()->document()->characterCount() - 1));
+    continuous_->editor()->setTextCursor(richCursor);
+    refreshState();
+    return true;
+  }
+  const int beforeCursor = editor_->textCursor().position();
+  const int selectionAnchor = continuous_->editor()->textCursor().anchor();
+  const int selectionPosition = continuous_->editor()->textCursor().position();
+  const bool preserveSelection =
+      std::holds_alternative<markdown::ToggleInlineStyle>(command);
+  if (!applySource(after, beforeCursor)) {
+    return false;
+  }
+  auto richCursor = continuous_->editor()->textCursor();
+  richCursor.setPosition(std::clamp(
+      cursor, 0, continuous_->editor()->document()->characterCount() - 1));
+  if (preserveSelection) {
+    richCursor.setPosition(selectionAnchor);
+    richCursor.setPosition(selectionPosition, QTextCursor::KeepAnchor);
+  }
+  continuous_->editor()->setTextCursor(richCursor);
+  if (const auto offset = continuous_->sourcePosition(richCursor.position())) {
+    const int position =
+        int(project(sourceText(after.substr(0, size_t(*offset)))).text.size());
+    auto sourceCursor = editor_->textCursor();
+    sourceCursor.setPosition(position);
+    editor_->setTextCursor(sourceCursor);
+  }
+  history_.resize(historyPosition_);
+  history_.push_back(
+      {before.source, after, beforeCursor, editor_->textCursor().position()});
+  historyPosition_ = history_.size();
+  refreshState();
   return true;
 }
 
@@ -356,8 +617,9 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
-  if (watched == editor_ && (event->type() == QEvent::ShortcutOverride ||
-                             event->type() == QEvent::KeyPress)) {
+  if ((watched == editor_ || watched == continuous_->editor()) &&
+      (event->type() == QEvent::ShortcutOverride ||
+       event->type() == QEvent::KeyPress)) {
     auto* key = static_cast<QKeyEvent*>(event);
     const bool isUndo = key->matches(QKeySequence::Undo);
     const bool isRedo = key->matches(QKeySequence::Redo);
