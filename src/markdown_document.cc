@@ -3290,6 +3290,296 @@ EditResult unwrapQuoteSource(const Document& document,
   return apply(document, expected, mapped.quote->range, replacement);
 }
 
+std::optional<SourceRange> contentRangeFor(const Document& document,
+                                           const ListItemSource& item,
+                                           SourceRange real) {
+  Q_UNUSED(document);
+  if (real.size <= 0) {
+    return std::nullopt;
+  }
+  const auto start = contentOffsetFor(item, real.offset);
+  const auto end = contentOffsetFor(item, real.offset + real.size - 1);
+  if (!start || !end || *end < *start) {
+    return std::nullopt;
+  }
+  return SourceRange{*start, *end + 1 - *start};
+}
+
+QByteArray replaceContentRange(const QByteArray& content, SourceRange range,
+                               const QByteArray& replacement) {
+  auto result = content;
+  result.replace(range.offset, range.size, replacement);
+  return result;
+}
+
+void removeGapForItem(std::vector<QByteArray>& gaps, size_t index,
+                      size_t count) {
+  if (gaps.empty()) {
+    return;
+  }
+  if (index + 1 >= count) {
+    gaps.erase(gaps.begin() + qsizetype(gaps.size()) - 1);
+  } else {
+    gaps.erase(gaps.begin() + qsizetype(index));
+  }
+}
+
+EditResult indentListItemSource(const Document& document,
+                                const IndentListItem& edit) {
+  QString error;
+  auto mapped = mapItem(document, edit.item, error);
+  if (!mapped) {
+    return {std::nullopt, error};
+  }
+  const auto& source = mapped->source;
+  const auto index = mapped->index;
+  if (index == 0) {
+    return {std::nullopt, QStringLiteral("Invalid target: no previous list item")};
+  }
+  const auto& listNode = document.nodes[mapped->list];
+  const auto ordered = listNode.type == MD_BLOCK_OL;
+  const auto start = ordered ? listNode.attributes["start"].toInt() : 0;
+  const auto marker = listMarkerAt(document.source, source.range.offset);
+  if (!marker) {
+    return {std::nullopt, QStringLiteral("Unsupported list marker")};
+  }
+  const auto eol = listEol(document, source);
+  const auto previousIndex = index - 1;
+  const auto previousNode = source.items[previousIndex].node;
+  auto previousContent = itemContent(document, source.items[previousIndex]);
+  const auto movedContent = itemContent(document, source.items[index]);
+
+  size_t targetList = document.nodes.size();
+  for (auto child : document.nodes[previousNode].children) {
+    if (document.nodes[child].kind == NodeKind::kBlock &&
+        document.nodes[child].type == listNode.type) {
+      targetList = child;
+    }
+  }
+
+  if (targetList < document.nodes.size()) {
+    const auto target = mapList(document, targetList);
+    if (!target.list) {
+      return {std::nullopt, target.error};
+    }
+    auto contents = std::vector<QByteArray>{};
+    for (const auto& item : target.list->items) {
+      contents.push_back(itemContent(document, item));
+    }
+    auto gaps = itemGaps(document, *target.list);
+    const auto targetOrdered =
+        document.nodes[targetList].type == MD_BLOCK_OL;
+    const auto targetStart =
+        targetOrdered
+            ? document.nodes[targetList].attributes["start"].toInt()
+            : 0;
+    if (targetOrdered &&
+        qint64(targetStart) + qint64(contents.size()) > 999999999) {
+      return {std::nullopt, QStringLiteral("Ordered list number overflow")};
+    }
+    const auto targetMarker =
+        listMarkerAt(document.source, target.list->range.offset);
+    if (!targetMarker) {
+      return {std::nullopt, QStringLiteral("Unsupported list marker")};
+    }
+    const auto gap =
+        gapFor(!document.nodes[targetList].attributes["tight"].toBool(),
+               target.list->continuationPrefix, target.list->blankLinePrefix,
+               eol);
+    contents.push_back(movedContent);
+    gaps.push_back(gap);
+    const auto targetReal = buildListSource(
+        contents, gaps, targetOrdered, targetStart, targetMarker->delimiter,
+        eol, !listEndsAtEofWithoutEol(document, *target.list),
+        target.list->continuationPrefix, target.list->blankLinePrefix);
+    const auto targetSource = stripContainerPrefix(
+        targetReal, target.list->continuationPrefix,
+        target.list->blankLinePrefix);
+    const auto range =
+        contentRangeFor(document, source.items[previousIndex],
+                        target.list->range);
+    if (!range) {
+      return {std::nullopt, QStringLiteral("Unsupported nested list range")};
+    }
+    previousContent = replaceContentRange(previousContent, *range, targetSource);
+  } else {
+    const auto newListSource = buildListSource(
+        {movedContent}, {}, ordered, ordered ? 1 : 0, marker->delimiter, eol,
+        true, {}, {});
+    if (!previousContent.isEmpty() && !previousContent.endsWith('\n') &&
+        !previousContent.endsWith('\r')) {
+      previousContent += eol;
+    }
+    previousContent += newListSource;
+  }
+
+  auto contents = std::vector<QByteArray>{};
+  for (size_t i = 0; i < source.items.size(); ++i) {
+    if (i == index) {
+      continue;
+    }
+    contents.push_back(i == previousIndex
+                           ? previousContent
+                           : itemContent(document, source.items[i]));
+  }
+  auto gaps = itemGaps(document, source);
+  removeGapForItem(gaps, index, source.items.size());
+  const auto trailingEol = !listEndsAtEofWithoutEol(document, source);
+  const auto newSource = buildListSource(
+      contents, gaps, ordered, start, marker->delimiter, eol, trailingEol,
+      source.continuationPrefix, source.blankLinePrefix);
+  const auto canonicalSource = stripContainerPrefix(
+      newSource, source.continuationPrefix, source.blankLinePrefix);
+  const auto definitions = definitionInventory(document);
+  QString contextError;
+  auto parsed = parseListContext(document, definitions, source.range.offset,
+                                 source.range.offset + source.range.size,
+                                 canonicalSource, contextError);
+  if (!parsed) {
+    return {std::nullopt, contextError};
+  }
+  const auto& parsedList = parsed->document.nodes[parsed->root];
+  if (parsedList.children.size() != source.items.size() - 1) {
+    return {std::nullopt, QStringLiteral("Structural list mismatch")};
+  }
+  auto expected = graftList(document, mapped->list, *parsed);
+  return apply(document, expected, source.range, newSource);
+}
+
+EditResult outdentListItemSource(const Document& document,
+                                 const OutdentListItem& edit) {
+  QString error;
+  auto mapped = mapItem(document, edit.item, error);
+  if (!mapped) {
+    return {std::nullopt, error};
+  }
+  const auto nestedList = mapped->list;
+  const auto& nested = mapped->source;
+  const auto enclosing = document.nodes[nestedList].parent;
+  if (!enclosing ||
+      document.nodes[*enclosing].type != MD_BLOCK_LI) {
+    return {std::nullopt,
+            QStringLiteral("Invalid target: list is top-level")};
+  }
+  const auto outerList = document.nodes[*enclosing].parent;
+  if (!outerList || (document.nodes[*outerList].type != MD_BLOCK_UL &&
+                     document.nodes[*outerList].type != MD_BLOCK_OL)) {
+    return {std::nullopt, QStringLiteral("Invalid target: no outer list")};
+  }
+  const auto outer = mapList(document, *outerList);
+  if (!outer.list) {
+    return {std::nullopt, outer.error};
+  }
+  size_t enclosingIndex = outer.list->items.size();
+  for (size_t i = 0; i < outer.list->items.size(); ++i) {
+    if (outer.list->items[i].node == *enclosing) {
+      enclosingIndex = i;
+      break;
+    }
+  }
+  if (enclosingIndex >= outer.list->items.size()) {
+    return {std::nullopt, QStringLiteral("Invalid target: enclosing item")};
+  }
+  const auto movedContent = itemContent(document, nested.items[mapped->index]);
+  auto enclosingContent =
+      itemContent(document, outer.list->items[enclosingIndex]);
+  const auto eol = listEol(document, *outer.list);
+  const auto nestedRange =
+      contentRangeFor(document, outer.list->items[enclosingIndex],
+                      nested.range);
+
+  auto nestedContents = std::vector<QByteArray>{};
+  for (size_t i = 0; i < nested.items.size(); ++i) {
+    if (i != mapped->index) {
+      nestedContents.push_back(itemContent(document, nested.items[i]));
+    }
+  }
+  auto nestedGaps = itemGaps(document, nested);
+  removeGapForItem(nestedGaps, mapped->index, nested.items.size());
+  const auto nestedMarker =
+      listMarkerAt(document.source, nested.range.offset);
+  if (!nestedMarker) {
+    return {std::nullopt, QStringLiteral("Unsupported list marker")};
+  }
+  const auto nestedOrdered =
+      document.nodes[nestedList].type == MD_BLOCK_OL;
+  const auto nestedStart =
+      nestedOrdered
+          ? document.nodes[nestedList].attributes["start"].toInt()
+          : 0;
+  QByteArray nestedSource;
+  if (!nestedContents.empty()) {
+    const auto nestedReal = buildListSource(
+        nestedContents, nestedGaps, nestedOrdered, nestedStart,
+        nestedMarker->delimiter, eol,
+        !listEndsAtEofWithoutEol(document, nested),
+        nested.continuationPrefix, nested.blankLinePrefix);
+    nestedSource = stripContainerPrefix(
+        nestedReal, nested.continuationPrefix, nested.blankLinePrefix);
+  }
+  if (!nestedRange) {
+    return {std::nullopt, QStringLiteral("Unsupported nested list range")};
+  }
+  enclosingContent =
+      replaceContentRange(enclosingContent, *nestedRange, nestedSource);
+
+  auto contents = std::vector<QByteArray>{};
+  for (size_t i = 0; i < outer.list->items.size(); ++i) {
+    contents.push_back(i == enclosingIndex
+                           ? enclosingContent
+                           : itemContent(document, outer.list->items[i]));
+  }
+  auto gaps = itemGaps(document, *outer.list);
+  const auto outerMarker =
+      listMarkerAt(document.source, outer.list->range.offset);
+  if (!outerMarker) {
+    return {std::nullopt, QStringLiteral("Unsupported list marker")};
+  }
+  const auto outerOrdered =
+      document.nodes[*outerList].type == MD_BLOCK_OL;
+  const auto outerStart =
+      outerOrdered ? document.nodes[*outerList].attributes["start"].toInt() : 0;
+  if (outerOrdered &&
+      qint64(outerStart) + qint64(contents.size()) > 999999999) {
+    return {std::nullopt, QStringLiteral("Ordered list number overflow")};
+  }
+  const auto outerGap = gapFor(
+      !document.nodes[*outerList].attributes["tight"].toBool(),
+      outer.list->continuationPrefix, outer.list->blankLinePrefix, eol);
+  contents.insert(contents.begin() + qsizetype(enclosingIndex + 1),
+                  movedContent);
+  if (gaps.empty()) {
+    gaps.push_back(outerGap);
+  } else if (enclosingIndex >= gaps.size()) {
+    gaps.push_back(outerGap);
+  } else {
+    gaps.insert(gaps.begin() + qsizetype(enclosingIndex), outerGap);
+  }
+  const auto trailingEol = !listEndsAtEofWithoutEol(document, *outer.list);
+  const auto newSource = buildListSource(
+      contents, gaps, outerOrdered, outerStart, outerMarker->delimiter, eol,
+      trailingEol, outer.list->continuationPrefix,
+      outer.list->blankLinePrefix);
+  const auto canonicalSource = stripContainerPrefix(
+      newSource, outer.list->continuationPrefix, outer.list->blankLinePrefix);
+  const auto definitions = definitionInventory(document);
+  QString contextError;
+  auto parsed = parseListContext(document, definitions, outer.list->range.offset,
+                                 outer.list->range.offset + outer.list->range.size,
+                                 canonicalSource, contextError);
+  if (!parsed) {
+    return {std::nullopt, contextError};
+  }
+  const auto& parsedList = parsed->document.nodes[parsed->root];
+  if (parsedList.children.size() != outer.list->items.size() + 1) {
+    return {std::nullopt, QStringLiteral("Structural list mismatch")};
+  }
+
+  auto expected = graftList(document, *outerList, *parsed);
+  return apply(document, expected, outer.list->range, newSource);
+}
+
+
 EditResult toggleInlineSource(const Document& document,
                               const ToggleInlineStyle& edit) {
   const int type = spanType(edit.style);
@@ -3463,6 +3753,10 @@ ParseResult applyEdit(const Document& document, const SnapshotToken& token,
           return wrapInQuoteSource(document, edit);
         } else if constexpr (std::is_same_v<Command, UnwrapQuote>) {
           return unwrapQuoteSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, IndentListItem>) {
+          return indentListItemSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, OutdentListItem>) {
+          return outdentListItemSource(document, edit);
         } else {
           return toggleInlineSource(document, edit);
         }

@@ -270,5 +270,9 @@ Linux ASan/UBSan/leaks. Done только после всех критериев
 - [Task 019](task_019.md) Done: nested LI/QUOTE mapping и те же list/quote
   команды через virtual content/prefix rendering, depth 1–3. Windows/Linux
   CTest и Linux ASan/UBSan/leaks — 3/3. 020 остаётся.
+- [Task 020](task_020.md) Done: atomic IndentListItem/OutdentListItem с
+  сохранением start/order/tightness/task-state. Windows/Linux CTest и Linux
+  ASan/UBSan/leaks — 3/3. Родительский контракт 014 может перейти к приёмке
+  после проверки оставшихся пунктов.
 - Policy 025 v1 согласована владельцем: atomic reject collisions и deletion
   used definition; Ready контракта не означает реализованный reference mapper.

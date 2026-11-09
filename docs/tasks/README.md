@@ -25,7 +25,7 @@
 | 017 | Базовые команды top-level списков | Done | 016, 025 |
 | 018 | Top-level цитаты и wrap/unwrap | Done | 017 |
 | 019 | Вложенные list/quote контейнеры | Done | 017, 018 |
-| 020 | Indent/outdent списков | Ready | 019 |
+| 020 | Indent/outdent списков | Done | 019 |
 | 021 | Source-map top-level таблиц | Ready | 014 |
 | 022 | Строки таблиц и alignment | Ready | 021 |
 | 023 | Колонки и удаление таблицы | Ready | 022 |
@@ -138,7 +138,9 @@ SetListKind/SetItemTask, definition inventory/conflict/use checks и
 context-aware проверку AST; 018 Done добавляет exact top-level quote mapping и
 WrapInQuote/UnwrapQuote для document parent; 019 Done распространяет mapping и
 команды на nested LI/QUOTE parents (depth 1–3) с virtual content и prefix
-rendering. Следующий исполнительский этап — 020.
+rendering; 020 Done добавляет атомарные IndentListItem/OutdentListItem с
+сохранением start, renumber только затронутых lists и AST guard для
+tightness/task-state. Следующий крупный этап — таблицы 021–024.
 Подтверждены сохранение start с последовательной нумерацией, удаление списка
 при удалении последнего LI, header-only после удаления последней body row и
 запрет удаления последней колонки (для таблицы есть отдельная RemoveTable).

@@ -148,11 +148,17 @@ struct WrapInQuote {
 struct UnwrapQuote {
   size_t quote;
 };
+struct IndentListItem {
+  size_t item;
+};
+struct OutdentListItem {
+  size_t item;
+};
 
 using EditCommand =
     std::variant<ReplaceText, SetTaskChecked, SetHeadingLevel, ToggleInlineStyle,
                  InsertListItem, RemoveListItem, SetListKind, SetItemTask,
-                 WrapInQuote, UnwrapQuote>;
+                 WrapInQuote, UnwrapQuote, IndentListItem, OutdentListItem>;
 
 // Edits return a reparsed snapshot; no-op preserves identity, revision and
 // bytes.

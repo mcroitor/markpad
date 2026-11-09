@@ -81,6 +81,8 @@ WYSIWYG continuous — полноценный редактируемый реж�
   WrapInQuote/UnwrapQuote для document parent. UI-команд цитат ещё нет.
 - Реализована [Task 019](task_019.md): nested LI/QUOTE mapping и list/quote
   команды с virtual content/prefix rendering. UI-интеграции пока нет.
+- Реализована [Task 020](task_020.md): атомарные IndentListItem/OutdentListItem
+  для mapped list-контейнеров. UI-интеграции пока нет.
 - В [Task 025](task_025.md) согласована policy definitions: atomic reject
   conflicts/changes to surviving bindings и отказ удаления used definition.
   Parser scope проверяется characterization-тестами; контракт 017 разблокирован,

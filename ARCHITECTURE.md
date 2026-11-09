@@ -232,7 +232,11 @@ unquoted blank line завершает quote. Wrap добавляет ровно
 parents depth 1–3. Контент parent извлекается в prefix-free virtual source,
 парсится в document-global definition context, а patch переводится обратно в
 real offsets с восстановлением parent prefixes. Ancestor list tightness
-пересчитывается; каскадное удаление quote запрещено. UI-команд списков/цитат нет.
+пересчитывается; каскадное удаление quote запрещено. [Task 020](docs/tasks/task_020.md)
+добавляет атомарные IndentListItem/OutdentListItem: один LI с поддеревом
+переносится в child list предыдущего LI или после enclosing LI; start
+сохраняется, перенумеровываются только затронутые ordered lists, пустой nested
+list удаляется без переноса siblings. UI-команд списков/цитат нет.
 Последовательность продолжения: [Task 013](docs/tasks/task_013.md) →
 [Task 014: списки/цитаты](docs/tasks/task_014.md) →
 [Task 015: таблицы](docs/tasks/task_015.md). UI/production-интеграция не включены.

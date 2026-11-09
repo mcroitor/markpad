@@ -2438,6 +2438,201 @@ class Md4cSourceTest : public QObject {
     }
   }
 
+  void indentOutdentCommands() {
+    const auto outerItems = [](const Document& document, int type) {
+      const auto list = find(document, NodeKind::kBlock, type);
+      const auto mapped = mapList(document, list);
+      return mapped;
+    };
+
+    {
+      auto parsed = parse("- a\n- b\n");
+      QVERIFY(parsed.document);
+      const auto mapped = outerItems(*parsed.document, MD_BLOCK_UL);
+      QVERIFY(mapped.list);
+      const auto result = applyEdit(
+          *parsed.document, snapshotToken(*parsed.document),
+          IndentListItem{mapped.list->items[1].node});
+      QVERIFY2(result.document, qPrintable(result.error));
+      QCOMPARE(result.document->source, QByteArray("- a\n  - b\n"));
+      QCOMPARE(result.document->revision, parsed.document->revision + 1);
+      QCOMPARE(result.document->identity, parsed.document->identity);
+    }
+    {
+      const QByteArray source = "- a\n  - b\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto outer = find(*parsed.document, NodeKind::kBlock, MD_BLOCK_UL);
+      const auto outerMap = mapList(*parsed.document, outer);
+      QVERIFY(outerMap.list);
+      size_t nestedList = parsed.document->nodes.size();
+      for (size_t i = 0; i < parsed.document->nodes.size(); ++i) {
+        if (parsed.document->nodes[i].type == MD_BLOCK_UL &&
+            parsed.document->nodes[i].parent &&
+            parsed.document->nodes[*parsed.document->nodes[i].parent].type ==
+                MD_BLOCK_LI) {
+          nestedList = i;
+        }
+      }
+      QVERIFY(nestedList < parsed.document->nodes.size());
+      const auto nestedMap = mapList(*parsed.document, nestedList);
+      QVERIFY(nestedMap.list);
+      const auto result =
+          editBytes(*parsed.document,
+                    OutdentListItem{nestedMap.list->items[0].node});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("- a\n- b\n"));
+    }
+    {
+      auto parsed = parse("- a\n  - x\n- b\n");
+      QVERIFY(parsed.document);
+      const auto mapped = outerItems(*parsed.document, MD_BLOCK_UL);
+      QVERIFY(mapped.list);
+      const auto result = editBytes(
+          *parsed.document, IndentListItem{mapped.list->items[1].node});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("- a\n  - x\n  - b\n"));
+    }
+    {
+      auto parsed = parse("- a\n  3. x\n- b\n");
+      QVERIFY(parsed.document);
+      const auto mapped = outerItems(*parsed.document, MD_BLOCK_UL);
+      QVERIFY(mapped.list);
+      const auto result = editBytes(
+          *parsed.document, IndentListItem{mapped.list->items[1].node});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("- a\n  3. x\n  - b\n"));
+    }
+    {
+      const QByteArray source = "- a\n  - x\n  - y\n  - z\n- b\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      size_t nestedList = parsed.document->nodes.size();
+      for (size_t i = 0; i < parsed.document->nodes.size(); ++i) {
+        if (parsed.document->nodes[i].type == MD_BLOCK_UL &&
+            parsed.document->nodes[i].parent &&
+            parsed.document->nodes[*parsed.document->nodes[i].parent].type ==
+                MD_BLOCK_LI) {
+          nestedList = i;
+        }
+      }
+      QVERIFY(nestedList < parsed.document->nodes.size());
+      const auto nested = mapList(*parsed.document, nestedList);
+      QVERIFY(nested.list);
+      const auto result = editBytes(
+          *parsed.document, OutdentListItem{nested.list->items[1].node});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("- a\n  - x\n  - z\n- y\n- b\n"));
+    }
+    {
+      auto parsed = parse("- a\n- b\n");
+      QVERIFY(parsed.document);
+      const auto mapped = outerItems(*parsed.document, MD_BLOCK_UL);
+      QVERIFY(mapped.list);
+      const auto result = editBytes(
+          *parsed.document, IndentListItem{mapped.list->items[0].node});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("previous"),
+               qPrintable(result.error));
+    }
+    {
+      auto parsed = parse("- a\n");
+      QVERIFY(parsed.document);
+      const auto mapped = outerItems(*parsed.document, MD_BLOCK_UL);
+      QVERIFY(mapped.list);
+      const auto result = editBytes(
+          *parsed.document, OutdentListItem{mapped.list->items[0].node});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("top-level"),
+               qPrintable(result.error));
+    }
+    {
+      auto parsed = parse("- a\r\n- b\r\n");
+      QVERIFY(parsed.document);
+      const auto mapped = outerItems(*parsed.document, MD_BLOCK_UL);
+      QVERIFY(mapped.list);
+      const auto result = editBytes(
+          *parsed.document, IndentListItem{mapped.list->items[1].node});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("- a\r\n  - b\r\n"));
+    }
+    {
+      auto parsed = parse("- a\n- b");
+      QVERIFY(parsed.document);
+      const auto mapped = outerItems(*parsed.document, MD_BLOCK_UL);
+      QVERIFY(mapped.list);
+      const auto result = editBytes(
+          *parsed.document, IndentListItem{mapped.list->items[1].node});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("- a\n  - b"));
+    }
+    {
+      auto parsed = parse("- [ ] a\n- [x] b\n");
+      QVERIFY(parsed.document);
+      const auto mapped = outerItems(*parsed.document, MD_BLOCK_UL);
+      QVERIFY(mapped.list);
+      const auto result = editBytes(
+          *parsed.document, IndentListItem{mapped.list->items[1].node});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("- [ ] a\n  - [x] b\n"));
+    }
+    {
+      auto parsed = parse("> - a\n> - b\n");
+      QVERIFY(parsed.document);
+      const auto list = find(*parsed.document, NodeKind::kBlock, MD_BLOCK_UL);
+      const auto mapped = mapList(*parsed.document, list);
+      QVERIFY(mapped.list);
+      const auto result = editBytes(
+          *parsed.document, IndentListItem{mapped.list->items[1].node});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("> - a\n>   - b\n"));
+    }
+    {
+      auto parsed = parse("> - a\n>   - b\n");
+      QVERIFY(parsed.document);
+      size_t nestedList = parsed.document->nodes.size();
+      for (size_t i = 0; i < parsed.document->nodes.size(); ++i) {
+        if (parsed.document->nodes[i].type == MD_BLOCK_UL &&
+            parsed.document->nodes[i].parent &&
+            parsed.document->nodes[*parsed.document->nodes[i].parent].type ==
+                MD_BLOCK_LI) {
+          nestedList = i;
+        }
+      }
+      QVERIFY(nestedList < parsed.document->nodes.size());
+      const auto nested = mapList(*parsed.document, nestedList);
+      QVERIFY(nested.list);
+      const auto result = editBytes(
+          *parsed.document, OutdentListItem{nested.list->items[0].node});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("> - a\n> - b\n"));
+    }
+    {
+      auto parsed =
+          parse("- a\n- b\n\n  ```txt\n  x\n  ```\n");
+      QVERIFY(parsed.document);
+      const auto mapped = outerItems(*parsed.document, MD_BLOCK_UL);
+      QVERIFY(mapped.list);
+      const auto result = editBytes(
+          *parsed.document, IndentListItem{mapped.list->items[1].node});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("- a\n  - b\n\n    ```txt\n    x\n    ```\n"));
+    }
+    {
+      auto parsed = parse("1. a\n\n   999999999. x\n2. b\n");
+      QVERIFY(parsed.document);
+      const auto outer = find(*parsed.document, NodeKind::kBlock, MD_BLOCK_OL);
+      const auto mapped = mapList(*parsed.document, outer);
+      QVERIFY(mapped.list);
+      const auto result = editBytes(
+          *parsed.document, IndentListItem{mapped.list->items[1].node});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("overflow"), qPrintable(result.error));
+    }
+  }
+
   void unifiedCommandContract() {
     auto parsed = parse("before\n\n- [x] task\n\n> quoted\n", 17);
     QVERIFY(parsed.document);

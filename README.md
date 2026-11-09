@@ -187,16 +187,19 @@ supported; lazy continuations are rejected. Task 019 extends list/quote mapping
 and the same commands to nested LI/QUOTE parents (depth 1–3) using a
 prefix-preserving virtual content model; ordered numbering, tightness and
 document-global definition bindings are preserved, and cascading quote deletion
-is rejected.
+is rejected. Task 020 adds atomic `IndentListItem`/`OutdentListItem`: the selected
+item moves with its subtree, ordered starts are preserved, only affected lists
+are renumbered, and empty nested lists are removed without moving siblings or
+cascading parent containers.
 See [Task 016](docs/tasks/task_016.md), [Task 017](docs/tasks/task_017.md),
-[Task 018](docs/tasks/task_018.md) and [Task 019](docs/tasks/task_019.md).
+[Task 018](docs/tasks/task_018.md), [Task 019](docs/tasks/task_019.md) and
+[Task 020](docs/tasks/task_020.md).
 The MD4C tests pass locally on Windows and Ubuntu, including Linux ASan/UBSan.
 See [Task 002](docs/tasks/task_002.md) for limits, licensing and reproduction.
 See [Task 012](docs/tasks/task_012.md) for structural edits and snapshot guarantees.
 See [Task 013](docs/tasks/task_013.md) for the unified command contract and nested
-mapping limits. Next: indent/outdent in [Task 020](docs/tasks/task_020.md), then
-[GFM tables](docs/tasks/task_015.md); their remaining structural operations are
-not implemented.
+mapping limits. Next: [GFM tables](docs/tasks/task_015.md) via Tasks 021–024;
+their structural operations are not implemented.
 The agreed [reference-definition policy](docs/tasks/task_025.md) uses document-wide
 scope: future structural edits reject normalized label collisions or changes to
 surviving reference bindings, and reject removal of a definition still in use.
