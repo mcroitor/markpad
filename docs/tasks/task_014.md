@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Ready` (родительский контракт, не монолитная реализация)
+- Статус: `Done` (родительский контракт принят после Done 016–020)
 - Владелец: архитектор + C++ разработчик
 - Приоритет: P0
 
@@ -276,3 +276,19 @@ Linux ASan/UBSan/leaks. Done только после всех критериев
   после проверки оставшихся пунктов.
 - Policy 025 v1 согласована владельцем: atomic reject collisions и deletion
   used definition; Ready контракта не означает реализованный reference mapper.
+
+### Приёмка родительского контракта
+
+- 016–020 Done; mandatory fixtures 014/017/018/019/020 покрыты Qt Test.
+- Списки: insert/remove/kind/task, nested parents, indent/outdent; ordered start,
+  sequential numbering, tightness/task-state и definition bindings проверены.
+- Цитаты: exact top-level/nested ranges, wrap/unwrap, lazy/TAB/open-fence
+  rejection и cascade protection проверены.
+- Snapshot/no-op/stale/ABA/overflow и bytes вне patch range проверены общими
+  engine/GUI suites; definitions policy 025 v1 применена атомарно.
+- Windows UCRT64 CTest 3/3, MD4C 226 passed; Ubuntu CTest 3/3; Linux
+  ASan/UBSan/leak CTest 3/3. `git diff --check --ignore-space-at-eol` pass.
+  clang-format в среде отсутствует; native visual QA/clang-tidy/remote CI не
+  запускались.
+- Родительский контракт 014 принят. Оставшиеся ограничения перечислены в
+  дочерних карточках; табличные контракты относятся к Task 015.
