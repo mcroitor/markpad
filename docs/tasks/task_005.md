@@ -79,6 +79,8 @@ WYSIWYG continuous — полноценный редактируемый реж�
   checks и context-aware AST guard. UI-команды списков ещё не добавлены.
 - Реализована [Task 018](task_018.md): exact top-level quote ranges и
   WrapInQuote/UnwrapQuote для document parent. UI-команд цитат ещё нет.
+- Реализована [Task 019](task_019.md): nested LI/QUOTE mapping и list/quote
+  команды с virtual content/prefix rendering. UI-интеграции пока нет.
 - В [Task 025](task_025.md) согласована policy definitions: atomic reject
   conflicts/changes to surviving bindings и отказ удаления used definition.
   Parser scope проверяется characterization-тестами; контракт 017 разблокирован,

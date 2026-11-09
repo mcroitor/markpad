@@ -228,7 +228,11 @@ paragraphs, закрытый fenced code, inline HTML) и source-preserving
 WrapInQuote/UnwrapQuote для document parent. Lazy continuation отклоняется;
 unquoted blank line завершает quote. Wrap добавляет ровно один уровень, unwrap
 поднимает children без изменения остальных bytes. Nested quote/list parents —
-Task 019; UI-команд цитат пока нет.
+[Task 019](docs/tasks/task_019.md): mapping и те же команды работают для LI/QUOTE
+parents depth 1–3. Контент parent извлекается в prefix-free virtual source,
+парсится в document-global definition context, а patch переводится обратно в
+real offsets с восстановлением parent prefixes. Ancestor list tightness
+пересчитывается; каскадное удаление quote запрещено. UI-команд списков/цитат нет.
 Последовательность продолжения: [Task 013](docs/tasks/task_013.md) →
 [Task 014: списки/цитаты](docs/tasks/task_014.md) →
 [Task 015: таблицы](docs/tasks/task_015.md). UI/production-интеграция не включены.

@@ -267,5 +267,8 @@ Linux ASan/UBSan/leaks. Done только после всех критериев
 - [Task 018](task_018.md) Done: exact top-level quote ranges и WrapInQuote/
   UnwrapQuote для document parent. Windows/Linux CTest и Linux ASan/UBSan/
   leaks — 3/3. 019–020 остаются.
+- [Task 019](task_019.md) Done: nested LI/QUOTE mapping и те же list/quote
+  команды через virtual content/prefix rendering, depth 1–3. Windows/Linux
+  CTest и Linux ASan/UBSan/leaks — 3/3. 020 остаётся.
 - Policy 025 v1 согласована владельцем: atomic reject collisions и deletion
   used definition; Ready контракта не означает реализованный reference mapper.

@@ -671,7 +671,7 @@ std::optional<ListSource> scanList(const QByteArray& source,
   if (!marker) {
     return std::nullopt;
   }
-  ListSource mapped{0, {lines[first].start, 0}, {}};
+  ListSource mapped{0, {lines[first].start, 0}, {}, {}, {}};
   ListFence fence;
   qsizetype indent = 0;
   size_t contentCount = 0;
@@ -806,7 +806,9 @@ bool supportedListChildren(const Document& document, size_t index) {
   for (auto child : node.children) {
     const auto& value = document.nodes[child];
     if (value.kind == NodeKind::kBlock && value.type != MD_BLOCK_LI &&
-        value.type != MD_BLOCK_P && value.type != MD_BLOCK_CODE) {
+        value.type != MD_BLOCK_P && value.type != MD_BLOCK_CODE &&
+        value.type != MD_BLOCK_UL && value.type != MD_BLOCK_OL &&
+        value.type != MD_BLOCK_QUOTE) {
       return false;
     }
     if (!supportedListChildren(document, child)) {
@@ -1184,7 +1186,9 @@ QByteArray normalizeEol(QByteArray text, const QByteArray& eol) {
 
 }  // namespace
 
-ListMapResult mapList(const Document& document, size_t index) {
+namespace {
+
+ListMapResult mapTopLevelList(const Document& document, size_t index) {
   if (index >= document.nodes.size() ||
       document.nodes[index].kind != NodeKind::kBlock ||
       (document.nodes[index].type != MD_BLOCK_UL &&
@@ -1294,7 +1298,7 @@ ListMapResult mapList(const Document& document, size_t index) {
                          "with matching callback offsets are required")};
 }
 
-QuoteMapResult mapQuote(const Document& document, size_t index) {
+QuoteMapResult mapTopLevelQuote(const Document& document, size_t index) {
   if (index >= document.nodes.size() ||
       document.nodes[index].kind != NodeKind::kBlock ||
       document.nodes[index].type != MD_BLOCK_QUOTE ||
@@ -1323,12 +1327,44 @@ QuoteMapResult mapQuote(const Document& document, size_t index) {
         !anchored) {
       continue;
     }
-    return {QuoteSource{index, *range}, {}};
+    return {QuoteSource{index, *range, {}, {}}, {}};
   }
   return {std::nullopt,
           QStringLiteral("Unsupported quote source map: explicit prefixes on "
                          "all non-blank lines and matching callback offsets are "
                          "required")};
+}
+
+}  // namespace
+
+namespace {
+ListMapResult mapNestedList(const Document& document, size_t index);
+QuoteMapResult mapNestedQuote(const Document& document, size_t index);
+}  // namespace
+
+ListMapResult mapList(const Document& document, size_t index) {
+  if (index >= document.nodes.size() ||
+      document.nodes[index].kind != NodeKind::kBlock ||
+      (document.nodes[index].type != MD_BLOCK_UL &&
+       document.nodes[index].type != MD_BLOCK_OL)) {
+    return {std::nullopt, QStringLiteral("Invalid list target")};
+  }
+  if (document.nodes[index].parent == std::optional<size_t>(0)) {
+    return mapTopLevelList(document, index);
+  }
+  return mapNestedList(document, index);
+}
+
+QuoteMapResult mapQuote(const Document& document, size_t index) {
+  if (index >= document.nodes.size() ||
+      document.nodes[index].kind != NodeKind::kBlock ||
+      document.nodes[index].type != MD_BLOCK_QUOTE) {
+    return {std::nullopt, QStringLiteral("Invalid quote target")};
+  }
+  if (document.nodes[index].parent == std::optional<size_t>(0)) {
+    return mapTopLevelQuote(document, index);
+  }
+  return mapNestedQuote(document, index);
 }
 
 SnapshotToken snapshotToken(const Document& document) {
@@ -1455,7 +1491,7 @@ std::optional<qsizetype> firstRenderedContentOffset(
   QByteArray content = itemContent(document, item);
   std::vector<std::pair<qsizetype, qsizetype>> skipped;
   for (const auto& definition : definitions) {
-    if (definition.range.offset < item.range.offset ||
+    if (definition.begin < item.range.offset ||
         definition.range.offset + definition.range.size >
             item.range.offset + item.range.size) {
       continue;
@@ -1515,7 +1551,9 @@ std::vector<QByteArray> itemGaps(const Document& document,
 }
 
 QByteArray renderItem(const QByteArray& marker, const QByteArray& content,
-                      const QByteArray& eol, bool trailingEol) {
+                      const QByteArray& eol, bool trailingEol,
+                      const QByteArray& parentPrefix = {},
+                      const QByteArray& blankPrefix = {}) {
   auto normalized = normalizeEol(content, "\n");
   const bool hasTrailing = normalized.endsWith('\n');
   if (hasTrailing) {
@@ -1536,7 +1574,10 @@ QByteArray renderItem(const QByteArray& marker, const QByteArray& content,
       output += marker;
     } else {
       output += eol;
-      if (!lines[i].isEmpty()) {
+      if (lines[i].isEmpty()) {
+        output += blankPrefix;
+      } else {
+        output += parentPrefix;
         output += QByteArray(marker.size(), ' ');
       }
     }
@@ -1548,22 +1589,66 @@ QByteArray renderItem(const QByteArray& marker, const QByteArray& content,
   return output;
 }
 
+QByteArray gapFor(bool loose, const QByteArray& continuationPrefix,
+                  const QByteArray& blankPrefix, const QByteArray& eol) {
+  if (!loose) {
+    return continuationPrefix;
+  }
+  return blankPrefix + eol + continuationPrefix;
+}
+
 QByteArray buildListSource(const std::vector<QByteArray>& contents,
                            const std::vector<QByteArray>& gaps, bool ordered,
                            int start, char delimiter, const QByteArray& eol,
-                           bool trailingEol) {
+                           bool trailingEol,
+                           const QByteArray& continuationPrefix = {},
+                           const QByteArray& blankPrefix = {}) {
   QByteArray output;
   for (size_t i = 0; i < contents.size(); ++i) {
     const QByteArray marker =
         ordered ? QByteArray::number(qint64(start) + qint64(i)) + delimiter + ' '
                 : QByteArray(1, delimiter) + ' ';
     const bool last = i + 1 == contents.size();
-    output += renderItem(marker, contents[i], eol, last ? trailingEol : true);
+    output += renderItem(marker, contents[i], eol, last ? trailingEol : true,
+                         continuationPrefix, blankPrefix);
     if (!last && i < gaps.size()) {
       output += gaps[i];
     }
   }
   return output;
+}
+
+QByteArray stripContainerPrefix(const QByteArray& source,
+                                const QByteArray& continuationPrefix,
+                                const QByteArray& blankPrefix) {
+  QByteArray result;
+  const auto lines = listLines(source);
+  for (size_t i = 0; i < lines.size(); ++i) {
+    const auto& line = lines[i];
+    const auto body = source.mid(line.start, line.bodyEnd - line.start);
+    const auto ending = source.mid(line.bodyEnd, line.end - line.bodyEnd);
+    if (i == 0) {
+      result += body + ending;
+      continue;
+    }
+    bool blank = false;
+    if (body.startsWith(blankPrefix)) {
+      const auto rest = body.mid(blankPrefix.size());
+      blank = std::all_of(rest.begin(), rest.end(), [](char character) {
+        return character == ' ' || character == '\t';
+      });
+    } else if (body.isEmpty()) {
+      blank = true;
+    }
+    if (blank) {
+      result += ending;
+    } else if (body.startsWith(continuationPrefix)) {
+      result += body.mid(continuationPrefix.size()) + ending;
+    } else {
+      result += body + ending;
+    }
+  }
+  return result;
 }
 
 std::vector<QByteArray> splitNormalizedLines(const QByteArray& text,
@@ -1621,10 +1706,11 @@ std::optional<ListMarker> listMarkerAt(const QByteArray& source,
     return std::nullopt;
   }
   const auto index = lineIndexAt(lines, offset);
-  if (lines[index].start != offset) {
+  if (offset < lines[index].start || offset > lines[index].bodyEnd) {
     return std::nullopt;
   }
-  return listMarker(source, lines[index]);
+  const ListLine view{offset, lines[index].bodyEnd, lines[index].end};
+  return listMarker(source, view);
 }
 
 struct MappedItem {
@@ -1645,7 +1731,7 @@ std::optional<MappedItem> mapItem(const Document& document, size_t item,
     error = QStringLiteral("Invalid list item target");
     return std::nullopt;
   }
-  for (auto child : document.nodes[0].children) {
+  for (size_t child = 0; child < document.nodes.size(); ++child) {
     const auto& candidate = document.nodes[child];
     if (candidate.kind != NodeKind::kBlock ||
         (candidate.type != MD_BLOCK_UL && candidate.type != MD_BLOCK_OL)) {
@@ -1662,7 +1748,7 @@ std::optional<MappedItem> mapItem(const Document& document, size_t item,
     }
   }
   error = QStringLiteral(
-      "Unsupported list item context: a mapped top-level list is required");
+      "Unsupported list item context: a mapped list is required");
   return std::nullopt;
 }
 
@@ -1706,18 +1792,20 @@ QByteArray definitionContext(const Document& document,
   QByteArray before;
   QByteArray after;
   for (const auto& definition : definitions) {
-    if (!definition.plain) {
+    const auto slice = document.source.mid(
+        definition.begin,
+        definition.range.offset + definition.range.size - definition.begin);
+    const auto isolated = parse(slice);
+    if (!isolated.document || !isolated.document->nodes[0].children.empty()) {
       continue;
     }
     if (definition.range.offset + definition.range.size <= first) {
-      before += document.source.mid(definition.range.offset,
-                                    definition.range.size);
+      before += slice;
       if (!before.endsWith('\n') && !before.endsWith('\r')) {
         before += documentEol(document.source);
       }
-    } else if (definition.range.offset >= last) {
-      after += document.source.mid(definition.range.offset,
-                                   definition.range.size);
+    } else if (definition.begin >= last) {
+      after += slice;
       if (!after.endsWith('\n') && !after.endsWith('\r')) {
         after += documentEol(document.source);
       }
@@ -1775,6 +1863,344 @@ std::optional<ContextList> parseListContext(
   return ContextList{std::move(*parsed.document), root};
 }
 
+struct VirtualLine {
+  qsizetype virtualStart;
+  qsizetype realContentStart;
+  qsizetype size;
+};
+
+struct VirtualContent {
+  QByteArray source;
+  std::vector<VirtualLine> lines;
+  qsizetype realStart = 0;
+  qsizetype realEnd = 0;
+  QByteArray continuationPrefix;
+  QByteArray blankLinePrefix;
+};
+
+struct VirtualParse {
+  Document document;
+  qsizetype contentOffset = 0;
+  qsizetype contentEnd = 0;
+};
+
+qsizetype lineStartAt(const QByteArray& source, qsizetype offset) {
+  return offset == 0 ? 0 : source.lastIndexOf('\n', offset - 1) + 1;
+}
+
+bool buildVirtualContent(const Document& document, size_t container,
+                         VirtualContent& content, QString& error) {
+  if (container >= document.nodes.size()) {
+    error = QStringLiteral("Invalid nested container");
+    return false;
+  }
+  const auto& node = document.nodes[container];
+  if (node.kind != NodeKind::kBlock) {
+    error = QStringLiteral("Invalid nested container");
+    return false;
+  }
+  if (node.type == MD_BLOCK_LI) {
+    if (!node.parent) {
+      error = QStringLiteral("Invalid nested list item");
+      return false;
+    }
+    const auto mapped = mapList(document, *node.parent);
+    if (!mapped.list) {
+      error = mapped.error;
+      return false;
+    }
+    const ListItemSource* item = nullptr;
+    for (const auto& candidate : mapped.list->items) {
+      if (candidate.node == container) {
+        item = &candidate;
+        break;
+      }
+    }
+    if (!item || item->contentLines.empty()) {
+      error = QStringLiteral("Unsupported nested list item content");
+      return false;
+    }
+    qsizetype virtualStart = 0;
+    for (const auto& line : item->contentLines) {
+      content.lines.push_back({virtualStart, line.offset, line.size});
+      content.source += document.source.mid(line.offset, line.size);
+      virtualStart += line.size;
+    }
+    content.realStart = item->contentLines.front().offset;
+    const auto& last = item->contentLines.back();
+    content.realEnd = last.offset + last.size;
+    const auto firstLineStart =
+        lineStartAt(document.source, item->contentLines.front().offset);
+    const auto totalPrefix =
+        item->contentLines.front().offset - firstLineStart;
+    const auto listPrefix = mapped.list->continuationPrefix;
+    const auto markerWidth =
+        totalPrefix >= listPrefix.size() ? totalPrefix - listPrefix.size()
+                                         : totalPrefix;
+    content.continuationPrefix =
+        listPrefix + QByteArray(markerWidth, ' ');
+    content.blankLinePrefix = mapped.list->blankLinePrefix;
+    return true;
+  }
+  if (node.type == MD_BLOCK_QUOTE) {
+    const auto mapped = mapQuote(document, container);
+    if (!mapped.quote) {
+      error = mapped.error;
+      return false;
+    }
+    const auto range = mapped.quote->range;
+    qsizetype virtualStart = 0;
+    bool first = true;
+    for (const auto& line : listLines(document.source)) {
+      if (line.start < range.offset ||
+          line.end > range.offset + range.size) {
+        continue;
+      }
+      const auto contentStart = quotePrefixEnd(document.source, line);
+      if (!contentStart) {
+        error = QStringLiteral("Unsupported quoted content line");
+        return false;
+      }
+      content.lines.push_back(
+          {virtualStart, *contentStart, line.end - *contentStart});
+      content.source +=
+          document.source.mid(*contentStart, line.end - *contentStart);
+      virtualStart += line.end - *contentStart;
+      if (first) {
+        content.continuationPrefix =
+            document.source.mid(line.start, *contentStart - line.start);
+        content.blankLinePrefix = content.continuationPrefix;
+        while (content.blankLinePrefix.endsWith(' ')) {
+          content.blankLinePrefix.chop(1);
+        }
+        first = false;
+      }
+    }
+    if (content.lines.empty()) {
+      error = QStringLiteral("Unsupported empty quote content");
+      return false;
+    }
+    content.realStart = content.lines.front().realContentStart;
+    const auto& last = content.lines.back();
+    content.realEnd = last.realContentStart + last.size;
+    return true;
+  }
+  error = QStringLiteral("Unsupported nested container type");
+  return false;
+}
+
+std::optional<VirtualParse> parseVirtual(const Document& document,
+                                         const VirtualContent& content,
+                                         QString& error) {
+  const auto definitions = definitionInventory(document);
+  qsizetype offset = 0;
+  const auto context = definitionContext(document, definitions, content.realStart,
+                                         content.realEnd, offset);
+  const auto header = context.left(offset);
+  QByteArray suffix;
+  if (context.size() > offset + (content.realEnd - content.realStart)) {
+    suffix = context.mid(offset + (content.realEnd - content.realStart));
+  }
+  auto parsed = parse(header + content.source + suffix);
+  if (!parsed.document) {
+    error = QStringLiteral("Nested context parse failed");
+    return std::nullopt;
+  }
+  return VirtualParse{std::move(*parsed.document), header.size(),
+                      header.size() + content.source.size()};
+}
+
+qsizetype virtualToReal(const VirtualContent& content, qsizetype offset) {
+  if (content.lines.empty()) {
+    return content.realStart;
+  }
+  const auto value = qBound<qsizetype>(0, offset, content.source.size());
+  for (const auto& line : content.lines) {
+    if (value < line.virtualStart + line.size) {
+      return line.realContentStart + (value - line.virtualStart);
+    }
+  }
+  const auto& last = content.lines.back();
+  return last.realContentStart + last.size;
+}
+
+qsizetype virtualToRealEnd(const VirtualContent& content, qsizetype offset) {
+  if (content.lines.empty()) {
+    return content.realStart;
+  }
+  const auto value = qBound<qsizetype>(0, offset, content.source.size());
+  if (value == 0) {
+    return content.realStart;
+  }
+  for (size_t i = content.lines.size(); i-- > 0;) {
+    const auto& line = content.lines[i];
+    if (value > line.virtualStart) {
+      return line.realContentStart +
+             qMin(value - line.virtualStart, line.size);
+    }
+  }
+  return content.realStart;
+}
+
+std::optional<size_t> childPosition(const Document& document, size_t parent,
+                                    size_t child) {
+  if (parent >= document.nodes.size()) {
+    return std::nullopt;
+  }
+  size_t position = 0;
+  bool inInlineRun = false;
+  for (auto candidate : document.nodes[parent].children) {
+    if (candidate == child) {
+      return position;
+    }
+    const auto& node = document.nodes[candidate];
+    if (node.kind == NodeKind::kBlock) {
+      ++position;
+      inInlineRun = false;
+    } else if (!inInlineRun) {
+      // Tight list items keep paragraph inline children directly under LI.
+      // A contiguous inline run corresponds to one implicit paragraph block.
+      ++position;
+      inInlineRun = true;
+    }
+  }
+  return std::nullopt;
+}
+
+ListSource convertListSource(const Document& document, size_t realNode,
+                             const VirtualContent& content,
+                             const VirtualParse& parsed,
+                             const ListSource& virtualSource) {
+  ListSource result;
+  result.node = realNode;
+  const auto start =
+      virtualToReal(content, virtualSource.range.offset - parsed.contentOffset);
+  const auto end = virtualToRealEnd(
+      content, virtualSource.range.offset + virtualSource.range.size -
+                   parsed.contentOffset);
+  result.range = {start, end - start};
+  result.continuationPrefix = content.continuationPrefix;
+  result.blankLinePrefix = content.blankLinePrefix;
+  const auto& realChildren = document.nodes[realNode].children;
+  for (const auto& virtualItem : virtualSource.items) {
+    if (result.items.size() >= realChildren.size()) {
+      break;
+    }
+    ListItemSource item;
+    item.node = realChildren[result.items.size()];
+    const auto itemStart =
+        virtualToReal(content, virtualItem.range.offset - parsed.contentOffset);
+    const auto itemEnd = virtualToRealEnd(
+        content, virtualItem.range.offset + virtualItem.range.size -
+                     parsed.contentOffset);
+    item.range = {itemStart, itemEnd - itemStart};
+    for (const auto& line : virtualItem.contentLines) {
+      const auto lineStart =
+          virtualToReal(content, line.offset - parsed.contentOffset);
+      const auto lineEnd = virtualToRealEnd(
+          content, line.offset + line.size - parsed.contentOffset);
+      item.contentLines.push_back({lineStart, lineEnd - lineStart});
+    }
+    result.items.push_back(std::move(item));
+  }
+  return result;
+}
+
+ListMapResult mapNestedList(const Document& document, size_t index) {
+  if (index >= document.nodes.size() || !document.nodes[index].parent) {
+    return {std::nullopt, QStringLiteral("Invalid list target")};
+  }
+  const auto parent = *document.nodes[index].parent;
+  if (parent >= document.nodes.size()) {
+    return {std::nullopt, QStringLiteral("Invalid list target")};
+  }
+  const auto type = document.nodes[parent].type;
+  if (document.nodes[parent].kind != NodeKind::kBlock ||
+      (type != MD_BLOCK_LI && type != MD_BLOCK_QUOTE)) {
+    return {std::nullopt,
+            QStringLiteral("Unsupported nested list parent: LI or QUOTE is "
+                           "required")};
+  }
+  QString error;
+  VirtualContent content;
+  if (!buildVirtualContent(document, parent, content, error)) {
+    return {std::nullopt, error};
+  }
+  auto parsed = parseVirtual(document, content, error);
+  if (!parsed) {
+    return {std::nullopt, error};
+  }
+  const auto position = childPosition(document, parent, index);
+  if (!position ||
+      *position >= parsed->document.nodes[0].children.size()) {
+    return {std::nullopt, QStringLiteral("Nested list context mismatch")};
+  }
+  const auto virtualNode =
+      parsed->document.nodes[0].children[*position];
+  const auto& virtualValue = parsed->document.nodes[virtualNode];
+  if (virtualValue.kind != NodeKind::kBlock ||
+      (virtualValue.type != MD_BLOCK_UL && virtualValue.type != MD_BLOCK_OL)) {
+    return {std::nullopt, QStringLiteral("Nested list context mismatch")};
+  }
+  const auto virtualList = mapTopLevelList(parsed->document, virtualNode);
+  if (!virtualList.list) {
+    return {std::nullopt, virtualList.error};
+  }
+  return {convertListSource(document, index, content, *parsed,
+                            *virtualList.list),
+          {}};
+}
+
+QuoteMapResult mapNestedQuote(const Document& document, size_t index) {
+  if (index >= document.nodes.size() || !document.nodes[index].parent) {
+    return {std::nullopt, QStringLiteral("Invalid quote target")};
+  }
+  const auto parent = *document.nodes[index].parent;
+  if (parent >= document.nodes.size()) {
+    return {std::nullopt, QStringLiteral("Invalid quote target")};
+  }
+  const auto type = document.nodes[parent].type;
+  if (document.nodes[parent].kind != NodeKind::kBlock ||
+      (type != MD_BLOCK_LI && type != MD_BLOCK_QUOTE)) {
+    return {std::nullopt,
+            QStringLiteral("Unsupported nested quote parent: LI or QUOTE is "
+                           "required")};
+  }
+  QString error;
+  VirtualContent content;
+  if (!buildVirtualContent(document, parent, content, error)) {
+    return {std::nullopt, error};
+  }
+  auto parsed = parseVirtual(document, content, error);
+  if (!parsed) {
+    return {std::nullopt, error};
+  }
+  const auto position = childPosition(document, parent, index);
+  if (!position ||
+      *position >= parsed->document.nodes[0].children.size()) {
+    return {std::nullopt, QStringLiteral("Nested quote context mismatch")};
+  }
+  const auto virtualNode =
+      parsed->document.nodes[0].children[*position];
+  const auto& virtualValue = parsed->document.nodes[virtualNode];
+  if (virtualValue.kind != NodeKind::kBlock ||
+      virtualValue.type != MD_BLOCK_QUOTE) {
+    return {std::nullopt, QStringLiteral("Nested quote context mismatch")};
+  }
+  const auto virtualQuote = mapTopLevelQuote(parsed->document, virtualNode);
+  if (!virtualQuote.quote) {
+    return {std::nullopt, virtualQuote.error};
+  }
+  const auto start = virtualToReal(
+      content, virtualQuote.quote->range.offset - parsed->contentOffset);
+  const auto end = virtualToRealEnd(
+      content, virtualQuote.quote->range.offset +
+                   virtualQuote.quote->range.size - parsed->contentOffset);
+  return {QuoteSource{index, {start, end - start},
+                      content.continuationPrefix, content.blankLinePrefix},
+          {}};
+}
+
 size_t copySubtree(Document& destination, const Document& source, size_t index,
                    std::optional<size_t> parent) {
   const auto newIndex = destination.nodes.size();
@@ -1791,24 +2217,59 @@ size_t copySubtree(Document& destination, const Document& source, size_t index,
 Document graftList(const Document& original, size_t oldList,
                    const ContextList& parsed) {
   auto expected = original;
-  auto& siblings = expected.nodes[0].children;
+  if (oldList >= original.nodes.size()) {
+    return expected;
+  }
+  const auto parent = original.nodes[oldList].parent.value_or(0);
+  auto& siblings = expected.nodes[parent].children;
   const auto position = std::find(siblings.begin(), siblings.end(), oldList);
   if (position == siblings.end()) {
     return expected;
   }
-  const auto newIndex = copySubtree(expected, parsed.document, parsed.root, 0);
+  const auto newIndex =
+      copySubtree(expected, parsed.document, parsed.root, parent);
   *position = newIndex;
   return expected;
 }
 
 Document removeListNode(const Document& original, size_t list) {
   auto expected = original;
-  auto& siblings = expected.nodes[0].children;
+  if (list >= original.nodes.size()) {
+    return expected;
+  }
+  const auto parent = original.nodes[list].parent.value_or(0);
+  auto& siblings = expected.nodes[parent].children;
   const auto position = std::find(siblings.begin(), siblings.end(), list);
   if (position != siblings.end()) {
     siblings.erase(position);
   }
   return expected;
+}
+
+void updateLiTightness(Document& document, size_t li) {
+  if (li >= document.nodes.size() || !document.nodes[li].parent) {
+    return;
+  }
+  const auto list = *document.nodes[li].parent;
+  if (list >= document.nodes.size() ||
+      (document.nodes[list].type != MD_BLOCK_UL &&
+       document.nodes[list].type != MD_BLOCK_OL)) {
+    return;
+  }
+  auto& node = document.nodes[list];
+  bool tight = node.attributes["tight"].toBool();
+  const auto count = document.nodes[li].children.size();
+  if (count >= 2) {
+    tight = false;
+  } else if (count == 1 && node.children.size() == 1) {
+    const auto& child = document.nodes[document.nodes[li].children.front()];
+    const bool paragraph =
+        child.kind != NodeKind::kBlock || child.type == MD_BLOCK_P;
+    if (paragraph) {
+      tight = true;
+    }
+  }
+  node.attributes["tight"] = tight;
 }
 
 std::vector<QByteArray> referenceLabels(
@@ -2022,19 +2483,24 @@ EditResult insertListItemSource(const Document& document,
   }
   auto gaps = itemGaps(document, list);
   contents.insert(contents.begin() + qsizetype(edit.position), content);
+  const auto newGap = gapFor(listLoose, list.continuationPrefix,
+                             list.blankLinePrefix, eol);
   if (gaps.empty()) {
-    gaps.resize(contents.size() - 1);
+    gaps.assign(contents.size() - 1, newGap);
   } else if (edit.position == 0) {
-    gaps.insert(gaps.begin(), listLoose ? eol : QByteArray{});
+    gaps.insert(gaps.begin(), newGap);
   } else if (edit.position == contents.size() - 1) {
-    gaps.push_back(listLoose ? eol : QByteArray{});
+    gaps.push_back(newGap);
   } else {
-    gaps.insert(gaps.begin() + qsizetype(edit.position), QByteArray{});
+    gaps.insert(gaps.begin() + qsizetype(edit.position),
+                list.continuationPrefix);
   }
   const auto trailingEol = !listEndsAtEofWithoutEol(document, list);
-  const auto newSource =
-      buildListSource(contents, gaps, ordered, start, marker->delimiter, eol,
-                      trailingEol);
+  const auto newSource = buildListSource(
+      contents, gaps, ordered, start, marker->delimiter, eol, trailingEol,
+      list.continuationPrefix, list.blankLinePrefix);
+  const auto canonicalSource = stripContainerPrefix(
+      newSource, list.continuationPrefix, list.blankLinePrefix);
   qsizetype insertedOffset = 0;
   for (size_t i = 0; i < edit.position; ++i) {
     const QByteArray itemMarker =
@@ -2042,7 +2508,9 @@ EditResult insertListItemSource(const Document& document,
                       marker->delimiter + ' '
                 : QByteArray(1, marker->delimiter) + ' ';
     insertedOffset +=
-        renderItem(itemMarker, contents[i], eol, true).size();
+        renderItem(itemMarker, contents[i], eol, true,
+                   list.continuationPrefix, list.blankLinePrefix)
+            .size();
     if (i < gaps.size()) {
       insertedOffset += gaps[i].size();
     }
@@ -2051,11 +2519,11 @@ EditResult insertListItemSource(const Document& document,
       ordered ? QByteArray::number(qint64(start) + qint64(edit.position)) +
                     marker->delimiter + ' '
               : QByteArray(1, marker->delimiter) + ' ';
-  const auto insertedSize = renderItem(itemMarker, content, eol,
-                                       edit.position == contents.size() - 1
-                                           ? trailingEol
-                                           : true)
-                                .size();
+  const auto insertedSize =
+      renderItem(itemMarker, content, eol,
+                 edit.position == contents.size() - 1 ? trailingEol : true,
+                 list.continuationPrefix, list.blankLinePrefix)
+          .size();
   const auto insertedStart = list.range.offset + insertedOffset;
   auto tentativeSource = document.source;
   tentativeSource.replace(list.range.offset, list.range.size, newSource);
@@ -2067,7 +2535,7 @@ EditResult insertListItemSource(const Document& document,
   bool introducedDefinitions = false;
   for (size_t i = 0; i < tentativeDefinitions.size(); ++i) {
     const auto& definition = tentativeDefinitions[i];
-    if (definition.range.offset < insertedStart ||
+    if (definition.begin < insertedStart ||
         definition.range.offset + definition.range.size >
             insertedStart + insertedSize) {
       continue;
@@ -2091,8 +2559,8 @@ EditResult insertListItemSource(const Document& document,
   const auto definitions = definitionInventory(document);
   QString contextError;
   auto parsed = parseListContext(document, definitions, list.range.offset,
-                                 list.range.offset + list.range.size, newSource,
-                                 contextError);
+                                 list.range.offset + list.range.size,
+                                 canonicalSource, contextError);
   if (!parsed) {
     return {std::nullopt, contextError};
   }
@@ -2151,7 +2619,7 @@ EditResult removeListItemSource(const Document& document,
   bool removedDefinition = false;
   for (size_t i = 0; i < definitions.size(); ++i) {
     const auto& definition = definitions[i];
-    if (definition.range.offset < item.range.offset ||
+    if (definition.begin < item.range.offset ||
         definition.range.offset + definition.range.size >
             item.range.offset + item.range.size) {
       continue;
@@ -2173,7 +2641,17 @@ EditResult removeListItemSource(const Document& document,
     }
   }
   if (list.items.size() == 1) {
+    const auto parent = document.nodes[mapped->list].parent;
+    if (parent && document.nodes[*parent].type == MD_BLOCK_QUOTE &&
+        document.nodes[*parent].children.size() == 1) {
+      return {std::nullopt,
+              QStringLiteral("Unsupported cascade: nested list is the only "
+                             "block of a quote")};
+    }
     auto expected = removeListNode(document, mapped->list);
+    if (parent && expected.nodes[*parent].type == MD_BLOCK_LI) {
+      updateLiTightness(expected, *parent);
+    }
     auto result = apply(document, expected, list.range, QByteArray{});
     if (!result.source && removedDefinition) {
       return {std::nullopt, QStringLiteral("Definition in use")};
@@ -2204,13 +2682,15 @@ EditResult removeListItemSource(const Document& document,
   const auto start = ordered ? listNode.attributes["start"].toInt() : 0;
   const auto eol = listEol(document, list);
   const auto trailingEol = !listEndsAtEofWithoutEol(document, list);
-  const auto newSource =
-      buildListSource(contents, gaps, ordered, start, marker->delimiter, eol,
-                      trailingEol);
+  const auto newSource = buildListSource(
+      contents, gaps, ordered, start, marker->delimiter, eol, trailingEol,
+      list.continuationPrefix, list.blankLinePrefix);
+  const auto canonicalSource = stripContainerPrefix(
+      newSource, list.continuationPrefix, list.blankLinePrefix);
   QString contextError;
   auto parsed = parseListContext(document, definitions, list.range.offset,
-                                 list.range.offset + list.range.size, newSource,
-                                 contextError);
+                                 list.range.offset + list.range.size,
+                                 canonicalSource, contextError);
   if (!parsed) {
     return {std::nullopt, contextError};
   }
@@ -2229,7 +2709,7 @@ EditResult removeListItemSource(const Document& document,
     const bool hasDefinition =
         std::any_of(definitions.begin(), definitions.end(),
                     [&remainingSource](const DefinitionCandidate& definition) {
-                      return definition.range.offset >=
+                      return definition.begin >=
                                  remainingSource.range.offset &&
                              definition.range.offset + definition.range.size <=
                                  remainingSource.range.offset +
@@ -2305,12 +2785,14 @@ EditResult setListKindSource(const Document& document, const SetListKind& edit) 
   const auto trailingEol = !listEndsAtEofWithoutEol(document, list);
   const auto newSource = buildListSource(
       contents, gaps, edit.ordered, edit.ordered ? edit.start : 0, delimiter,
-      eol, trailingEol);
+      eol, trailingEol, list.continuationPrefix, list.blankLinePrefix);
+  const auto canonicalSource = stripContainerPrefix(
+      newSource, list.continuationPrefix, list.blankLinePrefix);
   const auto definitions = definitionInventory(document);
   QString contextError;
   auto parsed = parseListContext(document, definitions, list.range.offset,
-                                 list.range.offset + list.range.size, newSource,
-                                 contextError);
+                                 list.range.offset + list.range.size,
+                                 canonicalSource, contextError);
   if (!parsed) {
     return {std::nullopt, contextError};
   }
@@ -2411,17 +2893,21 @@ EditResult setItemTaskSource(const Document& document, const SetItemTask& edit) 
   const auto itemIsLast = mapped->index + 1 == list.items.size();
   const auto trailingEol =
       itemIsLast ? !listEndsAtEofWithoutEol(document, list) : true;
-  const auto newItem = renderItem(markerPrefix, content, eol, trailingEol);
+  const auto newItem = renderItem(markerPrefix, content, eol, trailingEol,
+                                  list.continuationPrefix,
+                                  list.blankLinePrefix);
   const auto itemEnd = item.range.offset + item.range.size;
   const auto listEnd = list.range.offset + list.range.size;
   const auto newSource =
       document.source.mid(list.range.offset,
                           item.range.offset - list.range.offset) +
       newItem + document.source.mid(itemEnd, listEnd - itemEnd);
+  const auto canonicalSource = stripContainerPrefix(
+      newSource, list.continuationPrefix, list.blankLinePrefix);
   QString contextError;
   auto parsed = parseListContext(document, definitions, list.range.offset,
-                                 list.range.offset + list.range.size, newSource,
-                                 contextError);
+                                 list.range.offset + list.range.size,
+                                 canonicalSource, contextError);
   if (!parsed) {
     return {std::nullopt, contextError};
   }
@@ -2597,53 +3083,130 @@ std::optional<SourceRange> mapTopLevelBlockRange(const Document& document,
   return std::nullopt;
 }
 
-QByteArray quoteLines(const QByteArray& source) {
+std::optional<SourceRange> mapNestedBlockRange(const Document& document,
+                                               size_t node, QString& error) {
+  if (node >= document.nodes.size() ||
+      document.nodes[node].kind != NodeKind::kBlock ||
+      !document.nodes[node].parent) {
+    error = QStringLiteral("Invalid block target");
+    return std::nullopt;
+  }
+  const auto parent = *document.nodes[node].parent;
+  VirtualContent content;
+  if (!buildVirtualContent(document, parent, content, error)) {
+    return std::nullopt;
+  }
+  auto parsed = parseVirtual(document, content, error);
+  if (!parsed) {
+    return std::nullopt;
+  }
+  const auto position = childPosition(document, parent, node);
+  if (!position ||
+      *position >= parsed->document.nodes[0].children.size()) {
+    error = QStringLiteral("Nested block context mismatch");
+    return std::nullopt;
+  }
+  const auto virtualNode =
+      parsed->document.nodes[0].children[*position];
+  auto range = mapTopLevelBlockRange(parsed->document, virtualNode, error);
+  if (!range) {
+    return std::nullopt;
+  }
+  const auto start = virtualToReal(
+      content, range->offset - parsed->contentOffset);
+  const auto end = virtualToRealEnd(
+      content, range->offset + range->size - parsed->contentOffset);
+  return SourceRange{start, end - start};
+}
+
+QByteArray wrapSelectedLines(const QByteArray& source,
+                             const QByteArray& continuationPrefix,
+                             const QByteArray& blankPrefix) {
   QByteArray result;
-  for (const auto& line : listLines(source)) {
-    if (blankListLine(source, line)) {
-      result += '>';
-    } else {
-      result += "> ";
-      result += source.mid(line.start, line.bodyEnd - line.start);
+  const auto lines = listLines(source);
+  for (size_t i = 0; i < lines.size(); ++i) {
+    const auto& line = lines[i];
+    const auto body = source.mid(line.start, line.bodyEnd - line.start);
+    const auto ending = source.mid(line.bodyEnd, line.end - line.bodyEnd);
+    if (i == 0) {
+      result += body.isEmpty() ? QByteArray(">") : QByteArray("> ") + body;
+      result += ending;
+      continue;
     }
-    result += source.mid(line.bodyEnd, line.end - line.bodyEnd);
+    if (body.isEmpty()) {
+      result += (blankPrefix.isEmpty() ? continuationPrefix : blankPrefix) + '>' +
+                ending;
+    } else if (body.startsWith(continuationPrefix)) {
+      result += continuationPrefix + "> " +
+                body.mid(continuationPrefix.size()) + ending;
+    } else {
+      result += "> " + body + ending;
+    }
   }
   return result;
 }
 
-QByteArray unquoteLines(const QByteArray& source) {
+QByteArray unquoteNestedLines(const QByteArray& source,
+                              const QByteArray& continuationPrefix,
+                              const QByteArray& blankPrefix) {
   QByteArray result;
-  for (const auto& line : listLines(source)) {
-    auto position = line.start;
-    while (position < line.bodyEnd && source[position] == ' ') {
-      ++position;
-    }
-    if (position - line.start <= 3 && position < line.bodyEnd &&
-        source[position] == '>') {
-      ++position;
-      if (position < line.bodyEnd && source[position] == ' ') {
-        ++position;
+  const auto lines = listLines(source);
+  for (size_t i = 0; i < lines.size(); ++i) {
+    const auto& line = lines[i];
+    const auto ending = source.mid(line.bodyEnd, line.end - line.bodyEnd);
+    auto start = line.start;
+    QByteArray parentPrefix;
+    if (i > 0) {
+      const auto body =
+          source.mid(line.start, line.bodyEnd - line.start);
+      if (body.startsWith(continuationPrefix)) {
+        parentPrefix = continuationPrefix;
+      } else if (body.startsWith(blankPrefix)) {
+        parentPrefix = blankPrefix;
       }
-      result += source.mid(position, line.bodyEnd - position);
-    } else {
-      result += source.mid(line.start, line.bodyEnd - line.start);
+      start += parentPrefix.size();
     }
-    result += source.mid(line.bodyEnd, line.end - line.bodyEnd);
+    const ListLine view{start, line.bodyEnd, line.end};
+    const auto contentStart = quotePrefixEnd(source, view);
+    if (!contentStart) {
+      result += source.mid(line.start, line.bodyEnd - line.start) + ending;
+      continue;
+    }
+    const auto content = source.mid(*contentStart,
+                                    line.bodyEnd - *contentStart);
+    if (content.trimmed().isEmpty()) {
+      result += blankPrefix + ending;
+    } else {
+      result += parentPrefix + content + ending;
+    }
   }
   return result;
 }
 
 EditResult wrapInQuoteSource(const Document& document,
                              const WrapInQuote& edit) {
-  if (edit.parent != 0 || document.nodes.empty() ||
+  if (document.nodes.empty() || edit.parent >= document.nodes.size() ||
       document.nodes[edit.parent].kind != NodeKind::kBlock ||
-      document.nodes[edit.parent].type != MD_BLOCK_DOC) {
+      (document.nodes[edit.parent].type != MD_BLOCK_DOC &&
+       document.nodes[edit.parent].type != MD_BLOCK_QUOTE &&
+       document.nodes[edit.parent].type != MD_BLOCK_LI)) {
     return {std::nullopt, QStringLiteral("Invalid quote parent")};
   }
   const auto& parent = document.nodes[edit.parent];
   if (edit.count == 0 || edit.first >= parent.children.size() ||
       edit.count > parent.children.size() - edit.first) {
     return {std::nullopt, QStringLiteral("Invalid quote selection")};
+  }
+  QByteArray continuationPrefix;
+  QByteArray blankPrefix;
+  if (edit.parent != 0) {
+    QString error;
+    VirtualContent content;
+    if (!buildVirtualContent(document, edit.parent, content, error)) {
+      return {std::nullopt, error};
+    }
+    continuationPrefix = content.continuationPrefix;
+    blankPrefix = content.blankLinePrefix;
   }
   std::vector<SourceRange> ranges;
   for (size_t i = 0; i < edit.count; ++i) {
@@ -2653,7 +3216,9 @@ EditResult wrapInQuoteSource(const Document& document,
       return {std::nullopt, QStringLiteral("Invalid quote selection")};
     }
     QString error;
-    const auto range = mapTopLevelBlockRange(document, child, error);
+    const auto range = edit.parent == 0
+                           ? mapTopLevelBlockRange(document, child, error)
+                           : mapNestedBlockRange(document, child, error);
     if (!range) {
       return {std::nullopt, error};
     }
@@ -2667,22 +3232,26 @@ EditResult wrapInQuoteSource(const Document& document,
     }
   }
   const SourceRange patch{offset, end - offset};
-  const auto replacement =
-      quoteLines(document.source.mid(patch.offset, patch.size));
+  const auto replacement = wrapSelectedLines(
+      document.source.mid(patch.offset, patch.size), continuationPrefix,
+      blankPrefix);
 
   auto expected = document;
   const auto quoteIndex = expected.nodes.size();
   expected.nodes.push_back(
-      {NodeKind::kBlock, MD_BLOCK_QUOTE, {}, {}, {}, std::nullopt, 0});
+      {NodeKind::kBlock, MD_BLOCK_QUOTE, {}, {}, {}, std::nullopt, edit.parent});
   for (size_t i = 0; i < edit.count; ++i) {
-    const auto child = document.nodes[0].children[edit.first + i];
+    const auto child = document.nodes[edit.parent].children[edit.first + i];
     expected.nodes[child].parent = quoteIndex;
     expected.nodes[quoteIndex].children.push_back(child);
   }
-  auto& children = expected.nodes[0].children;
+  auto& children = expected.nodes[edit.parent].children;
   children.erase(children.begin() + qsizetype(edit.first),
                  children.begin() + qsizetype(edit.first + edit.count));
   children.insert(children.begin() + qsizetype(edit.first), quoteIndex);
+  if (document.nodes[edit.parent].type == MD_BLOCK_LI) {
+    updateLiTightness(expected, edit.parent);
+  }
   return apply(document, expected, patch, replacement);
 }
 
@@ -2690,18 +3259,19 @@ EditResult unwrapQuoteSource(const Document& document,
                              const UnwrapQuote& edit) {
   if (edit.quote >= document.nodes.size() ||
       document.nodes[edit.quote].kind != NodeKind::kBlock ||
-      document.nodes[edit.quote].type != MD_BLOCK_QUOTE ||
-      document.nodes[edit.quote].parent != std::optional<size_t>(0)) {
+      document.nodes[edit.quote].type != MD_BLOCK_QUOTE) {
     return {std::nullopt, QStringLiteral("Invalid quote target")};
   }
   const auto mapped = mapQuote(document, edit.quote);
   if (!mapped.quote) {
     return {std::nullopt, mapped.error};
   }
-  const auto replacement = unquoteLines(
-      document.source.mid(mapped.quote->range.offset, mapped.quote->range.size));
+  const auto replacement = unquoteNestedLines(
+      document.source.mid(mapped.quote->range.offset, mapped.quote->range.size),
+      mapped.quote->continuationPrefix, mapped.quote->blankLinePrefix);
   auto expected = document;
-  auto& children = expected.nodes[0].children;
+  const auto parent = document.nodes[edit.quote].parent.value_or(0);
+  auto& children = expected.nodes[parent].children;
   const auto position =
       std::find(children.begin(), children.end(), edit.quote);
   if (position == children.end()) {
@@ -2709,11 +3279,14 @@ EditResult unwrapQuoteSource(const Document& document,
   }
   std::vector<size_t> lifted = expected.nodes[edit.quote].children;
   for (auto child : lifted) {
-    expected.nodes[child].parent = 0;
+    expected.nodes[child].parent = parent;
   }
   const auto index = position - children.begin();
   children.erase(position);
   children.insert(children.begin() + index, lifted.begin(), lifted.end());
+  if (document.nodes[parent].type == MD_BLOCK_LI) {
+    updateLiTightness(expected, parent);
+  }
   return apply(document, expected, mapped.quote->range, replacement);
 }
 

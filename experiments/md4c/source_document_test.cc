@@ -329,9 +329,6 @@ class Md4cSourceTest : public QObject {
     QTest::newRow("lazy") << QByteArray("- a\nlazy\n");
     QTest::newRow("structural-tab") << QByteArray("- a\n\tcontinuation\n");
     QTest::newRow("unclosed-fence") << QByteArray("- ```\n  open\n");
-    QTest::newRow("nested-list") << QByteArray("- a\n  - b\n");
-    QTest::newRow("quote-parent") << QByteArray("> - a\n> - b\n");
-    QTest::newRow("nested-quote") << QByteArray("- a\n  > b\n");
     QTest::newRow("indented-code") << QByteArray("- a\n\n      code\n");
     QTest::newRow("tab-after-marker") << QByteArray("-\ta\n");
     QTest::newRow("noncanonical-marker") << QByteArray("-  a\n");
@@ -1938,6 +1935,507 @@ class Md4cSourceTest : public QObject {
                   WrapInQuote{0, 0, 2});
     QVERIFY(!overflow.document);
     QVERIFY(overflow.error.contains("overflow"));
+  }
+
+  void nestedContainerMapping() {
+    const QByteArray nestedList = "- parent\n  - a\n  - b\n";
+    auto parsed = parse(nestedList);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    size_t list = doc.nodes.size();
+    for (size_t i = 0; i < doc.nodes.size(); ++i) {
+      if (doc.nodes[i].type == MD_BLOCK_UL && doc.nodes[i].parent &&
+          doc.nodes[*doc.nodes[i].parent].type == MD_BLOCK_LI) {
+        list = i;
+      }
+    }
+    QVERIFY(list < doc.nodes.size());
+    const auto mapped = mapList(doc, list);
+    QVERIFY2(mapped.list, qPrintable(mapped.error));
+    QCOMPARE(mapped.list->range.offset, nestedList.indexOf("- a"));
+    QCOMPARE(mapped.list->range.offset + mapped.list->range.size,
+             qsizetype(nestedList.size()));
+    QCOMPARE(mapped.list->items.size(), size_t(2));
+    QCOMPARE(mapped.list->items[0].contentLines.size(), size_t(1));
+    QCOMPARE(doc.source.mid(mapped.list->items[0].contentLines[0].offset,
+                            mapped.list->items[0].contentLines[0].size),
+             QByteArray("a\n"));
+    QCOMPARE(mapped.list->continuationPrefix, QByteArray("  "));
+
+    const QByteArray quotedList = "> - a\n> - b\n";
+    auto quotedParsed = parse(quotedList);
+    QVERIFY(quotedParsed.document);
+    const auto& quotedDoc = *quotedParsed.document;
+    size_t quoteList = quotedDoc.nodes.size();
+    for (size_t i = 0; i < quotedDoc.nodes.size(); ++i) {
+      if (quotedDoc.nodes[i].type == MD_BLOCK_UL) {
+        quoteList = i;
+        break;
+      }
+    }
+    QVERIFY(quoteList < quotedDoc.nodes.size());
+    const auto quoteListMap = mapList(quotedDoc, quoteList);
+    QVERIFY2(quoteListMap.list, qPrintable(quoteListMap.error));
+    QCOMPARE(quoteListMap.list->range.offset, quotedList.indexOf("- a"));
+    QCOMPARE(quoteListMap.list->range.size, qsizetype(10));
+    QCOMPARE(quoteListMap.list->continuationPrefix, QByteArray("> "));
+
+    const QByteArray nestedQuote = "- parent\n\n  > a\n";
+    auto quoteParsed = parse(nestedQuote);
+    QVERIFY(quoteParsed.document);
+    const auto& quoteDoc = *quoteParsed.document;
+    size_t quote = quoteDoc.nodes.size();
+    for (size_t i = 0; i < quoteDoc.nodes.size(); ++i) {
+      if (quoteDoc.nodes[i].type == MD_BLOCK_QUOTE) {
+        quote = i;
+      }
+    }
+    QVERIFY(quote < quoteDoc.nodes.size());
+    const auto quoteMap = mapQuote(quoteDoc, quote);
+    QVERIFY2(quoteMap.quote, qPrintable(quoteMap.error));
+    QCOMPARE(quoteMap.quote->range.offset, nestedQuote.indexOf("> a"));
+    QCOMPARE(quoteMap.quote->continuationPrefix, QByteArray("  "));
+
+    const QByteArray chain = "> - parent\n>\n>   > text\n";
+    auto chainParsed = parse(chain);
+    QVERIFY(chainParsed.document);
+    const auto& chainDoc = *chainParsed.document;
+    size_t innerQuote = chainDoc.nodes.size();
+    for (size_t i = 0; i < chainDoc.nodes.size(); ++i) {
+      if (chainDoc.nodes[i].type == MD_BLOCK_QUOTE && chainDoc.nodes[i].parent &&
+          chainDoc.nodes[*chainDoc.nodes[i].parent].type == MD_BLOCK_LI) {
+        innerQuote = i;
+      }
+    }
+    QVERIFY(innerQuote < chainDoc.nodes.size());
+    const auto chainMap = mapQuote(chainDoc, innerQuote);
+    QVERIFY2(chainMap.quote, qPrintable(chainMap.error));
+    QCOMPARE(chainMap.quote->range.offset, chain.indexOf("> text"));
+    QCOMPARE(chainMap.quote->continuationPrefix, QByteArray(">   "));
+
+    const QByteArray tightInline = "- parent **bold**\n  > quoted\n";
+    auto tightParsed = parse(tightInline);
+    QVERIFY(tightParsed.document);
+    const auto& tightDoc = *tightParsed.document;
+    size_t tightQuote = tightDoc.nodes.size();
+    for (size_t i = 0; i < tightDoc.nodes.size(); ++i) {
+      if (tightDoc.nodes[i].type == MD_BLOCK_QUOTE) {
+        tightQuote = i;
+      }
+    }
+    QVERIFY(tightQuote < tightDoc.nodes.size());
+    const auto tightMap = mapQuote(tightDoc, tightQuote);
+    QVERIFY2(tightMap.quote, qPrintable(tightMap.error));
+    QCOMPARE(tightMap.quote->range.offset, tightInline.indexOf("> quoted"));
+
+    for (const QByteArray& source :
+         {QByteArray("> - a\nlazy\n"), QByteArray("> - a\n>\t- b\n"),
+          QByteArray("> - ```\n>   open\n")}) {
+      auto rejected = parse(source);
+      QVERIFY(rejected.document);
+      bool found = false;
+      for (size_t i = 0; i < rejected.document->nodes.size(); ++i) {
+        if (rejected.document->nodes[i].type == MD_BLOCK_UL) {
+          const auto result = mapList(*rejected.document, i);
+          QVERIFY(!result.list);
+          found = true;
+        }
+      }
+      QVERIFY(found);
+    }
+  }
+
+  void nestedListCommands() {
+    const auto findListWithParent = [](const Document& document,
+                                       int parentType) -> size_t {
+      for (size_t i = 0; i < document.nodes.size(); ++i) {
+        const auto& node = document.nodes[i];
+        if (node.kind == NodeKind::kBlock &&
+            (node.type == MD_BLOCK_UL || node.type == MD_BLOCK_OL) &&
+            node.parent &&
+            document.nodes[*node.parent].type == parentType) {
+          return i;
+        }
+      }
+      return document.nodes.size();
+    };
+
+    {
+      const QByteArray source = "- parent\n  - a\n  - b\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto list = findListWithParent(*parsed.document, MD_BLOCK_LI);
+      QVERIFY(list < parsed.document->nodes.size());
+      const auto result =
+          editBytes(*parsed.document, InsertListItem{list, 1, "c"});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("- parent\n  - a\n  - c\n  - b\n"));
+    }
+    {
+      const QByteArray source = "> - a\n> - b\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto list = findListWithParent(*parsed.document, MD_BLOCK_QUOTE);
+      QVERIFY(list < parsed.document->nodes.size());
+      const auto mapped = mapList(*parsed.document, list);
+      QVERIFY(mapped.list);
+      const auto target = mapped.list->items[1].node;
+      const auto result =
+          editBytes(*parsed.document, RemoveListItem{target});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("> - a\n"));
+    }
+    {
+      const QByteArray source = "- parent\n\n  > a\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      size_t quote = parsed.document->nodes.size();
+      for (size_t i = 0; i < parsed.document->nodes.size(); ++i) {
+        if (parsed.document->nodes[i].type == MD_BLOCK_QUOTE) {
+          quote = i;
+        }
+      }
+      QVERIFY(quote < parsed.document->nodes.size());
+      const auto result =
+          editBytes(*parsed.document, UnwrapQuote{quote});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("- parent\n\n  a\n"));
+    }
+    {
+      const QByteArray source = "- parent\n\n  second\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto text =
+          find(*parsed.document, NodeKind::kText, MD_TEXT_NORMAL, "second");
+      QVERIFY(text < parsed.document->nodes.size());
+      QVERIFY(parsed.document->nodes[text].parent);
+      const auto paragraph = *parsed.document->nodes[text].parent;
+      QVERIFY(parsed.document->nodes[paragraph].parent);
+      const auto parent = *parsed.document->nodes[paragraph].parent;
+      const auto& siblings = parsed.document->nodes[parent].children;
+      const auto position =
+          std::find(siblings.begin(), siblings.end(), paragraph) -
+          siblings.begin();
+      const auto result = editBytes(
+          *parsed.document,
+          WrapInQuote{parent, size_t(position), 1});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("- parent\n\n  > second\n"));
+    }
+    {
+      const QByteArray source = "> - parent\n>\n>   > text\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      size_t inner = parsed.document->nodes.size();
+      for (size_t i = 0; i < parsed.document->nodes.size(); ++i) {
+        if (parsed.document->nodes[i].type == MD_BLOCK_QUOTE &&
+            parsed.document->nodes[i].parent &&
+            parsed.document->nodes[*parsed.document->nodes[i].parent].type ==
+                MD_BLOCK_LI) {
+          inner = i;
+        }
+      }
+      QVERIFY(inner < parsed.document->nodes.size());
+      const auto result =
+          editBytes(*parsed.document, UnwrapQuote{inner});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("> - parent\n>\n>   text\n"));
+    }
+    {
+      const QByteArray source = "- parent\n  1. a\n  2. b\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto list = findListWithParent(*parsed.document, MD_BLOCK_LI);
+      QVERIFY(list < parsed.document->nodes.size());
+      const auto mapped = mapList(*parsed.document, list);
+      QVERIFY(mapped.list);
+      const auto target = mapped.list->items[0].node;
+      const auto result = editBytes(
+          *parsed.document, SetItemTask{target, TaskState::kUnchecked});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("- parent\n  1. [ ] a\n  2. b\n"));
+    }
+    {
+      const QByteArray source = "- parent\n  1. a\n  2. b\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto list = findListWithParent(*parsed.document, MD_BLOCK_LI);
+      QVERIFY(list < parsed.document->nodes.size());
+      const auto result =
+          editBytes(*parsed.document, SetListKind{list, false, 0});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("- parent\n  - a\n  - b\n"));
+    }
+    {
+      const QByteArray source = "> - a\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto list = findListWithParent(*parsed.document, MD_BLOCK_QUOTE);
+      QVERIFY(list < parsed.document->nodes.size());
+      const auto mapped = mapList(*parsed.document, list);
+      QVERIFY(mapped.list);
+      const auto result =
+          editBytes(*parsed.document, RemoveListItem{mapped.list->items[0].node});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("cascade"), qPrintable(result.error));
+    }
+    {
+      const QByteArray source = "- parent\n\n  3. a\n  9. b\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto list = findListWithParent(*parsed.document, MD_BLOCK_LI);
+      QVERIFY(list < parsed.document->nodes.size());
+      const auto result =
+          editBytes(*parsed.document, InsertListItem{list, 1, "c"});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("- parent\n\n  3. a\n  4. c\n  5. b\n"));
+    }
+    {
+      const QByteArray source = "- parent\r\n  - a\r\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto list = findListWithParent(*parsed.document, MD_BLOCK_LI);
+      QVERIFY(list < parsed.document->nodes.size());
+      const auto result =
+          editBytes(*parsed.document, InsertListItem{list, 1, "b"});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("- parent\r\n  - a\r\n  - b\r\n"));
+    }
+    {
+      const QByteArray source = "- parent\n  - a";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto list = findListWithParent(*parsed.document, MD_BLOCK_LI);
+      QVERIFY(list < parsed.document->nodes.size());
+      const auto result =
+          editBytes(*parsed.document, InsertListItem{list, 1, "b"});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("- parent\n  - a\n  - b"));
+    }
+    {
+      const auto cyrillic = QStringLiteral("\u0430").toUtf8();
+      const auto emoji = QStringLiteral("\U0001f600").toUtf8();
+      const QByteArray source = "- parent\n  - " + cyrillic + "\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto list = findListWithParent(*parsed.document, MD_BLOCK_LI);
+      QVERIFY(list < parsed.document->nodes.size());
+      const auto result =
+          editBytes(*parsed.document, InsertListItem{list, 1, emoji});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               "- parent\n  - " + cyrillic + "\n  - " + emoji + "\n");
+    }
+    {
+      const QByteArray source = "- parent\n\n  - a\n\n  - b\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto list = findListWithParent(*parsed.document, MD_BLOCK_LI);
+      QVERIFY(list < parsed.document->nodes.size());
+      const auto result =
+          editBytes(*parsed.document, InsertListItem{list, 2, "c"});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("- parent\n\n  - a\n\n  - b\n\n  - c\n"));
+    }
+    {
+      const QByteArray source =
+          "- one\n  - same\n- two\n  - same\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      std::vector<size_t> lists;
+      for (size_t i = 0; i < parsed.document->nodes.size(); ++i) {
+        if (parsed.document->nodes[i].type == MD_BLOCK_UL &&
+            parsed.document->nodes[i].parent &&
+            parsed.document->nodes[*parsed.document->nodes[i].parent].type ==
+                MD_BLOCK_LI) {
+          lists.push_back(i);
+        }
+      }
+      QCOMPARE(lists.size(), size_t(2));
+      const auto result =
+          editBytes(*parsed.document, InsertListItem{lists[1], 1, "new"});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("- one\n  - same\n- two\n  - same\n  - new\n"));
+    }
+  }
+
+  void nestedQuoteCommands() {
+    {
+      const QByteArray source = "> a\n> b\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto& doc = *parsed.document;
+      size_t quote = doc.nodes.size();
+      for (size_t i = 0; i < doc.nodes.size(); ++i) {
+        if (doc.nodes[i].type == MD_BLOCK_QUOTE) {
+          quote = i;
+          break;
+        }
+      }
+      QVERIFY(quote < doc.nodes.size());
+      QVERIFY(!doc.nodes[quote].children.empty());
+      const auto paragraph = doc.nodes[quote].children.front();
+      const auto result =
+          editBytes(doc, WrapInQuote{quote, 0, 1});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("> > a\n> > b\n"));
+      Q_UNUSED(paragraph);
+    }
+    {
+      const QByteArray source = "> outer\n>\n> > inner\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto& doc = *parsed.document;
+      size_t inner = doc.nodes.size();
+      for (size_t i = 0; i < doc.nodes.size(); ++i) {
+        if (doc.nodes[i].type == MD_BLOCK_QUOTE && doc.nodes[i].parent &&
+            doc.nodes[*doc.nodes[i].parent].type == MD_BLOCK_QUOTE) {
+          inner = i;
+        }
+      }
+      QVERIFY(inner < doc.nodes.size());
+      const auto result = editBytes(doc, UnwrapQuote{inner});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("> outer\n>\n> inner\n"));
+    }
+    {
+      const QByteArray source = "- parent\n\n  one\n\n  two\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto& doc = *parsed.document;
+      size_t li = doc.nodes.size();
+      for (size_t i = 0; i < doc.nodes.size(); ++i) {
+        if (doc.nodes[i].type == MD_BLOCK_LI) {
+          li = i;
+        }
+      }
+      QVERIFY(li < doc.nodes.size());
+      const auto result = editBytes(doc, WrapInQuote{li, 1, 2});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("- parent\n\n  > one\n  >\n  > two\n"));
+      auto wrapped = parse(*result.source);
+      QVERIFY(wrapped.document);
+      size_t quote = wrapped.document->nodes.size();
+      for (size_t i = 0; i < wrapped.document->nodes.size(); ++i) {
+        if (wrapped.document->nodes[i].type == MD_BLOCK_QUOTE) {
+          quote = i;
+        }
+      }
+      QVERIFY(quote < wrapped.document->nodes.size());
+      const auto unwrapped =
+          editBytes(*wrapped.document, UnwrapQuote{quote});
+      QVERIFY2(unwrapped.source, qPrintable(unwrapped.error));
+      QCOMPARE(*unwrapped.source, source);
+    }
+  }
+
+  void nestedListReferences() {
+    {
+      const QByteArray source = "[outer]: /keep \"K\"\n\n> - a\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      size_t list = parsed.document->nodes.size();
+      for (size_t i = 0; i < parsed.document->nodes.size(); ++i) {
+        if (parsed.document->nodes[i].type == MD_BLOCK_UL) {
+          list = i;
+        }
+      }
+      QVERIFY(list < parsed.document->nodes.size());
+      const auto result =
+          editBytes(*parsed.document, InsertListItem{list, 1, "[x][outer]"});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("[outer]: /keep \"K\"\n\n> - a\n> - [x][outer]\n"));
+      auto reparsed = parse(*result.source);
+      QVERIFY(reparsed.document);
+      const auto link = find(*reparsed.document, NodeKind::kSpan, MD_SPAN_A);
+      QVERIFY(link < reparsed.document->nodes.size());
+      QCOMPARE(reparsed.document->nodes[link].attributes["href"].toString(),
+               QStringLiteral("/keep"));
+    }
+    {
+      const QByteArray source = "> - a\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto list = find(*parsed.document, NodeKind::kBlock, MD_BLOCK_UL);
+      QVERIFY(list < parsed.document->nodes.size());
+      const auto result = editBytes(
+          *parsed.document,
+          InsertListItem{list, 1, "[new]: /new \"N\"\n\n[x][new]"});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("> - a\n> - [new]: /new \"N\"\n>\n>   [x][new]\n"));
+      auto reparsed = parse(*result.source);
+      QVERIFY(reparsed.document);
+      const auto link = find(*reparsed.document, NodeKind::kSpan, MD_SPAN_A);
+      QVERIFY(link < reparsed.document->nodes.size());
+      QCOMPARE(reparsed.document->nodes[link].attributes["href"].toString(),
+               QStringLiteral("/new"));
+      QCOMPARE(reparsed.document->nodes[link].attributes["title"].toString(),
+               QStringLiteral("N"));
+    }
+    {
+      const QByteArray source =
+          "> - [new]: /new \"N\"\n>\n>   owner\n> - [s][new]\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto list = find(*parsed.document, NodeKind::kBlock, MD_BLOCK_UL);
+      QVERIFY(list < parsed.document->nodes.size());
+      const auto mapped = mapList(*parsed.document, list);
+      QVERIFY(mapped.list);
+      const auto result =
+          editBytes(*parsed.document, RemoveListItem{mapped.list->items[0].node});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("Definition in use"),
+               qPrintable(result.error));
+    }
+    {
+      const QByteArray source = "[new]: /old\n\n> - a\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto list = find(*parsed.document, NodeKind::kBlock, MD_BLOCK_UL);
+      QVERIFY(list < parsed.document->nodes.size());
+      const auto result = editBytes(
+          *parsed.document,
+          InsertListItem{list, 1, "[new]: /new\n\n[x][new]"});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("Definition conflict"),
+               qPrintable(result.error));
+    }
+    {
+      const QByteArray source =
+          "> - [new]: /old\n>\n>   owner\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto list = find(*parsed.document, NodeKind::kBlock, MD_BLOCK_UL);
+      QVERIFY(list < parsed.document->nodes.size());
+      const auto result = editBytes(
+          *parsed.document,
+          InsertListItem{list, 1, "[new]: /new\n\n[x][new]"});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("Definition conflict"),
+               qPrintable(result.error));
+    }
+    {
+      const QByteArray source = "[x][new]\n\n> - a\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto list = find(*parsed.document, NodeKind::kBlock, MD_BLOCK_UL);
+      QVERIFY(list < parsed.document->nodes.size());
+      const auto result = editBytes(
+          *parsed.document,
+          InsertListItem{list, 1, "[new]: /new\n\n[x][new]"});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("Binding conflict"),
+               qPrintable(result.error));
+    }
   }
 
   void unifiedCommandContract() {

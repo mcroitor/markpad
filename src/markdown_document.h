@@ -77,6 +77,9 @@ struct ListSource {
   size_t node;
   SourceRange range;
   std::vector<ListItemSource> items;
+  // Prefix for lines after the first item line (parent indentation/quote).
+  QByteArray continuationPrefix;
+  QByteArray blankLinePrefix;
 };
 struct ListMapResult {
   std::optional<ListSource> list;
@@ -88,6 +91,8 @@ ListMapResult mapList(const Document& document, size_t node);
 struct QuoteSource {
   size_t node;
   SourceRange range;
+  QByteArray continuationPrefix;
+  QByteArray blankLinePrefix;
 };
 struct QuoteMapResult {
   std::optional<QuoteSource> quote;
