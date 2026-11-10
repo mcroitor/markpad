@@ -11,6 +11,7 @@
 #include <QStyle>
 #include <QTemporaryDir>
 #include <QTextBlock>
+#include <QTextCursor>
 #include <QTextEdit>
 #include <QTextLayout>
 #include <QUrl>
@@ -1139,6 +1140,41 @@ class MainWindowSmokeTest : public QObject {
     QCOMPARE(window->session().snapshot().source,
              std::string("[before](/keep \"title\")\n"));
     QApplication::clipboard()->clear();
+  }
+
+  void pagedModeLayoutAndSettings() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    QByteArray source;
+    for (int i = 0; i < 120; ++i) {
+      source += "Paragraph " + QByteArray::number(i) + "\n\n";
+    }
+    window->editor()->setPlainText(QString::fromUtf8(source));
+    QVERIFY(window->setPagedMode(true));
+    QVERIFY(window->pagedMode());
+    QVERIFY(window->continuousMode());
+    const int firstCount = window->continuousEditor()->pageCount();
+    QVERIFY(firstCount >= 2);
+
+    Settings settings;
+    settings.page.marginTopMm = 80.0;
+    settings.page.marginBottomMm = 80.0;
+    settings.page.marginLeftMm = 50.0;
+    settings.page.marginRightMm = 50.0;
+    QString error;
+    QVERIFY2(window->applySettings(settings, &error), qPrintable(error));
+    const int secondCount = window->continuousEditor()->pageCount();
+    QVERIFY(secondCount >= firstCount);
+
+    window->continuousEditor()->editor()->moveCursor(QTextCursor::End);
+    QVERIFY(window->continuousEditor()->currentPage() >= 0);
+    QVERIFY(window->continuousEditor()->currentPage() <
+            window->continuousEditor()->pageCount());
+
+    QVERIFY(window->setContinuousMode(false));
+    QVERIFY(!window->continuousMode());
+    QVERIFY(!window->pagedMode());
   }
 
   void settingsAppliedToExistingWindow() {

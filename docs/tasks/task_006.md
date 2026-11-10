@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Ready` (page-setup решения Task 010 приняты)
+- Статус: `Done` (первый paged-срез: layout engine + editable paged mode)
 - Владелец: архитектор + C++ разработчик
 - Приоритет: P1
 
@@ -53,6 +53,47 @@
 
 ## Итог выполнения
 
-- Не начато.
-- Проверки: не запускались.
-- Блокеры: page setup persistence/defaults; pagination edge-case policy.
+### Реализация
+
+- `src/page_layout.{h,cc}`: независимый `PageLayoutEngine` с `PageGeometry`,
+  `BlockPlacement` и `PageLayoutResult`. Поддержаны A4/Letter/Legal,
+  portrait/landscape, четыре margins, перевод mm→points и deterministic
+  block placement. PageSize/margins валидируются; блок выше content area
+  переносится на новую страницу и помечается overflow с warning.
+- `src/page_text_edit.{h,cc}`: editable `QTextEdit`-based paged surface:
+  ширина текста следует page content width, page guides/separators и page labels
+  рисуются по block placements, page count/current page доступны.
+- `ContinuousEditor` получил `setPaged`/`setPageSetup`/`pageCount`/`currentPage`/
+  `layoutWarning`; rich editing, selection, undo/history и continuous mode
+  используют одну session/model.
+- `MainWindow`: View → WYSIWYG (paged, limited), status bar `Page N of M`,
+  overflow indicator, page setup из global Settings (A4 portrait/20 мм по
+  умолчанию), live перерасчёт при вводе/смене настроек.
+- Page setup хранится в Settings Service (Task 009), не в Markdown. Page size,
+  orientation и margins меняются через Preferences; per-document metadata и
+  Auto Save не вводятся.
+- Добавлены layout tests: geometry, A4/landscape/margins, paragraph flow,
+  headings/lists/code/tables/images, block boundaries, oversized block,
+  deterministic placements и invalid margins.
+
+### Проверки
+
+- Windows UCRT64 Debug: build, **CTest 6/6 passed**; `markpad_layout`
+  **9 passed**; GUI smoke **74 passed**; MD4C suite **232 passed**.
+- Ubuntu WSL GCC 15.2 / Qt 6.10.2: clean configure/build, CTest **6/6 passed**.
+- Ubuntu sanitized Debug: ASan/UBSan/leaks, CTest **6/6 passed**.
+- `git diff --check --ignore-space-at-eol` прошёл; сборка без warnings.
+  Google clang-format в среде отсутствует; dry-run не выполнялся.
+- Native visual QA и remote CI не запускались.
+
+### Ограничения
+
+- Это paged editing surface с page guides/page count, а не отдельные
+  page-widgets/листы с полным фоном и типографскими полями; текст остаётся
+  единым editable rich-text документом. Page layout metadata и границы страниц
+  определяются независимым engine.
+- Блоки не split-ятся внутри; block выше content area занимает новую страницу и
+  overflow-ит с предупреждением. Manual page breaks не добавлялись.
+- Page metrics зависят от шрифта/DPI платформы; различия Windows/Linux
+  документируются как допустимые. PDF/print не реализованы.
+- Line-number gutter и Auto Save остаются вне среза. Коммит/push не создавались.

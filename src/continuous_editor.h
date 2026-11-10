@@ -7,6 +7,8 @@
 
 #include "document_session.h"
 #include "markdown_document.h"
+#include "settings.h"
+#include "page_text_edit.h"
 
 class QLabel;
 class QTextEdit;
@@ -14,6 +16,8 @@ class QTextCursor;
 class QTextCharFormat;
 
 namespace markpad {
+
+class PageTextEdit;
 
 class ContinuousEditor final : public QWidget {
   Q_OBJECT
@@ -38,6 +42,13 @@ class ContinuousEditor final : public QWidget {
   InlineState inlineState(markdown::InlineStyle style) const;
   void toggleInlineStyle(markdown::InlineStyle style);
   void explainCursorMapping(bool exact);
+  void setPaged(bool paged);
+  bool paged() const { return paged_; }
+  void setPageSetup(const PageSetup& setup);
+  PageSetup pageSetup() const { return pageSetup_; }
+  int pageCount() const;
+  int currentPage() const;
+  QString layoutWarning() const;
 
  signals:
   void commandRequested(const markpad::DocumentToken& token,
@@ -76,7 +87,7 @@ class ContinuousEditor final : public QWidget {
   const Context* context() const;
 
   QLabel* notice_;
-  QTextEdit* editor_;
+  PageTextEdit* editor_;
   std::optional<markdown::Document> document_;
   DocumentToken token_;
   std::vector<Run> runs_;
@@ -86,6 +97,8 @@ class ContinuousEditor final : public QWidget {
   QString renderedText_;
   bool rendering_ = false;
   bool firstBlock_ = true;
+  bool paged_ = false;
+  PageSetup pageSetup_;
 };
 
 }  // namespace markpad

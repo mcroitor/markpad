@@ -254,8 +254,12 @@ raw HTML экранируется, небезопасные URI схемы от�
 `AppConfigLocation` Markpad, defaults/validation/fallback, theme/language/editor
 preferences/default file location/shortcuts и глобальные page defaults (A4
 portrait/20 мм). Language — English fallback + `lang/*.ini`; настройки
-применяются после перезапуска. Auto Save и per-document page metadata отложены.
-PDF/paged export остаются будущей работой; UI-команд списков/цитат/таблиц нет.
+применяются после перезапуска. [Task 006](docs/tasks/task_006.md) добавляет
+editable paged WYSIWYG: независимый `PageLayoutEngine` (page size/orientation/
+margins, block placement, page count, oversized-block overflow warning) и
+page-guide surface в общем rich-text editor. Auto Save и per-document page
+metadata отложены. PDF/paged print остаются будущей работой; UI-команд
+списков/цитат/таблиц нет.
 Следующие крупные направления — paged WYSIWYG, настройки и PDF/export
 completion.
 Последовательность продолжения: [Task 013](docs/tasks/task_013.md) →

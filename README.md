@@ -216,8 +216,12 @@ service under the platform Markpad config directory: theme, language, editor
 font/size, word wrap, default file location, validated shortcut overrides and
 global page defaults (A4 portrait, 20 mm). English is built in; extra languages
 are loaded from `lang/*.ini` with English fallback. Preferences are edited in
-File → Preferences and applied after restart. PDF/paged export remains future
-work.
+File → Preferences and applied after restart. Task 006 adds an editable paged
+WYSIWYG mode with a deterministic page-layout engine: A4/Letter/Legal,
+portrait/landscape, configurable margins, block-based page placement, page
+count/navigation in the status bar and an overflow warning for blocks taller than
+the page. The page view is a guided editable rich-text surface rather than
+separate page widgets; PDF/print export remains future work.
 The MD4C tests pass locally on Windows and Ubuntu, including Linux ASan/UBSan.
 See [Task 002](docs/tasks/task_002.md) for limits, licensing and reproduction.
 See [Task 012](docs/tasks/task_012.md) for structural edits and snapshot guarantees.

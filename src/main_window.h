@@ -39,7 +39,9 @@ class MainWindow final : public QMainWindow {
   void redo();
   ContinuousEditor* continuousEditor() const { return continuous_; }
   bool continuousMode() const { return continuousMode_; }
+  bool pagedMode() const { return pagedMode_; }
   bool setContinuousMode(bool enabled);
+  bool setPagedMode(bool enabled);
   bool applyContinuousCommand(const DocumentToken& token,
                               const markdown::EditCommand& command,
                               int cursor = -1);
@@ -92,12 +94,14 @@ class MainWindow final : public QMainWindow {
   QAction* copyAction_;
   QAction* markdownAction_;
   QAction* continuousAction_;
+  QAction* pagedAction_;
   std::vector<QAction*> headingActions_;
   std::vector<QAction*> inlineActions_;
   QAction* taskAction_;
   QStackedWidget* workspace_;
   ContinuousEditor* continuous_;
   bool continuousMode_ = false;
+  bool pagedMode_ = false;
   std::optional<ModeSelection> modeSelection_;
   std::vector<Edit> history_;
   size_t historyPosition_ = 0;

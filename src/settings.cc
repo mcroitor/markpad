@@ -76,6 +76,7 @@ const QMap<QString, QString>& builtinEnglish() {
       {"view.switchMode", "Switch mode"},
       {"view.markdown", "Markdown"},
       {"view.continuous", "WYSIWYG (continuous, limited)"},
+      {"view.paged", "WYSIWYG (paged, limited)"},
       {"view.statusBar", "Status bar"},
       {"help.about", "About Markpad"},
   };

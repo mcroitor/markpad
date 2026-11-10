@@ -258,10 +258,19 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
            QStringLiteral("WYSIWYG (continuous, limited)")));
   continuousAction_->setObjectName(QStringLiteral("continuousModeAction"));
   continuousAction_->setCheckable(true);
+  pagedAction_ = modes->addAction(
+      text(QStringLiteral("view.paged"),
+           QStringLiteral("WYSIWYG (paged, limited)")));
+  pagedAction_->setObjectName(QStringLiteral("pagedModeAction"));
+  pagedAction_->setCheckable(true);
   connect(markdownAction_, &QAction::triggered, this,
           [this] { setContinuousMode(false); });
-  connect(continuousAction_, &QAction::triggered, this,
-          [this] { setContinuousMode(true); });
+  connect(continuousAction_, &QAction::triggered, this, [this] {
+    setPagedMode(false);
+    setContinuousMode(true);
+  });
+  connect(pagedAction_, &QAction::triggered, this,
+          [this] { setPagedMode(true); });
   view->addAction(toolbar->toggleViewAction());
   auto* status = view->addAction(
       text(QStringLiteral("view.statusBar"), QStringLiteral("Status bar")));
@@ -459,6 +468,10 @@ bool MainWindow::applySettings(const Settings& settings, QString* error) {
                  .arg(unknown.join(QStringLiteral(", ")));
     return false;
   }
+  continuous_->setPageSetup(settings.page);
+  if (pagedMode_) {
+    continuous_->setPaged(true);
+  }
   return true;
 }
 
@@ -534,7 +547,8 @@ void MainWindow::refreshState() {
   cutAction_->setEnabled(cursor.hasSelection());
   copyAction_->setEnabled(cursor.hasSelection());
   markdownAction_->setChecked(!continuousMode_);
-  continuousAction_->setChecked(continuousMode_);
+  continuousAction_->setChecked(continuousMode_ && !pagedMode_);
+  pagedAction_->setChecked(continuousMode_ && pagedMode_);
   for (auto* action : headingActions_) {
     action->setEnabled(continuousMode_ &&
                        continuous_->headingNode().has_value());
@@ -551,14 +565,25 @@ void MainWindow::refreshState() {
     action->setChecked(continuousMode_ && state.checked);
     action->setToolTip(state.reason);
   }
-  statusBar()->showMessage(
-      QStringLiteral("%1 | Ln %2, Col %3 | %4")
-          .arg(continuousMode_ ? QStringLiteral("WYSIWYG (limited)")
-                               : QStringLiteral("Markdown"))
-          .arg(cursor.blockNumber() + 1)
-          .arg(cursor.positionInBlock() + 1)
-          .arg(session_.dirty() ? QStringLiteral("Modified")
-                                : QStringLiteral("Saved")));
+  QString status = QStringLiteral("%1 | Ln %2, Col %3 | %4")
+                       .arg(pagedMode_ ? QStringLiteral("WYSIWYG (paged)")
+                                       : continuousMode_
+                                             ? QStringLiteral(
+                                                   "WYSIWYG (limited)")
+                                             : QStringLiteral("Markdown"))
+                       .arg(cursor.blockNumber() + 1)
+                       .arg(cursor.positionInBlock() + 1)
+                       .arg(session_.dirty() ? QStringLiteral("Modified")
+                                             : QStringLiteral("Saved"));
+  if (pagedMode_) {
+    status += QStringLiteral(" | Page %1 of %2")
+                  .arg(continuous_->currentPage() + 1)
+                  .arg(std::max(1, continuous_->pageCount()));
+    if (!continuous_->layoutWarning().isEmpty()) {
+      status += QStringLiteral(" | Overflow warning");
+    }
+  }
+  statusBar()->showMessage(status);
 }
 
 bool MainWindow::applySource(const std::string& source, int cursor) {
@@ -575,6 +600,10 @@ bool MainWindow::setContinuousMode(bool enabled) {
   if (continuousMode_ == enabled) {
     refreshState();
     return true;
+  }
+  if (!enabled) {
+    pagedMode_ = false;
+    continuous_->setPaged(false);
   }
   const auto snapshot = session_.snapshot();
   const auto raw = sourceText(snapshot.source);
@@ -646,6 +675,27 @@ bool MainWindow::setContinuousMode(bool enabled) {
     statusBar()->showMessage(
         QStringLiteral("Markdown | Cursor/selection retained: protected "
                        "fragment has no exact source mapping."));
+  }
+  return true;
+}
+
+bool MainWindow::setPagedMode(bool enabled) {
+  if (enabled) {
+    if (!continuousMode_ && !setContinuousMode(true)) {
+      return false;
+    }
+    pagedMode_ = true;
+  } else {
+    pagedMode_ = false;
+  }
+  continuous_->setPaged(enabled);
+  continuous_->setPageSetup(settings_.page);
+  refreshState();
+  if (enabled && !continuous_->layoutWarning().isEmpty()) {
+    statusBar()->showMessage(continuous_->layoutWarning(), 10000);
+  }
+  if (continuousMode_) {
+    continuous_->editor()->setFocus();
   }
   return true;
 }

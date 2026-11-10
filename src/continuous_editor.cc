@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <limits>
 
+#include "page_text_edit.h"
+
 namespace markpad {
 namespace {
 
@@ -22,9 +24,9 @@ const QString kNotice = QStringLiteral(
     "run/block boundaries are protected; use Markdown for other changes. "
     "Links are inert: edit their labels only; use Markdown for addresses.");
 
-class PlainTextOnlyEdit final : public QTextEdit {
+class PlainTextOnlyEdit final : public PageTextEdit {
  public:
-  explicit PlainTextOnlyEdit(QWidget* parent) : QTextEdit(parent) {
+  explicit PlainTextOnlyEdit(QWidget* parent) : PageTextEdit(parent) {
     setAcceptRichText(false);
     setAcceptDrops(false);
     setUndoRedoEnabled(false);
@@ -552,6 +554,28 @@ bool ContinuousEditor::eventFilter(QObject* watched, QEvent* event) {
     }
   }
   return QWidget::eventFilter(watched, event);
+}
+
+void ContinuousEditor::setPaged(bool paged) {
+  paged_ = paged;
+  editor_->setPaged(paged);
+}
+
+void ContinuousEditor::setPageSetup(const PageSetup& setup) {
+  pageSetup_ = setup;
+  editor_->setPageSetup(setup);
+}
+
+int ContinuousEditor::pageCount() const {
+  return editor_ ? editor_->pageCount() : 0;
+}
+
+int ContinuousEditor::currentPage() const {
+  return editor_ ? editor_->currentPage() : 0;
+}
+
+QString ContinuousEditor::layoutWarning() const {
+  return editor_ ? editor_->layoutWarning() : QString{};
 }
 
 }  // namespace markpad
