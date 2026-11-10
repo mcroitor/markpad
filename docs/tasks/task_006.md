@@ -66,11 +66,11 @@
 - `ContinuousEditor` получил `setPaged`/`setPageSetup`/`pageCount`/`currentPage`/
   `layoutWarning`; rich editing, selection, undo/history и continuous mode
   используют одну session/model.
-- `MainWindow`: View → WYSIWYG (paged, limited), status bar `Page N of M`,
+- `MainWindow`: View → WYSIWYG (Page layout), status bar `Page N of M`,
   overflow indicator, page setup из global Settings (A4 portrait/20 мм по
   умолчанию), live перерасчёт при вводе/смене настроек.
 - Page setup хранится в Settings Service (Task 009), не в Markdown. Page size,
-  orientation и margins меняются через Preferences; per-document metadata и
+  orientation и margins меняются через Edit → Settings; per-document metadata и
   Auto Save не вводятся.
 - Добавлены layout tests: geometry, A4/landscape/margins, paragraph flow,
   headings/lists/code/tables/images, block boundaries, oversized block,

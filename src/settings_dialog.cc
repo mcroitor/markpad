@@ -18,7 +18,7 @@ namespace markpad {
 
 SettingsDialog::SettingsDialog(const QStringList& languages, QWidget* parent)
     : QDialog(parent) {
-  setWindowTitle(QStringLiteral("Preferences"));
+  setWindowTitle(QStringLiteral("Settings"));
   auto* layout = new QVBoxLayout(this);
 
   auto* general = new QGroupBox(QStringLiteral("Application"), this);
@@ -34,6 +34,14 @@ SettingsDialog::SettingsDialog(const QStringList& languages, QWidget* parent)
   defaultLocation_ = new QLineEdit(general);
   generalForm->addRow(QStringLiteral("Default file location"),
                       defaultLocation_);
+  auto* autoSave = new QCheckBox(
+      QStringLiteral("Auto Save (deferred)"), general);
+  autoSave->setObjectName(QStringLiteral("settingsAutoSave"));
+  autoSave->setEnabled(false);
+  autoSave->setToolTip(
+      QStringLiteral("Auto Save is deferred until a recovery policy is "
+                     "approved"));
+  generalForm->addRow(autoSave);
   layout->addWidget(general);
 
   auto* editor = new QGroupBox(QStringLiteral("Editor"), this);
@@ -45,6 +53,14 @@ SettingsDialog::SettingsDialog(const QStringList& languages, QWidget* parent)
   editorForm->addRow(QStringLiteral("Font size"), fontSize_);
   wordWrap_ = new QCheckBox(QStringLiteral("Wrap long lines"), editor);
   editorForm->addRow(wordWrap_);
+  auto* lineNumbers = new QCheckBox(
+      QStringLiteral("Line numbers (deferred)"), editor);
+  lineNumbers->setObjectName(QStringLiteral("settingsLineNumbers"));
+  lineNumbers->setEnabled(false);
+  lineNumbers->setToolTip(
+      QStringLiteral("Line-number gutter is deferred to a later settings "
+                     "slice"));
+  editorForm->addRow(lineNumbers);
   layout->addWidget(editor);
 
   auto* page = new QGroupBox(QStringLiteral("Page"), this);

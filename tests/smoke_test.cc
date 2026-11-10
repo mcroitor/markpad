@@ -6,14 +6,17 @@
 #include <QFile>
 #include <QFileOpenEvent>
 #include <QLabel>
+#include <QMenu>
 #include <QMimeData>
 #include <QPlainTextEdit>
+#include <QStatusBar>
 #include <QStyle>
 #include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextEdit>
 #include <QTextLayout>
+#include <QToolBar>
 #include <QUrl>
 #include <QtTest/QtTest>
 
@@ -1175,6 +1178,131 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(window->setContinuousMode(false));
     QVERIFY(!window->continuousMode());
     QVERIFY(!window->pagedMode());
+  }
+
+  void sketchMenuStructure() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    const auto names = [](QMenu* menu) {
+      QStringList result;
+      for (auto* action : menu->actions()) {
+        if (!action->isSeparator()) {
+          result.append(action->objectName());
+        }
+      }
+      return result;
+    };
+    auto* file = window->findChild<QMenu*>(QStringLiteral("fileMenu"));
+    QVERIFY(file);
+    QCOMPARE(names(file),
+             QStringList({QStringLiteral("newAction"),
+                          QStringLiteral("openAction"),
+                          QStringLiteral("saveAction"),
+                          QStringLiteral("saveAsAction"),
+                          QStringLiteral("exportAction"),
+                          QStringLiteral("printAction"),
+                          QStringLiteral("exitAction")}));
+    auto* exportMenu =
+        window->findChild<QMenu*>(QStringLiteral("exportMenu"));
+    QVERIFY(exportMenu);
+    QCOMPARE(names(exportMenu),
+             QStringList({QStringLiteral("exportPdfAction"),
+                          QStringLiteral("exportHtmlAction")}));
+    auto* edit = window->findChild<QMenu*>(QStringLiteral("editMenu"));
+    QVERIFY(edit);
+    QCOMPARE(names(edit),
+             QStringList({QStringLiteral("undoAction"),
+                          QStringLiteral("redoAction"),
+                          QStringLiteral("cutAction"),
+                          QStringLiteral("copyAction"),
+                          QStringLiteral("pasteAction"),
+                          QStringLiteral("settingsAction")}));
+    auto* format = window->findChild<QMenu*>(QStringLiteral("formatMenu"));
+    QVERIFY(format);
+    QCOMPARE(names(format),
+             QStringList({QStringLiteral("headingMenuAction"),
+                          QStringLiteral("boldAction"),
+                          QStringLiteral("italicAction"),
+                          QStringLiteral("strikethroughAction"),
+                          QStringLiteral("blockquoteAction"),
+                          QStringLiteral("codeAction"),
+                          QStringLiteral("horizontalLineAction"),
+                          QStringLiteral("linkAction"),
+                          QStringLiteral("imageAction"),
+                          QStringLiteral("tableAction"),
+                          QStringLiteral("listMenuAction")}));
+    auto* headingMenu =
+        window->findChild<QMenu*>(QStringLiteral("headingMenu"));
+    QVERIFY(headingMenu);
+    QCOMPARE(names(headingMenu),
+             QStringList({QStringLiteral("heading1Action"),
+                          QStringLiteral("heading2Action"),
+                          QStringLiteral("heading3Action"),
+                          QStringLiteral("heading4Action"),
+                          QStringLiteral("heading5Action"),
+                          QStringLiteral("heading6Action")}));
+    auto* listMenu = window->findChild<QMenu*>(QStringLiteral("listMenu"));
+    QVERIFY(listMenu);
+    QCOMPARE(names(listMenu),
+             QStringList({QStringLiteral("orderedListAction"),
+                          QStringLiteral("unorderedListAction")}));
+    auto* view = window->findChild<QMenu*>(QStringLiteral("viewMenu"));
+    QVERIFY(view);
+    QCOMPARE(names(view),
+             QStringList({QStringLiteral("fullScreenAction"),
+                          QStringLiteral("zoomInAction"),
+                          QStringLiteral("zoomOutAction"),
+                          QStringLiteral("resetZoomAction"),
+                          QStringLiteral("switchModeAction")}));
+    auto* modes =
+        window->findChild<QMenu*>(QStringLiteral("switchModeMenu"));
+    QVERIFY(modes);
+    QCOMPARE(names(modes),
+             QStringList({QStringLiteral("markdownModeAction"),
+                          QStringLiteral("continuousModeAction"),
+                          QStringLiteral("pagedModeAction")}));
+    auto* help = window->findChild<QMenu*>(QStringLiteral("helpMenu"));
+    QVERIFY(help);
+    QVERIFY(help->actions().isEmpty());
+
+    auto* toolbar =
+        window->findChild<QToolBar*>(QStringLiteral("mainToolBar"));
+    QVERIFY(toolbar);
+    const QStringList toolbarNames{
+        QStringLiteral("newAction"),
+        QStringLiteral("openAction"),
+        QStringLiteral("saveAction"),
+        QStringLiteral("undoAction"),
+        QStringLiteral("redoAction"),
+        QStringLiteral("settingsAction"),
+        QStringLiteral("headingMenuAction"),
+        QStringLiteral("boldAction"),
+        QStringLiteral("italicAction"),
+        QStringLiteral("strikethroughAction"),
+        QStringLiteral("blockquoteAction"),
+        QStringLiteral("codeAction"),
+        QStringLiteral("horizontalLineAction"),
+        QStringLiteral("linkAction"),
+        QStringLiteral("imageAction"),
+        QStringLiteral("tableAction"),
+        QStringLiteral("listMenuAction"),
+        QStringLiteral("orderedListAction"),
+        QStringLiteral("unorderedListAction"),
+        QStringLiteral("switchModeAction")};
+    QStringList actualToolbar;
+    for (auto* action : toolbar->actions()) {
+      if (!action->isSeparator()) {
+        actualToolbar.append(action->objectName());
+      }
+    }
+    QCOMPARE(actualToolbar, toolbarNames);
+    QVERIFY(window->statusBar()->currentMessage().contains(
+        QStringLiteral("Chars")));
+    QVERIFY(window->statusBar()->currentMessage().contains(
+        QStringLiteral("Words")));
+    QVERIFY(window->statusBar()->currentMessage().contains(
+        QStringLiteral("Lines")));
   }
 
   void settingsAppliedToExistingWindow() {

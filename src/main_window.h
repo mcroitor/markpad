@@ -102,6 +102,7 @@ class MainWindow final : public QMainWindow {
   ContinuousEditor* continuous_;
   bool continuousMode_ = false;
   bool pagedMode_ = false;
+  double zoom_ = 1.0;
   std::optional<ModeSelection> modeSelection_;
   std::vector<Edit> history_;
   size_t historyPosition_ = 0;

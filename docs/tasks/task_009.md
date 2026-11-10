@@ -67,10 +67,27 @@ Sketch предусматривает настройки языка, темы, e
   язык откатывается на English с diagnostic. UI меню/actions используют
   language map; смена языка применяется после перезапуска.
 - Shortcuts: validation QKeySequence, duplicates и reserved standard commands
-  отклоняются. Preferences dialog показывает ошибку до accept; MainWindow
+  отклоняются. Settings dialog показывает ошибку до accept; MainWindow
   применяет валидные mapping к actions по objectName после перезапуска.
 - `SettingsDialog`: theme/language/font/size/wrap/default location/page
   size/orientation/margins и shortcut overrides; OK валидирует значения.
+  Auto Save и Line Numbers присутствуют как явно disabled/deferred controls по
+  решению Task 010.
+- Menu bar приведён к [sketch.md](../../sketch.md): File (New, Open, Save,
+  Save As, Export→PDF/HTML, Print, Exit), Edit (Undo/Redo/Cut/Copy/Paste,
+  Settings), Format (Heading H1–H6, Bold/Italic/Strikethrough, Blockquote,
+  Code, Horizontal Line, Link, Image, Table, List→Ordered/Unordered), View
+  (Full Screen, Zoom In/Out/Reset, Switch Mode), Help. Недоступные сейчас
+  действия disabled с tooltip; PDF/Print зависят от Task 008.
+- Убраны лишние относительно sketch пункты: Close, Select All, Status bar,
+  About; Task/Paragraph остаются доступны через context menu, чтобы не терять
+  возможности Tasks 026–027 при точном menu bar.
+- Toolbar повторяет sketch: New/Open/Save, Undo/Redo/Settings, Heading,
+  Bold/Italic/Strikethrough, Blockquote/Code/Horizontal Line/Link/Image/Table,
+  List/Ordered/Unordered, Switch Mode.
+- Status bar показывает Characters/Words/Lines и Page N of M в paged mode
+  вместо прежней Ln/Col-индикации.
+- Menu/toolbar/status structure закреплена GUI test `sketchMenuStructure`.
 - MainWindow загружает settings при старте, применяет palette/font/wrap/default
   location/shortcuts, показывает диагностику повреждённого config в status bar.
   Default file location передаётся DocumentDialogs.
@@ -79,10 +96,11 @@ Sketch предусматривает настройки языка, темы, e
 
 ### Проверки
 
-- Windows UCRT64 Debug: build, **CTest 5/5 passed**; `markpad_settings`
-  **8 passed**; GUI smoke suite **73 passed**; MD4C suite **232 passed**.
-- Ubuntu WSL GCC 15.2 / Qt 6.10.2: clean configure/build, CTest **5/5 passed**.
-- Ubuntu sanitized Debug: ASan/UBSan/leaks, CTest **5/5 passed**.
+- Windows UCRT64 Debug: build, **CTest 6/6 passed**; `markpad_settings`
+  **8 passed**; `markpad_layout` **9 passed**; GUI smoke suite **75 passed**;
+  MD4C suite **232 passed**.
+- Ubuntu WSL GCC 15.2 / Qt 6.10.2: clean configure/build, CTest **6/6 passed**.
+- Ubuntu sanitized Debug: ASan/UBSan/leaks, CTest **6/6 passed**.
 - `git diff --check --ignore-space-at-eol` прошёл; сборка без warnings.
   Google clang-format в среде отсутствует; dry-run не выполнялся.
 - Native visual QA, clang-tidy и remote CI не запускались.

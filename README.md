@@ -215,8 +215,8 @@ and reports open/write/commit failures. Task 009 adds a versioned user settings
 service under the platform Markpad config directory: theme, language, editor
 font/size, word wrap, default file location, validated shortcut overrides and
 global page defaults (A4 portrait, 20 mm). English is built in; extra languages
-are loaded from `lang/*.ini` with English fallback. Preferences are edited in
-File → Preferences and applied after restart. Task 006 adds an editable paged
+are loaded from `lang/*.ini` with English fallback. Settings are edited in
+Edit → Settings and applied after restart. Task 006 adds an editable paged
 WYSIWYG mode with a deterministic page-layout engine: A4/Letter/Legal,
 portrait/landscape, configurable margins, block-based page placement, page
 count/navigation in the status bar and an overflow warning for blocks taller than
