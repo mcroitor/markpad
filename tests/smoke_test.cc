@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QMimeData>
 #include <QPlainTextEdit>
+#include <QStyle>
 #include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextEdit>
@@ -1138,6 +1139,30 @@ class MainWindowSmokeTest : public QObject {
     QCOMPARE(window->session().snapshot().source,
              std::string("[before](/keep \"title\")\n"));
     QApplication::clipboard()->clear();
+  }
+
+  void settingsAppliedToExistingWindow() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    Settings settings;
+    settings.theme = Theme::kLight;
+    settings.editorFontSize = 17;
+    settings.wordWrap = false;
+    settings.defaultFileLocation = QDir::tempPath();
+    settings.shortcuts.insert(QStringLiteral("boldAction"),
+                              QStringLiteral("Ctrl+Alt+B"));
+    QString error;
+    QVERIFY2(window->applySettings(settings, &error), qPrintable(error));
+    QCOMPARE(window->editor()->font().pointSize(), 17);
+    QCOMPARE(window->editor()->lineWrapMode(), QPlainTextEdit::NoWrap);
+    QCOMPARE(window->continuousEditor()->editor()->lineWrapMode(),
+             QTextEdit::NoWrap);
+    auto* bold = action(window, "boldAction");
+    QVERIFY(bold);
+    QCOMPARE(bold->shortcut(), QKeySequence(QStringLiteral("Ctrl+Alt+B")));
+    QCOMPARE(dialogs.defaultLocation(), QDir::tempPath());
+    QApplication::setPalette(QApplication::style()->standardPalette());
   }
 
   void continuousRejectedCommandsAndNoop() {

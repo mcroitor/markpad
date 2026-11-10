@@ -249,8 +249,13 @@ refusals и сохранением parent prefixes/references. Table-контр�
 [Task 007](docs/tasks/task_007.md) реализует безопасный HTML-экспорт из общего
 GFM AST: headings, paragraphs, lists/tasks, tables, code, emphasis, links/images;
 raw HTML экранируется, небезопасные URI схемы отклоняются, внешние ресурсы не
-загружаются. Запись UTF-8 идёт через `QSaveFile` с explicit error. PDF/paged
-export остаются будущей работой; UI-команд списков/цитат/таблиц нет.
+загружаются. Запись UTF-8 идёт через `QSaveFile` с explicit error.
+[Task 009](docs/tasks/task_009.md) добавляет Settings Service: versioned JSON в
+`AppConfigLocation` Markpad, defaults/validation/fallback, theme/language/editor
+preferences/default file location/shortcuts и глобальные page defaults (A4
+portrait/20 мм). Language — English fallback + `lang/*.ini`; настройки
+применяются после перезапуска. Auto Save и per-document page metadata отложены.
+PDF/paged export остаются будущей работой; UI-команд списков/цитат/таблиц нет.
 Следующие крупные направления — paged WYSIWYG, настройки и PDF/export
 completion.
 Последовательность продолжения: [Task 013](docs/tasks/task_013.md) →

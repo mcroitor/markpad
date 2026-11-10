@@ -9,6 +9,7 @@ set(CMAKE_AUTOMOC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 include(cmake/md4c.cmake)
+configure_file(lang/en.ini "${CMAKE_BINARY_DIR}/lang/en.ini" COPYONLY)
 
 add_library(markpad_markdown src/markdown_document.cc src/markdown_document.h)
 target_include_directories(markpad_markdown PUBLIC src)
@@ -39,6 +40,14 @@ target_include_directories(markpad_export PUBLIC src)
 target_link_libraries(markpad_export PUBLIC markpad_markdown Qt6::Core)
 target_compile_features(markpad_export PUBLIC cxx_std_20)
 
+add_library(markpad_settings
+    src/settings.cc
+    src/settings.h
+)
+target_include_directories(markpad_settings PUBLIC src)
+target_link_libraries(markpad_settings PUBLIC Qt6::Core Qt6::Gui)
+target_compile_features(markpad_settings PUBLIC cxx_std_20)
+
 add_library(markpad_ui
     src/application_controller.cc
     src/application_controller.h
@@ -50,10 +59,12 @@ add_library(markpad_ui
     src/main_window.h
     src/continuous_editor.cc
     src/continuous_editor.h
+    src/settings_dialog.cc
+    src/settings_dialog.h
 )
 target_include_directories(markpad_ui PUBLIC src)
 target_link_libraries(markpad_ui PUBLIC Qt6::Widgets markpad_files markpad_markdown
-    markpad_export)
+    markpad_export markpad_settings)
 target_compile_features(markpad_ui PUBLIC cxx_std_20)
 
 add_executable(markpad
@@ -66,6 +77,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(markpad_document PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(markpad_files PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(markpad_export PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(markpad_settings PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(markpad_ui PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(markpad PRIVATE -Wall -Wextra -Wpedantic)
 endif()
@@ -101,6 +113,18 @@ if(BUILD_TESTING)
         target_compile_options(markpad_export_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
     add_test(NAME markpad_html_export COMMAND markpad_export_tests)
+
+    add_executable(markpad_settings_tests tests/settings_test.cc)
+    target_link_libraries(markpad_settings_tests PRIVATE markpad_settings
+        Qt6::Test)
+    target_compile_features(markpad_settings_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(markpad_settings_tests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME markpad_settings COMMAND markpad_settings_tests)
+    set_tests_properties(markpad_settings PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
 
     add_executable(markpad_tests
         tests/smoke_test.cc

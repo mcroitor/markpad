@@ -2,6 +2,7 @@
 #define MARKPAD_SRC_MAIN_WINDOW_H_
 
 #include <QMainWindow>
+#include <QMap>
 #include <QString>
 #include <optional>
 #include <vector>
@@ -9,6 +10,7 @@
 #include "document_dialogs.h"
 #include "document_session.h"
 #include "markdown_document.h"
+#include "settings.h"
 
 class QAction;
 class QCloseEvent;
@@ -31,6 +33,8 @@ class MainWindow final : public QMainWindow {
   bool saveDocument();
   bool saveDocumentAs();
   bool exportHtml();
+  bool applySettings(const Settings& settings, QString* error = nullptr);
+  void showSettings();
   void undo();
   void redo();
   ContinuousEditor* continuousEditor() const { return continuous_; }
@@ -73,9 +77,14 @@ class MainWindow final : public QMainWindow {
   void refreshEditor(int cursor = 0);
   void refreshState();
   void report(const DocumentError& error);
+  QString text(const QString& key, const QString& fallback) const;
 
   DocumentSession session_;
   DocumentDialogs& dialogs_;
+  SettingsService settingsService_;
+  Settings settings_;
+  QMap<QString, QString> languageText_;
+  QString settingsDiagnostic_;
   QPlainTextEdit* editor_;
   QAction* undoAction_;
   QAction* redoAction_;

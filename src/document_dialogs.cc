@@ -38,7 +38,7 @@ QString displayPath(const std::filesystem::path& path) {
 
 QString DocumentDialogs::chooseOpen(QWidget* parent) {
   return QFileDialog::getOpenFileName(
-      parent, QStringLiteral("Open Markdown"), {},
+      parent, QStringLiteral("Open Markdown"), defaultLocation_,
       QStringLiteral("Markdown (*.md *.markdown);;All files (*)"));
 }
 
@@ -46,7 +46,8 @@ std::optional<SaveSelection> DocumentDialogs::chooseSave(QWidget* parent,
                                                          const QString& path,
                                                          FileFormat format) {
   const auto selected = QFileDialog::getSaveFileName(
-      parent, QStringLiteral("Save Markdown"), path,
+      parent, QStringLiteral("Save Markdown"),
+      path.isEmpty() ? defaultLocation_ : path,
       QStringLiteral("Markdown (*.md);;All files (*)"));
   if (selected.isEmpty()) {
     return std::nullopt;

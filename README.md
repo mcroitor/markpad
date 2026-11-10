@@ -211,7 +211,13 @@ Task 007 adds safe HTML export through File → Export HTML. The renderer walks 
 shared GFM AST, supports headings, paragraphs, lists/tasks, tables, code,
 emphasis, links and images, escapes raw HTML, and omits unsafe URI schemes
 (`javascript:`, `data:`, `file:`, etc.). Export writes UTF-8 through `QSaveFile`
-and reports open/write/commit failures. PDF/paged export remains future work.
+and reports open/write/commit failures. Task 009 adds a versioned user settings
+service under the platform Markpad config directory: theme, language, editor
+font/size, word wrap, default file location, validated shortcut overrides and
+global page defaults (A4 portrait, 20 mm). English is built in; extra languages
+are loaded from `lang/*.ini` with English fallback. Preferences are edited in
+File → Preferences and applied after restart. PDF/paged export remains future
+work.
 The MD4C tests pass locally on Windows and Ubuntu, including Linux ASan/UBSan.
 See [Task 002](docs/tasks/task_002.md) for limits, licensing and reproduction.
 See [Task 012](docs/tasks/task_012.md) for structural edits and snapshot guarantees.

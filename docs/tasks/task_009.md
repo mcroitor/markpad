@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Draft`
+- Статус: `Done` (решения Task 010 приняты; core settings + page defaults)
 - Владелец: C++ разработчик; архитектор подтверждает настройки
 - Приоритет: P2
 
@@ -16,9 +16,9 @@ Sketch предусматривает настройки языка, темы, e
 
 ## Область работ
 
-**Включено:** Settings Service, default values, schema version, конфигурационный путь Windows/Linux, настройка theme/language/editor behavior/default file location, customizing shortcuts, migration/invalid setting handling.
+**Включено:** Settings Service, default values, schema version, конфигурационный путь Windows/Linux, настройка theme/language/editor behavior/default file location, customizing shortcuts, migration/invalid setting handling, глобальные page-setup defaults (A4 portrait/20 мм) для Task 006.
 
-**Не включено:** Auto Save, page setup persistence, полноценная локализация всех строк без перевода.
+**Не включено:** Auto Save, per-document page metadata, полноценная локализация всех строк без перевода.
 
 ## Ограничения и предположения
 
@@ -42,7 +42,10 @@ Sketch предусматривает настройки языка, темы, e
 ## Зависимости и открытые вопросы
 
 - Зависимости: Tasks 001 и 004.
-- Блокер `Draft`: политика языка интерфейса (список локалей и fallback); точное расположение config/имя приложения.
+- Решения Task 010: config — пользовательский Markpad root (`AppConfigLocation`,
+  Windows `%APPDATA%/Markpad`, Linux `~/.config/Markpad`); English default,
+  дополнительные языки — `lang/*.ini` с fallback English; page-setup defaults
+  глобальные (A4 portrait/20 мм, configurable); Auto Save отложен.
 
 ## Исполнительский промпт
 
@@ -50,6 +53,48 @@ Sketch предусматривает настройки языка, темы, e
 
 ## Итог выполнения
 
-- Не начато.
-- Проверки: не запускались.
-- Блокеры: перечень локалей/fallback; имя приложения/config.
+### Реализация
+
+- Добавлены `src/settings.{h,cc}` и target `markpad_settings`: versioned JSON
+  settings schema 1, defaults, validation, partial-invalid fallback и
+  диагностика. Config root — `QStandardPaths::AppConfigLocation` для Markpad
+  (`%APPDATA%/Markpad`, `~/.config/Markpad`), файл `settings.json`.
+- Настройки: language, theme, editor font family/size, word wrap, default file
+  location, shortcuts и global PageSetup (A4/Letter/Legal, portrait/landscape,
+  четыре margins). Default: A4 portrait, 20 мм, English, system theme, 12 pt,
+  wrap on.
+- Language: встроенный English fallback + `lang/*.ini` в config root; неверный
+  язык откатывается на English с diagnostic. UI меню/actions используют
+  language map; смена языка применяется после перезапуска.
+- Shortcuts: validation QKeySequence, duplicates и reserved standard commands
+  отклоняются. Preferences dialog показывает ошибку до accept; MainWindow
+  применяет валидные mapping к actions по objectName после перезапуска.
+- `SettingsDialog`: theme/language/font/size/wrap/default location/page
+  size/orientation/margins и shortcut overrides; OK валидирует значения.
+- MainWindow загружает settings при старте, применяет palette/font/wrap/default
+  location/shortcuts, показывает диагностику повреждённого config в status bar.
+  Default file location передаётся DocumentDialogs.
+- Добавлен `lang/en.ini` как шаблон language-файла.
+- Auto Save остаётся отложенным; per-document page metadata не вводится.
+
+### Проверки
+
+- Windows UCRT64 Debug: build, **CTest 5/5 passed**; `markpad_settings`
+  **8 passed**; GUI smoke suite **73 passed**; MD4C suite **232 passed**.
+- Ubuntu WSL GCC 15.2 / Qt 6.10.2: clean configure/build, CTest **5/5 passed**.
+- Ubuntu sanitized Debug: ASan/UBSan/leaks, CTest **5/5 passed**.
+- `git diff --check --ignore-space-at-eol` прошёл; сборка без warnings.
+  Google clang-format в среде отсутствует; dry-run не выполнялся.
+- Native visual QA, clang-tidy и remote CI не запускались.
+
+### Ограничения
+
+- Line-number gutter не реализован по решению владельца (core settings slice).
+- Полная локализация всех строк не выполнена: language map применяется к
+  основным menu/action labels; смена языка требует перезапуска. Fallback
+  English гарантирован.
+- Auto Save и per-document page metadata не реализуются; page setup —
+  глобальные defaults для Task 006.
+- Config migration реализована только как safe fallback для schema > 1;
+  будущие версии должны добавить явные миграции.
+- Коммит/push не создавались.

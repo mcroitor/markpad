@@ -1,20 +1,26 @@
 #include "main_window.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QCloseEvent>
+#include <QColor>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFont>
 #include <QFontDatabase>
 #include <QKeyEvent>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPalette>
 #include <QPlainTextEdit>
 #include <QSignalBlocker>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QStyle>
 #include <QStringConverter>
 #include <QTextCursor>
 #include <QTextEdit>
+#include <QTimer>
 #include <QToolBar>
 #include <algorithm>
 
@@ -22,6 +28,7 @@
 #include "html_export.h"
 #include "markdown_highlighter.h"
 #include "qt_html_export_service.h"
+#include "settings_dialog.h"
 
 namespace markpad {
 namespace {
@@ -80,6 +87,11 @@ QString rawEditorText(QPlainTextEdit* editor) {
 
 MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
     : session_(files), dialogs_(dialogs), editor_(new QPlainTextEdit(this)) {
+  const auto loaded = settingsService_.load();
+  settings_ = loaded.settings;
+  languageText_ = settingsService_.languageMap(settings_.language);
+  settingsDiagnostic_ = loaded.diagnostic;
+  dialogs_.setDefaultLocation(settings_.defaultFileLocation);
   resize(1000, 700);
   editor_->setObjectName(QStringLiteral("markdownEditor"));
   editor_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
@@ -92,7 +104,8 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   setCentralWidget(workspace_);
   continuous_->editor()->installEventFilter(this);
   new MarkdownHighlighter(editor_->document());
-  auto* file = menuBar()->addMenu(QStringLiteral("&File"));
+  auto* file = menuBar()->addMenu(text(QStringLiteral("menu.file"),
+                                      QStringLiteral("&File")));
   auto* toolbar = addToolBar(QStringLiteral("File"));
   toolbar->setObjectName(QStringLiteral("fileToolbar"));
   const auto action = [&](const QString& text, const QString& name,
@@ -122,18 +135,26 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   action(QStringLiteral("Export &HTML..."),
          QStringLiteral("exportHtmlAction"), QKeySequence(),
          [this] { exportHtml(); });
+  action(text(QStringLiteral("action.preferences"),
+              QStringLiteral("&Preferences...")),
+         QStringLiteral("preferencesAction"), QKeySequence(),
+         [this] { showSettings(); });
   file->addSeparator();
   action(QStringLiteral("&Close"), QStringLiteral("closeAction"),
          QKeySequence::Close, [this] { close(); });
-  action(QStringLiteral("E&xit"), QStringLiteral("exitAction"),
-         QKeySequence::Quit, [this] { emit exitRequested(); });
+  action(text(QStringLiteral("action.exit"), QStringLiteral("E&xit")),
+         QStringLiteral("exitAction"), QKeySequence::Quit,
+         [this] { emit exitRequested(); });
 
-  auto* edit = menuBar()->addMenu(QStringLiteral("&Edit"));
-  undoAction_ = edit->addAction(QStringLiteral("&Undo"));
+  auto* edit = menuBar()->addMenu(
+      text(QStringLiteral("menu.edit"), QStringLiteral("&Edit")));
+  undoAction_ = edit->addAction(
+      text(QStringLiteral("action.undo"), QStringLiteral("&Undo")));
   undoAction_->setObjectName(QStringLiteral("undoAction"));
   undoAction_->setShortcut(QKeySequence::Undo);
   connect(undoAction_, &QAction::triggered, this, &MainWindow::undo);
-  redoAction_ = edit->addAction(QStringLiteral("&Redo"));
+  redoAction_ = edit->addAction(
+      text(QStringLiteral("action.redo"), QStringLiteral("&Redo")));
   redoAction_->setObjectName(QStringLiteral("redoAction"));
   redoAction_->setShortcut(QKeySequence::Redo);
   connect(redoAction_, &QAction::triggered, this, &MainWindow::redo);
@@ -152,24 +173,31 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
     });
     return value;
   };
-  cutAction_ = editAction(QStringLiteral("Cu&t"), QKeySequence::Cut,
-                          &QPlainTextEdit::cut, &QTextEdit::cut);
-  copyAction_ = editAction(QStringLiteral("&Copy"), QKeySequence::Copy,
-                           &QPlainTextEdit::copy, &QTextEdit::copy);
+  cutAction_ = editAction(
+      text(QStringLiteral("action.cut"), QStringLiteral("Cu&t")),
+      QKeySequence::Cut, &QPlainTextEdit::cut, &QTextEdit::cut);
+  copyAction_ = editAction(
+      text(QStringLiteral("action.copy"), QStringLiteral("&Copy")),
+      QKeySequence::Copy, &QPlainTextEdit::copy, &QTextEdit::copy);
   connect(editor_, &QPlainTextEdit::copyAvailable, this,
           &MainWindow::refreshState);
-  editAction(QStringLiteral("&Paste"), QKeySequence::Paste,
-             &QPlainTextEdit::paste, &QTextEdit::paste);
-  editAction(QStringLiteral("Select &All"), QKeySequence::SelectAll,
-             &QPlainTextEdit::selectAll, &QTextEdit::selectAll);
+  editAction(text(QStringLiteral("action.paste"), QStringLiteral("&Paste")),
+             QKeySequence::Paste, &QPlainTextEdit::paste, &QTextEdit::paste);
+  editAction(
+      text(QStringLiteral("action.selectAll"), QStringLiteral("Select &All")),
+      QKeySequence::SelectAll, &QPlainTextEdit::selectAll,
+      &QTextEdit::selectAll);
   editor_->addActions(edit->actions());
   editor_->setContextMenuPolicy(Qt::ActionsContextMenu);
   continuous_->editor()->addActions(edit->actions());
   continuous_->editor()->setContextMenuPolicy(Qt::ActionsContextMenu);
-  auto* format = menuBar()->addMenu(QStringLiteral("F&ormat"));
-  const QStringList inlineNames{QStringLiteral("&Bold"),
-                                QStringLiteral("&Italic"),
-                                QStringLiteral("&Strikethrough")};
+  auto* format = menuBar()->addMenu(
+      text(QStringLiteral("menu.format"), QStringLiteral("F&ormat")));
+  const QStringList inlineNames{
+      text(QStringLiteral("action.bold"), QStringLiteral("&Bold")),
+      text(QStringLiteral("action.italic"), QStringLiteral("&Italic")),
+      text(QStringLiteral("action.strikethrough"),
+           QStringLiteral("&Strikethrough"))};
   const QStringList inlineIds{QStringLiteral("boldAction"),
                               QStringLiteral("italicAction"),
                               QStringLiteral("strikethroughAction")};
@@ -187,11 +215,14 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
     connect(value, &QAction::triggered, this,
             [this, style] { continuous_->toggleInlineStyle(style); });
   }
-  auto* headings = format->addMenu(QStringLiteral("Heading"));
+  auto* headings = format->addMenu(
+      text(QStringLiteral("action.heading"), QStringLiteral("Heading")));
   for (int level = 0; level <= 6; ++level) {
-    auto* value =
-        headings->addAction(level == 0 ? QStringLiteral("Paragraph")
-                                       : QStringLiteral("H%1").arg(level));
+    auto* value = headings->addAction(
+        level == 0
+            ? text(QStringLiteral("action.paragraph"),
+                   QStringLiteral("Paragraph"))
+            : QStringLiteral("H%1").arg(level));
     value->setObjectName(QStringLiteral("heading%1Action").arg(level));
     headingActions_.push_back(value);
     connect(value, &QAction::triggered, this, [this, level] {
@@ -202,7 +233,9 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
       }
     });
   }
-  taskAction_ = format->addAction(QStringLiteral("Toggle task checked"));
+  taskAction_ = format->addAction(
+      text(QStringLiteral("action.toggleTask"),
+           QStringLiteral("Toggle task checked")));
   taskAction_->setObjectName(QStringLiteral("toggleTaskAction"));
   connect(taskAction_, &QAction::triggered, this, [this] {
     const auto node = continuous_->taskNode();
@@ -212,13 +245,17 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
           markdown::SetTaskChecked{*node, !continuous_->taskChecked()});
     }
   });
-  auto* view = menuBar()->addMenu(QStringLiteral("&View"));
-  auto* modes = view->addMenu(QStringLiteral("Switch mode"));
-  markdownAction_ = modes->addAction(QStringLiteral("Markdown"));
+  auto* view = menuBar()->addMenu(
+      text(QStringLiteral("menu.view"), QStringLiteral("&View")));
+  auto* modes = view->addMenu(
+      text(QStringLiteral("view.switchMode"), QStringLiteral("Switch mode")));
+  markdownAction_ = modes->addAction(
+      text(QStringLiteral("view.markdown"), QStringLiteral("Markdown")));
   markdownAction_->setObjectName(QStringLiteral("markdownModeAction"));
   markdownAction_->setCheckable(true);
-  continuousAction_ =
-      modes->addAction(QStringLiteral("WYSIWYG (continuous, limited)"));
+  continuousAction_ = modes->addAction(
+      text(QStringLiteral("view.continuous"),
+           QStringLiteral("WYSIWYG (continuous, limited)")));
   continuousAction_->setObjectName(QStringLiteral("continuousModeAction"));
   continuousAction_->setCheckable(true);
   connect(markdownAction_, &QAction::triggered, this,
@@ -226,13 +263,17 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   connect(continuousAction_, &QAction::triggered, this,
           [this] { setContinuousMode(true); });
   view->addAction(toolbar->toggleViewAction());
-  auto* status = view->addAction(QStringLiteral("Status bar"));
+  auto* status = view->addAction(
+      text(QStringLiteral("view.statusBar"), QStringLiteral("Status bar")));
   status->setCheckable(true);
   status->setChecked(true);
   connect(status, &QAction::toggled, statusBar(), &QStatusBar::setVisible);
-  auto* help = menuBar()->addMenu(QStringLiteral("&Help"));
-  connect(help->addAction(QStringLiteral("About Markpad")), &QAction::triggered,
-          this, [this] {
+  auto* help = menuBar()->addMenu(
+      text(QStringLiteral("menu.help"), QStringLiteral("&Help")));
+  connect(help->addAction(
+              text(QStringLiteral("help.about"),
+                   QStringLiteral("About Markpad"))),
+          &QAction::triggered, this, [this] {
             QMessageBox::about(
                 this, QStringLiteral("Markpad"),
                 QStringLiteral("Markpad - Markdown source editor"));
@@ -256,6 +297,15 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   connect(continuous_, &ContinuousEditor::commandRequested, this,
           &MainWindow::applyContinuousCommand);
   refreshEditor();
+  QString settingsError;
+  if (!applySettings(settings_, &settingsError)) {
+    settingsDiagnostic_ += settingsError;
+  }
+  if (!settingsDiagnostic_.isEmpty()) {
+    QTimer::singleShot(0, this, [this] {
+      statusBar()->showMessage(settingsDiagnostic_, 10000);
+    });
+  }
 }
 
 bool MainWindow::reusable() const {
@@ -346,6 +396,96 @@ bool MainWindow::exportHtml() {
   }
   statusBar()->showMessage(QStringLiteral("HTML exported"), 3000);
   return true;
+}
+
+QString MainWindow::text(const QString& key, const QString& fallback) const {
+  return languageText_.value(key, fallback);
+}
+
+bool MainWindow::applySettings(const Settings& settings, QString* error) {
+  QPalette palette = QApplication::style()->standardPalette();
+  if (settings.theme == Theme::kDark) {
+    const QColor window(45, 45, 48);
+    const QColor base(30, 30, 32);
+    const QColor text(230, 230, 230);
+    palette.setColor(QPalette::Window, window);
+    palette.setColor(QPalette::WindowText, text);
+    palette.setColor(QPalette::Base, base);
+    palette.setColor(QPalette::AlternateBase, window);
+    palette.setColor(QPalette::Text, text);
+    palette.setColor(QPalette::Button, window);
+    palette.setColor(QPalette::ButtonText, text);
+    palette.setColor(QPalette::ToolTipBase, base);
+    palette.setColor(QPalette::ToolTipText, text);
+    palette.setColor(QPalette::Highlight, QColor(68, 112, 180));
+    palette.setColor(QPalette::HighlightedText, Qt::white);
+    palette.setColor(QPalette::Disabled, QPalette::Text,
+                     QColor(140, 140, 140));
+    palette.setColor(QPalette::Disabled, QPalette::ButtonText,
+                     QColor(140, 140, 140));
+  }
+  QApplication::setPalette(palette);
+
+  QFont font = settings.editorFontFamily.trimmed().isEmpty()
+                   ? QFontDatabase::systemFont(QFontDatabase::FixedFont)
+                   : QFont(settings.editorFontFamily);
+  font.setPointSize(settings.editorFontSize);
+  editor_->setFont(font);
+  continuous_->editor()->setFont(font);
+  editor_->setLineWrapMode(settings.wordWrap ? QPlainTextEdit::WidgetWidth
+                                             : QPlainTextEdit::NoWrap);
+  continuous_->editor()->setLineWrapMode(
+      settings.wordWrap ? QTextEdit::WidgetWidth : QTextEdit::NoWrap);
+  dialogs_.setDefaultLocation(settings.defaultFileLocation);
+
+  QMap<QString, QAction*> actions;
+  for (auto* action : findChildren<QAction*>()) {
+    if (!action->objectName().isEmpty()) {
+      actions.insert(action->objectName(), action);
+    }
+  }
+  QStringList unknown;
+  for (auto it = settings.shortcuts.begin(); it != settings.shortcuts.end();
+       ++it) {
+    auto* action = actions.value(it.key());
+    if (!action) {
+      unknown.push_back(it.key());
+      continue;
+    }
+    action->setShortcut(QKeySequence::fromString(it.value()));
+  }
+  if (!unknown.isEmpty() && error) {
+    *error = QStringLiteral("Unknown shortcut targets: %1")
+                 .arg(unknown.join(QStringLiteral(", ")));
+    return false;
+  }
+  return true;
+}
+
+void MainWindow::showSettings() {
+  SettingsDialog dialog(settingsService_.languages(), this);
+  dialog.setValues(settings_);
+  if (dialog.exec() != QDialog::Accepted) {
+    return;
+  }
+  const auto values = dialog.values();
+  if (const auto error = settingsService_.save(values)) {
+    dialogs_.showError(this, *error);
+    return;
+  }
+  const auto previousLanguage = settings_.language;
+  settings_ = values;
+  languageText_ = settingsService_.languageMap(settings_.language);
+  QString error;
+  if (!applySettings(settings_, &error)) {
+    dialogs_.showError(this, error);
+  }
+  if (previousLanguage != settings_.language) {
+    statusBar()->showMessage(
+        QStringLiteral("Language changes take effect after restart"), 5000);
+  } else {
+    statusBar()->showMessage(QStringLiteral("Preferences saved"), 3000);
+  }
 }
 
 void MainWindow::refreshEditor(int position) {
