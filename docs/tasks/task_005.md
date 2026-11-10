@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026, 027, 028, 029)
+- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026, 027, 028, 029, 030)
 - Владелец: архитектор + C++ разработчик
 - Приоритет: P1
 
@@ -75,15 +75,21 @@ WYSIWYG continuous — полноценный редактируемый реж�
 - Реализована [Task 029](task_029.md): inert images с реальными alt-подписями и
   локальным редактированием alt без изменения src/title/definitions и без
   загрузки ресурсов. Создание/удаление изображений не включено.
+- Реализована [Task 030](task_030.md): контекстные Blockquote/Ordered/Unordered
+  actions, WrapInList для top-level paragraph и SetListKind для существующих
+  списков. Multi-block selection, list removal и list item operations остаются
+  вне среза.
 - Выполнена зависимая подготовка структурных команд:
   [Task 016](task_016.md) — exact source-map top-level списков/пунктов.
 - Реализована [Task 017](task_017.md): source-preserving InsertListItem,
   RemoveListItem, SetListKind и SetItemTask, definition inventory/conflict/use
-  checks и context-aware AST guard. UI-команды списков ещё не добавлены.
+  checks и context-aware AST guard. UI-команды списков добавлены в Task 030.
 - Реализована [Task 018](task_018.md): exact top-level quote ranges и
-  WrapInQuote/UnwrapQuote для document parent. UI-команд цитат ещё нет.
+  WrapInQuote/UnwrapQuote для document parent. UI-команды цитат добавлены в
+  Task 030.
 - Реализована [Task 019](task_019.md): nested LI/QUOTE mapping и list/quote
-  команды с virtual content/prefix rendering. UI-интеграции пока нет.
+  команды с virtual content/prefix rendering. UI-интеграция добавлена в Task
+  030.
 - Реализована [Task 020](task_020.md): атомарные IndentListItem/OutdentListItem
   для mapped list-контейнеров. UI-интеграции пока нет.
 - В [Task 025](task_025.md) согласована policy definitions: atomic reject

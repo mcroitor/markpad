@@ -41,6 +41,15 @@ class ContinuousEditor final : public QWidget {
   };
   InlineState inlineState(markdown::InlineStyle style) const;
   void toggleInlineStyle(markdown::InlineStyle style);
+  struct StructuralState {
+    std::optional<markdown::EditCommand> command;
+    bool checked = false;
+    QString reason;
+  };
+  StructuralState blockquoteState() const;
+  StructuralState listState(bool ordered) const;
+  void toggleBlockquote();
+  void changeListKind(bool ordered);
   void explainCursorMapping(bool exact);
   void setPaged(bool paged);
   bool paged() const { return paged_; }
@@ -70,6 +79,9 @@ class ContinuousEditor final : public QWidget {
     int end;
     std::optional<size_t> heading;
     std::optional<size_t> task;
+    size_t block;
+    std::optional<size_t> list;
+    std::optional<size_t> quote;
   };
   struct Change {
     int position;
@@ -77,11 +89,16 @@ class ContinuousEditor final : public QWidget {
     int added;
   };
   void renderBlock(size_t node, QTextCursor& cursor, int depth = 0,
-                   QString prefix = {}, std::optional<size_t> task = {});
+                   QString prefix = {}, std::optional<size_t> task = {},
+                   std::optional<size_t> list = {},
+                   std::optional<size_t> quote = {});
   void renderInline(size_t node, QTextCursor& cursor, QTextCharFormat format,
                     bool allowEditing = true);
   void beginBlock(QTextCursor& cursor, int depth);
-  void opaque(QTextCursor& cursor, const QString& label, int depth);
+  void opaque(QTextCursor& cursor, const QString& label, int depth,
+              std::optional<size_t> block = {},
+              std::optional<size_t> list = {},
+              std::optional<size_t> quote = {});
   void changed();
   void restore(const QString& reason);
   const Context* context() const;

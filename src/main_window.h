@@ -100,6 +100,9 @@ class MainWindow final : public QMainWindow {
   std::vector<QAction*> headingActions_;
   std::vector<QAction*> inlineActions_;
   QAction* taskAction_;
+  QAction* blockquoteAction_;
+  QAction* orderedListAction_;
+  QAction* unorderedListAction_;
   QStackedWidget* workspace_;
   ContinuousEditor* continuous_;
   bool continuousMode_ = false;

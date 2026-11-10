@@ -119,6 +119,13 @@ flowchart TB
 - Formatting spans внутри alt отображаются, но новые format commands внутри image alt не открыты; code/HTML/entity fragments protected. Cross-run/empty/newline/stale edits отклоняются, projection восстанавливается.
 - Создание/удаление images и изменение src/title не входят в срез; полная Task 005 остаётся In Progress.
 
+### Blockquote и списки в continuous (Task 030)
+
+- `ContinuousEditor` context хранит текущий block и ближайшие enclosing list/quote. Blockquote использует существующие `WrapInQuote`/`UnwrapQuote`; для tight LI оборачивается содержащий список, для loose paragraph/heading/code — сам блок.
+- `WrapInList` — новый source-preserving engine command для одного top-level paragraph: marker `- ` или `<start>. `, continuation indent для soft line breaks, сохранение EOL и байтов вне диапазона. Reference bindings проверяются через `parseListContext` и общий AST guard.
+- Ordered/Unordered actions вызывают `WrapInList` для top-level paragraph и `SetListKind` для существующего списка; tooltip/enabled state пересчитываются по контексту. Multi-block selection, list removal и list item insert/remove/indent/outdent UI не добавлены.
+- Structural actions идут через тот же `commandRequested`/Session/history path, что text/inline commands; direct source replacement и глобальная сериализация не используются.
+
 ### Исследовательский GFM слой
 
 Результаты [Task 002](docs/tasks/task_002.md#итог-выполнения) не подтверждают полный lossless pipeline: обнаружены ограничения task lists/сериализации `cmark-gfm` и потери при Qt Markdown round-trip. По решению владельца используется **MD4C с собственной моделью/частичным сериализатором**. Task 026 интегрирует только проверенное подмножество API 013; дальнейшие структурные операции требуют отдельных source-map контрактов.

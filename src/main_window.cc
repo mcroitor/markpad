@@ -278,10 +278,12 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
                                      "Markdown mode"));
     return value;
   };
-  auto* blockquote =
-      unavailable(text(QStringLiteral("action.blockquote"),
-                       QStringLiteral("Blockquote")),
-                  QStringLiteral("blockquoteAction"));
+  blockquoteAction_ = format->addAction(
+      text(QStringLiteral("action.blockquote"), QStringLiteral("Blockquote")));
+  blockquoteAction_->setObjectName(QStringLiteral("blockquoteAction"));
+  connect(blockquoteAction_, &QAction::triggered, this,
+          [this] { continuous_->toggleBlockquote(); });
+  auto* blockquote = blockquoteAction_;
   auto* code =
       unavailable(text(QStringLiteral("action.code"), QStringLiteral("Code")),
                   QStringLiteral("codeAction"));
@@ -302,18 +304,18 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
       text(QStringLiteral("action.list"), QStringLiteral("List")));
   listMenu->setObjectName(QStringLiteral("listMenu"));
   listMenu->menuAction()->setObjectName(QStringLiteral("listMenuAction"));
-  auto* ordered = listMenu->addAction(
+  orderedListAction_ = listMenu->addAction(
       text(QStringLiteral("action.orderedList"), QStringLiteral("Ordered")));
-  ordered->setObjectName(QStringLiteral("orderedListAction"));
-  ordered->setEnabled(false);
-  ordered->setToolTip(
-      QStringLiteral("Not implemented in WYSIWYG yet; use Markdown mode"));
-  auto* unordered = listMenu->addAction(
+  orderedListAction_->setObjectName(QStringLiteral("orderedListAction"));
+  connect(orderedListAction_, &QAction::triggered, this,
+          [this] { continuous_->changeListKind(true); });
+  auto* ordered = orderedListAction_;
+  unorderedListAction_ = listMenu->addAction(
       text(QStringLiteral("action.unorderedList"), QStringLiteral("Unordered")));
-  unordered->setObjectName(QStringLiteral("unorderedListAction"));
-  unordered->setEnabled(false);
-  unordered->setToolTip(
-      QStringLiteral("Not implemented in WYSIWYG yet; use Markdown mode"));
+  unorderedListAction_->setObjectName(QStringLiteral("unorderedListAction"));
+  connect(unorderedListAction_, &QAction::triggered, this,
+          [this] { continuous_->changeListKind(false); });
+  auto* unordered = unorderedListAction_;
   taskAction_ = new QAction(
       text(QStringLiteral("action.toggleTask"),
            QStringLiteral("Toggle task checked")),
@@ -790,6 +792,24 @@ void MainWindow::refreshState() {
     action->setChecked(continuousMode_ && state.checked);
     action->setToolTip(state.reason);
   }
+  const auto quoteState =
+      continuousMode_ ? continuous_->blockquoteState()
+                      : ContinuousEditor::StructuralState{};
+  blockquoteAction_->setEnabled(continuousMode_ &&
+                                quoteState.command.has_value());
+  blockquoteAction_->setToolTip(quoteState.reason);
+  const auto orderedState = continuousMode_
+                                ? continuous_->listState(true)
+                                : ContinuousEditor::StructuralState{};
+  orderedListAction_->setEnabled(continuousMode_ &&
+                                 orderedState.command.has_value());
+  orderedListAction_->setToolTip(orderedState.reason);
+  const auto unorderedState = continuousMode_
+                                  ? continuous_->listState(false)
+                                  : ContinuousEditor::StructuralState{};
+  unorderedListAction_->setEnabled(continuousMode_ &&
+                                   unorderedState.command.has_value());
+  unorderedListAction_->setToolTip(unorderedState.reason);
   const auto documentText = sourceText(session_.snapshot().source);
   int words = 0;
   bool inWord = false;

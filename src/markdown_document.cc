@@ -3750,6 +3750,97 @@ EditResult unwrapQuoteSource(const Document& document,
   return apply(document, expected, mapped.quote->range, replacement);
 }
 
+EditResult wrapInListSource(const Document& document, const WrapInList& edit) {
+  if (document.nodes.empty() || edit.parent != 0 ||
+      document.nodes[0].kind != NodeKind::kBlock ||
+      document.nodes[0].type != MD_BLOCK_DOC) {
+    return {std::nullopt,
+            QStringLiteral("List creation requires the document root")};
+  }
+  const auto& root = document.nodes[0];
+  if (edit.first >= root.children.size()) {
+    return {std::nullopt, QStringLiteral("Invalid list selection")};
+  }
+  const auto block = root.children[edit.first];
+  if (block >= document.nodes.size() ||
+      document.nodes[block].kind != NodeKind::kBlock ||
+      document.nodes[block].type != MD_BLOCK_P) {
+    return {std::nullopt,
+            QStringLiteral("List creation requires a paragraph")};
+  }
+  if (edit.ordered && (edit.start < 1 || edit.start > 999999999)) {
+    return {std::nullopt, QStringLiteral("Invalid ordered list start")};
+  }
+  qsizetype first = document.source.size();
+  qsizetype end = 0;
+  if (!mappedTextBounds(document, block, first, end) || first >= end) {
+    return {std::nullopt,
+            QStringLiteral("Block has no supported source range")};
+  }
+  const auto start =
+      first == 0 ? 0 : document.source.lastIndexOf('\n', first - 1) + 1;
+  const auto newline = document.source.indexOf('\n', end - 1);
+  const auto fullEnd = newline < 0 ? document.source.size() : newline + 1;
+  const SourceRange range{start, fullEnd - start};
+  const auto original = document.source.mid(range.offset, range.size);
+  const auto lines = listLines(original);
+  if (lines.empty()) {
+    return {std::nullopt, QStringLiteral("Paragraph has no source lines")};
+  }
+  const auto marker = edit.ordered
+                          ? QByteArray::number(edit.start) + QByteArray(". ")
+                          : QByteArray("- ");
+  const QByteArray continuation(marker.size(), ' ');
+  QByteArray replacement;
+  for (size_t i = 0; i < lines.size(); ++i) {
+    const auto& line = lines[i];
+    const auto body = original.mid(line.start, line.bodyEnd - line.start);
+    const auto ending = original.mid(line.bodyEnd, line.end - line.bodyEnd);
+    if (body.isEmpty() || body.startsWith(' ') || body.startsWith('\t')) {
+      return {std::nullopt,
+              QStringLiteral("List creation requires an unindented paragraph")};
+    }
+    replacement += i == 0 ? marker : continuation;
+    replacement += body;
+    replacement += ending;
+  }
+  const auto definitions = definitionInventory(document);
+  QString contextError;
+  auto parsed = parseListContext(document, definitions, range.offset,
+                                 range.offset + range.size, replacement,
+                                 contextError);
+  if (!parsed) {
+    return {std::nullopt, contextError};
+  }
+  const auto& list = parsed->document.nodes[parsed->root];
+  const auto expectedType = edit.ordered ? MD_BLOCK_OL : MD_BLOCK_UL;
+  if (list.kind != NodeKind::kBlock || list.type != expectedType ||
+      list.children.size() != 1) {
+    return {std::nullopt, QStringLiteral("Structural list mismatch")};
+  }
+  const auto itemIndex = list.children.front();
+  if (itemIndex >= parsed->document.nodes.size() ||
+      parsed->document.nodes[itemIndex].kind != NodeKind::kBlock ||
+      parsed->document.nodes[itemIndex].type != MD_BLOCK_LI) {
+    return {std::nullopt, QStringLiteral("Structural list item mismatch")};
+  }
+  if (edit.ordered &&
+      list.attributes["start"].toInt() != edit.start) {
+    return {std::nullopt,
+            QStringLiteral("Structural ordered list start mismatch")};
+  }
+  auto expected = document;
+  auto& siblings = expected.nodes[0].children;
+  const auto position = std::find(siblings.begin(), siblings.end(), block);
+  if (position == siblings.end()) {
+    return {std::nullopt, QStringLiteral("Invalid list selection")};
+  }
+  const auto newIndex =
+      copySubtree(expected, parsed->document, parsed->root, 0);
+  *position = newIndex;
+  return apply(document, expected, range, replacement);
+}
+
 std::optional<SourceRange> contentRangeFor(const Document& document,
                                            const ListItemSource& item,
                                            SourceRange real) {
@@ -4635,6 +4726,8 @@ ParseResult applyEdit(const Document& document, const SnapshotToken& token,
           return wrapInQuoteSource(document, edit);
         } else if constexpr (std::is_same_v<Command, UnwrapQuote>) {
           return unwrapQuoteSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, WrapInList>) {
+          return wrapInListSource(document, edit);
         } else if constexpr (std::is_same_v<Command, IndentListItem>) {
           return indentListItemSource(document, edit);
         } else if constexpr (std::is_same_v<Command, OutdentListItem>) {

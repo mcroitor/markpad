@@ -107,6 +107,11 @@ Continuous mode formats headings, paragraphs, emphasis/strong/strikethrough and
 list/quote content. Blue-background text runs support local text edits; grey
 fragments/placeholders are protected. **Format > Heading** and **Toggle task
 checked** are available only where the source map proves the operation safe.
+**Format > Blockquote** toggles a quote around the current paragraph, heading,
+code block or containing list. **Format > List > Ordered/Unordered** converts a
+top-level paragraph into a list or changes an existing list kind. These actions
+are enabled contextually; multi-block selections and unsupported containers are
+rejected or disabled with an explanation.
 **Bold**, **Italic** and **Strikethrough** operate on a nonempty selection within
 one editable text run; Bold/Italic also support their standard keyboard shortcuts.
 Repeating a style removes it only when the entire simple span is selected.
@@ -181,10 +186,12 @@ changed lists renumber sequentially; task conversion does not renumber; removing
 the last item deletes the list. Definitions use document-global MD4C/GFM label
 equivalence: collisions and changes to surviving bindings are rejected atomically,
 used definitions cannot be removed, and unused definitions are deleted with their
-owner. There are still no list command entry points in the UI; internal
-definitions before the first rendered paragraph cannot be combined with task
-toggling. Task 018 adds exact top-level quote ranges and source-preserving
-`WrapInQuote`/`UnwrapQuote` for the document parent: explicit `>` prefixes,
+owner. Task 030 exposes Blockquote and Ordered/Unordered in the continuous UI;
+list item insert/remove/indent/outdent and list removal remain internal or
+require Markdown. Definitions before the first rendered paragraph cannot be
+combined with task toggling. Task 018 adds exact top-level quote ranges and
+source-preserving `WrapInQuote`/`UnwrapQuote` for the document parent: explicit
+`>` prefixes,
 quoted blank lines, multiline paragraphs, closed fenced code and inline HTML are
 supported; lazy continuations are rejected. Task 019 extends list/quote mapping
 and the same commands to nested LI/QUOTE parents (depth 1–3) using a

@@ -136,16 +136,25 @@ void ContinuousEditor::beginBlock(QTextCursor& cursor, int depth) {
 }
 
 void ContinuousEditor::opaque(QTextCursor& cursor, const QString& label,
-                              int depth) {
+                              int depth, std::optional<size_t> block,
+                              std::optional<size_t> list,
+                              std::optional<size_t> quote) {
   beginBlock(cursor, depth);
+  const int start = cursor.position();
   QTextCharFormat format;
   format.setForeground(QColor(100, 100, 100));
   format.setBackground(QColor(235, 235, 235));
   cursor.insertText(QStringLiteral("[Read-only: ") + label + ']', format);
+  if (block) {
+    contexts_.push_back(
+        {start, cursor.position(), {}, {}, *block, list, quote});
+  }
 }
 
 void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
-                                   QString prefix, std::optional<size_t> task) {
+                                   QString prefix, std::optional<size_t> task,
+                                   std::optional<size_t> list,
+                                   std::optional<size_t> quote) {
   const auto& node = document_->nodes[index];
   if (node.kind != markdown::NodeKind::kBlock) {
     return;
@@ -153,6 +162,12 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
   if (node.type == MD_BLOCK_DOC || node.type == MD_BLOCK_QUOTE ||
       node.type == MD_BLOCK_UL || node.type == MD_BLOCK_OL) {
     qint64 number = node.attributes["start"].toInteger(1);
+    const auto childList =
+        node.type == MD_BLOCK_UL || node.type == MD_BLOCK_OL
+            ? std::optional<size_t>(index)
+            : list;
+    const auto childQuote =
+        node.type == MD_BLOCK_QUOTE ? std::optional<size_t>(index) : quote;
     for (auto child : node.children) {
       QString marker;
       if (node.type == MD_BLOCK_UL) {
@@ -161,7 +176,7 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
         marker = QString::number(number++) + QStringLiteral(". ");
       }
       renderBlock(child, cursor, depth + (node.type == MD_BLOCK_QUOTE ? 1 : 0),
-                  marker);
+                  marker, {}, childList, childQuote);
     }
     return;
   }
@@ -179,7 +194,7 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
       bool first = true;
       for (auto child : node.children) {
         renderBlock(child, cursor, depth + (first ? 0 : 1),
-                    first ? prefix : QString{}, task);
+                    first ? prefix : QString{}, task, list, quote);
         first = false;
       }
       return;
@@ -208,7 +223,8 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
     if (mappedBlocks_[index]) {
       heading = index;
     }
-    contexts_.push_back({start, cursor.position(), heading, task});
+    contexts_.push_back({start, cursor.position(), heading, task, index, list,
+                         quote});
     return;
   }
   QString label = QStringLiteral("unsupported block - edit in Markdown");
@@ -228,7 +244,9 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
     default:
       break;
   }
-  opaque(cursor, label, depth);
+  const auto block =
+      node.type == MD_BLOCK_CODE ? std::optional<size_t>(index) : std::nullopt;
+  opaque(cursor, label, depth, block, list, quote);
 }
 
 void ContinuousEditor::renderInline(size_t index, QTextCursor& cursor,
@@ -519,6 +537,130 @@ ContinuousEditor::InlineState ContinuousEditor::inlineState(
 
 void ContinuousEditor::toggleInlineStyle(markdown::InlineStyle style) {
   const auto state = inlineState(style);
+  if (!state.command) {
+    emit errorOccurred(state.reason);
+    return;
+  }
+  emit commandRequested(token_, *state.command,
+                        editor_->textCursor().position());
+}
+
+ContinuousEditor::StructuralState ContinuousEditor::blockquoteState() const {
+  const auto* value = context();
+  if (!document_ || !value) {
+    return {{},
+            false,
+            QStringLiteral("Blockquote requires the cursor inside one "
+                           "editable block.")};
+  }
+  if (value->quote) {
+    const auto command = markdown::UnwrapQuote{*value->quote};
+    const auto result = apply(command);
+    if (!result.document) {
+      return {{}, true, result.error};
+    }
+    return {command, true, {}};
+  }
+  auto target = value->block;
+  if (document_->nodes[target].type == MD_BLOCK_LI && value->list) {
+    target = *value->list;
+  }
+  const auto& block = document_->nodes[target];
+  const auto parent = block.parent.value_or(0);
+  if (parent >= document_->nodes.size()) {
+    return {{}, false, QStringLiteral("Invalid blockquote parent.")};
+  }
+  const auto& container = document_->nodes[parent];
+  if (container.kind != markdown::NodeKind::kBlock ||
+      (container.type != MD_BLOCK_DOC && container.type != MD_BLOCK_QUOTE &&
+       container.type != MD_BLOCK_LI)) {
+    return {{},
+            false,
+            QStringLiteral("Blockquote requires a paragraph, heading, list or "
+                           "code block; use Markdown for this block.")};
+  }
+  const auto position =
+      std::find(container.children.begin(), container.children.end(), target);
+  if (position == container.children.end()) {
+    return {{}, false, QStringLiteral("Invalid blockquote target.")};
+  }
+  const auto command = markdown::WrapInQuote{
+      parent, size_t(position - container.children.begin()), size_t{1}};
+  const auto result = apply(command);
+  if (!result.document) {
+    return {{}, false, result.error};
+  }
+  return {command, false, {}};
+}
+
+ContinuousEditor::StructuralState ContinuousEditor::listState(
+    bool ordered) const {
+  const auto* value = context();
+  if (!document_ || !value) {
+    return {{},
+            false,
+            QStringLiteral("Lists require the cursor inside one editable "
+                           "block.")};
+  }
+  if (value->list) {
+    const auto& list = document_->nodes[*value->list];
+    if (list.kind != markdown::NodeKind::kBlock ||
+        (list.type != MD_BLOCK_UL && list.type != MD_BLOCK_OL)) {
+      return {{}, false, QStringLiteral("Invalid list target.")};
+    }
+    const bool currentOrdered = list.type == MD_BLOCK_OL;
+    const int start =
+        ordered ? (currentOrdered ? list.attributes["start"].toInt() : 1) : 0;
+    const auto command = markdown::SetListKind{*value->list, ordered, start};
+    const auto result = apply(command);
+    if (!result.document) {
+      return {{}, currentOrdered == ordered, result.error};
+    }
+    return {command, currentOrdered == ordered, {}};
+  }
+  if (value->quote) {
+    return {{},
+            false,
+            QStringLiteral("List creation inside a blockquote is not "
+                           "supported yet; use Markdown.")};
+  }
+  const auto& block = document_->nodes[value->block];
+  if (block.kind != markdown::NodeKind::kBlock ||
+      block.type != MD_BLOCK_P ||
+      block.parent != std::optional<size_t>(0)) {
+    return {{},
+            false,
+            QStringLiteral("List creation requires a top-level paragraph; use "
+                           "Markdown for this block.")};
+  }
+  const auto& root = document_->nodes[0];
+  const auto position =
+      std::find(root.children.begin(), root.children.end(), value->block);
+  if (position == root.children.end()) {
+    return {{}, false, QStringLiteral("Invalid list target.")};
+  }
+  const auto command =
+      markdown::WrapInList{0, size_t(position - root.children.begin()), ordered,
+                           ordered ? 1 : 0};
+  const auto result = apply(command);
+  if (!result.document) {
+    return {{}, false, result.error};
+  }
+  return {command, false, {}};
+}
+
+void ContinuousEditor::toggleBlockquote() {
+  const auto state = blockquoteState();
+  if (!state.command) {
+    emit errorOccurred(state.reason);
+    return;
+  }
+  emit commandRequested(token_, *state.command,
+                        editor_->textCursor().position());
+}
+
+void ContinuousEditor::changeListKind(bool ordered) {
+  const auto state = listState(ordered);
   if (!state.command) {
     emit errorOccurred(state.reason);
     return;

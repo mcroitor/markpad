@@ -1350,6 +1350,122 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(dialogs.errors.empty());
   }
 
+  void continuousStructuralCommands() {
+    const QByteArray source =
+        "alpha\n\nbeta\n\ngamma\n\n- one\n- two\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    const bool originalDirty = window->session().dirty();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    auto* quote = action(window, "blockquoteAction");
+    auto* ordered = action(window, "orderedListAction");
+    auto* unordered = action(window, "unorderedListAction");
+    QVERIFY(quote);
+    QVERIFY(ordered);
+    QVERIFY(unordered);
+    const auto place = [&](const QString& text) {
+      auto cursor = rich->document()->find(text);
+      QVERIFY(!cursor.isNull());
+      rich->setTextCursor(cursor);
+    };
+
+    place(QStringLiteral("alpha"));
+    QVERIFY(quote->isEnabled());
+    QVERIFY(ordered->isEnabled());
+    QVERIFY(unordered->isEnabled());
+    quote->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("> alpha\n\nbeta\n\ngamma\n\n- one\n- two\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    place(QStringLiteral("alpha"));
+    QVERIFY(quote->isEnabled());
+    quote->trigger();
+    place(QStringLiteral("alpha"));
+    QVERIFY(quote->isEnabled());
+    quote->trigger();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    window->undo();
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    place(QStringLiteral("beta"));
+    QVERIFY(ordered->isEnabled());
+    ordered->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\n1. beta\n\ngamma\n\n- one\n- two\n"));
+    place(QStringLiteral("beta"));
+    QVERIFY(unordered->isEnabled());
+    unordered->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\n- beta\n\ngamma\n\n- one\n- two\n"));
+    window->undo();
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    place(QStringLiteral("one"));
+    QVERIFY(ordered->isEnabled());
+    ordered->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\nbeta\n\ngamma\n\n1. one\n2. two\n"));
+    place(QStringLiteral("one"));
+    QVERIFY(unordered->isEnabled());
+    unordered->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\nbeta\n\ngamma\n\n- one\n- two\n"));
+    window->undo();
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    place(QStringLiteral("one"));
+    QVERIFY(quote->isEnabled());
+    quote->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\nbeta\n\ngamma\n\n> - one\n> - two\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    rich->selectAll();
+    QVERIFY(!quote->isEnabled());
+    QVERIFY(!ordered->isEnabled());
+    QVERIFY(!unordered->isEnabled());
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(window->setContinuousMode(false));
+    QVERIFY(!quote->isEnabled());
+    QVERIFY(!ordered->isEnabled());
+    QVERIFY(!unordered->isEnabled());
+    QCOMPARE(window->session().dirty(), originalDirty);
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousCodeBlockQuote() {
+    const QByteArray source = "```\ncode\n```\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    auto* quote = action(window, "blockquoteAction");
+    QVERIFY(quote);
+    auto cursor = rich->document()->find(QStringLiteral("Read-only: code"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    QVERIFY(quote->isEnabled());
+    quote->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("> ```\n> code\n> ```\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(dialogs.errors.empty());
+  }
+
   void settingsAppliedToExistingWindow() {
     TestDialogs dialogs;
     ApplicationController controller(dialogs);

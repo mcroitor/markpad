@@ -1448,6 +1448,130 @@ class Md4cSourceTest : public QObject {
     QCOMPARE(doc.revision, quint64(0));
   }
 
+  void wrapInList_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<bool>("ordered");
+    QTest::addColumn<int>("start");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("unordered") << QByteArray("alpha\n") << false << 0
+                               << QByteArray("- alpha\n");
+    QTest::newRow("ordered") << QByteArray("alpha\n") << true << 1
+                             << QByteArray("1. alpha\n");
+    QTest::newRow("ordered-start") << QByteArray("alpha\n") << true << 3
+                                   << QByteArray("3. alpha\n");
+    QTest::newRow("multiline") << QByteArray("alpha\nbeta\n") << false << 0
+                               << QByteArray("- alpha\n  beta\n");
+    QTest::newRow("multiline-ordered")
+        << QByteArray("alpha\nbeta\n") << true << 1
+        << QByteArray("1. alpha\n   beta\n");
+    QTest::newRow("crlf") << QByteArray("alpha\r\nbeta\r\n") << true << 1
+                          << QByteArray("1. alpha\r\n   beta\r\n");
+    QTest::newRow("eof") << QByteArray("alpha") << false << 0
+                         << QByteArray("- alpha");
+    QTest::newRow("reference")
+        << QByteArray("[x][id]\n\n[id]: /keep \"K\"\n") << false << 0
+        << QByteArray("- [x][id]\n\n[id]: /keep \"K\"\n");
+  }
+
+  void wrapInList() {
+    QFETCH(QByteArray, source);
+    QFETCH(bool, ordered);
+    QFETCH(int, start);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY2(parsed.document, qPrintable(parsed.error));
+    const auto& doc = *parsed.document;
+    QVERIFY(!doc.nodes[0].children.empty());
+    const auto result = editBytes(doc, WrapInList{0, 0, ordered, start});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+    const auto reparsed = parse(*result.source);
+    QVERIFY(reparsed.document);
+    const auto& root = reparsed.document->nodes[0];
+    QCOMPARE(root.children.size(), size_t(1));
+    const auto& list = reparsed.document->nodes[root.children.front()];
+    QCOMPARE(int(list.type), ordered ? MD_BLOCK_OL : MD_BLOCK_UL);
+    QCOMPARE(list.children.size(), size_t(1));
+    QVERIFY(list.attributes["tight"].toBool());
+    if (ordered) {
+      QCOMPARE(list.attributes["start"].toInt(), start);
+    }
+    const auto& item = reparsed.document->nodes[list.children.front()];
+    QCOMPARE(int(item.type), MD_BLOCK_LI);
+    QVERIFY(!item.children.empty());
+
+    const auto foreign = parse("other\n");
+    QVERIFY(foreign.document);
+    const auto rejected =
+        applyEdit(doc, snapshotToken(*foreign.document),
+                  WrapInList{0, 0, ordered, start});
+    QVERIFY(!rejected.document);
+    QVERIFY(!rejected.error.isEmpty());
+  }
+
+  void wrapInListSecondBlock() {
+    const QByteArray source = "before\n\nafter\n";
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    QCOMPARE(doc.nodes[0].children.size(), size_t(2));
+    const auto result = editBytes(doc, WrapInList{0, 1, false, 0});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, QByteArray("before\n\n- after\n"));
+    const auto reparsed = parse(*result.source);
+    QVERIFY(reparsed.document);
+    const auto& root = reparsed.document->nodes[0];
+    QCOMPARE(root.children.size(), size_t(2));
+    QCOMPARE(int(reparsed.document->nodes[root.children.front()].type),
+             MD_BLOCK_P);
+    QCOMPARE(int(reparsed.document->nodes[root.children.back()].type),
+             MD_BLOCK_UL);
+  }
+
+  void wrapInListRejected_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<size_t>("parent");
+    QTest::addColumn<size_t>("first");
+    QTest::addColumn<bool>("ordered");
+    QTest::addColumn<int>("start");
+    QTest::addColumn<QString>("error");
+    QTest::newRow("non-root") << QByteArray("alpha\n") << size_t(1) << size_t(0)
+                              << false << 0 << QStringLiteral("root");
+    QTest::newRow("position") << QByteArray("alpha\n") << size_t(0) << size_t(1)
+                              << false << 0 << QStringLiteral("selection");
+    QTest::newRow("heading") << QByteArray("# alpha\n") << size_t(0) << size_t(0)
+                             << false << 0 << QStringLiteral("paragraph");
+    QTest::newRow("list") << QByteArray("- alpha\n") << size_t(0) << size_t(0)
+                          << false << 0 << QStringLiteral("paragraph");
+    QTest::newRow("indented") << QByteArray("  alpha\n") << size_t(0)
+                              << size_t(0) << false << 0
+                              << QStringLiteral("unindented");
+    QTest::newRow("continuation") << QByteArray("alpha\n  beta\n") << size_t(0)
+                                  << size_t(0) << false << 0
+                                  << QStringLiteral("unindented");
+    QTest::newRow("ordered-start") << QByteArray("alpha\n") << size_t(0)
+                                   << size_t(0) << true << 0
+                                   << QStringLiteral("start");
+  }
+
+  void wrapInListRejected() {
+    QFETCH(QByteArray, source);
+    QFETCH(size_t, parent);
+    QFETCH(size_t, first);
+    QFETCH(bool, ordered);
+    QFETCH(int, start);
+    QFETCH(QString, error);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    const auto result =
+        editBytes(doc, WrapInList{parent, first, ordered, start});
+    QVERIFY(!result.source);
+    QVERIFY2(result.error.contains(error), qPrintable(result.error));
+    QCOMPARE(doc.source, source);
+    QCOMPARE(doc.revision, quint64(0));
+  }
+
   void listRemove_data() {
     QTest::addColumn<QByteArray>("source");
     QTest::addColumn<int>("item");
