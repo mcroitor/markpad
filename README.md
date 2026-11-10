@@ -193,8 +193,11 @@ are renumbered, and empty nested lists are removed without moving siblings or
 cascading parent containers. Task 021 adds exact top-level GFM table mapping:
 table/header/delimiter/body-row ranges, raw cell fragments with escaped pipes and
 inline spelling, dimensions and alignment; bound references are validated in
-document context. Table mutation commands (022–024) and nested-table mapping are
-not implemented yet.
+document context. Task 022 adds `InsertTableRow`, `RemoveTableRow` and
+`SetTableAlignment` with bounded normalization, plain-text escaping for new
+cells, raw preservation of existing cells and byte-exact alignment no-ops.
+Table column/removal commands (023–024) and nested-table mapping are not
+implemented yet.
 See [Task 016](docs/tasks/task_016.md), [Task 017](docs/tasks/task_017.md),
 [Task 018](docs/tasks/task_018.md), [Task 019](docs/tasks/task_019.md),
 [Task 020](docs/tasks/task_020.md) and [Task 021](docs/tasks/task_021.md).

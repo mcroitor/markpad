@@ -212,5 +212,8 @@ incremental оптимизации. Отказы должны быть явны�
   Reference policy 025 v1 согласована; Task 014 Done.
 - [Task 021](task_021.md) Done: exact top-level table/header/delimiter/body
   row/raw-cell ranges, alignment mapping и context-aware reference validation.
-  Windows/Linux CTest и Linux ASan/UBSan/leaks — 3/3. Table mutations 022–024
-  ещё не реализованы; родитель 015 остаётся In Progress.
+  Windows/Linux CTest и Linux ASan/UBSan/leaks — 3/3.
+- [Task 022](task_022.md) Done: InsertTableRow/RemoveTableRow/
+  SetTableAlignment, normalized table serializer и plain-text cell policy.
+  Windows/Linux CTest и Linux ASan/UBSan/leaks — 3/3. Columns/RemoveTable 023
+  и nested tables 024 ещё не реализованы; родитель 015 In Progress.

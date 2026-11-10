@@ -182,11 +182,26 @@ struct IndentListItem {
 struct OutdentListItem {
   size_t item;
 };
+struct InsertTableRow {
+  size_t table;
+  size_t position;
+  std::vector<QByteArray> cells;
+};
+struct RemoveTableRow {
+  size_t table;
+  size_t index;
+};
+struct SetTableAlignment {
+  size_t table;
+  size_t column;
+  TableAlignment alignment;
+};
 
 using EditCommand =
     std::variant<ReplaceText, SetTaskChecked, SetHeadingLevel, ToggleInlineStyle,
                  InsertListItem, RemoveListItem, SetListKind, SetItemTask,
-                 WrapInQuote, UnwrapQuote, IndentListItem, OutdentListItem>;
+                 WrapInQuote, UnwrapQuote, IndentListItem, OutdentListItem,
+                 InsertTableRow, RemoveTableRow, SetTableAlignment>;
 
 // Edits return a reparsed snapshot; no-op preserves identity, revision and
 // bytes.

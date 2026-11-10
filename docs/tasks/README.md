@@ -27,7 +27,7 @@
 | 019 | Вложенные list/quote контейнеры | Done | 017, 018 |
 | 020 | Indent/outdent списков | Done | 019 |
 | 021 | Source-map top-level таблиц | Done | 014 |
-| 022 | Строки таблиц и alignment | Ready | 021 |
+| 022 | Строки таблиц и alignment | Done | 021 |
 | 023 | Колонки и удаление таблицы | Ready | 022 |
 | 024 | Вложенные таблицы | Ready | 019, 023 |
 | 025 | Проектирование scope link definitions | Done | 013 |
@@ -141,8 +141,9 @@ WrapInQuote/UnwrapQuote для document parent; 019 Done распростран�
 rendering; 020 Done добавляет атомарные IndentListItem/OutdentListItem с
 сохранением start, renumber только затронутых lists и AST guard для
 tightness/task-state; 021 Done добавляет exact top-level table/row/raw-cell
-mapping и context-aware reference validation. Следующий этап — table row
-mutations 022.
+mapping и context-aware reference validation; 022 Done добавляет InsertTableRow/
+RemoveTableRow/SetTableAlignment с plain-text payload, нормализованной table
+serialization и alignment no-op. Следующий этап — columns/RemoveTable 023.
 Подтверждены сохранение start с последовательной нумерацией, удаление списка
 при удалении последнего LI, header-only после удаления последней body row и
 запрет удаления последней колонки (для таблицы есть отдельная RemoveTable).
