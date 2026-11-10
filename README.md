@@ -129,9 +129,10 @@ run, explicitly return you to Markdown for the change. Empty documents start in
 Markdown. HTML and unsupported/nested tables remain read-only placeholders;
 top-level GFM tables render as visual grids, their existing cell text is
 editable, and row/column/alignment/delete actions are available from the
-continuous-editor context menu. Table creation, empty-cell editing,
-indented/nested code and syntax highlighting are not supported yet. No external
-resources are loaded.
+continuous-editor context menu. Empty cells in top-level outer-piped tables
+accept plain single-line text, including newly inserted rows/columns. Table
+creation, multiline/rich cell content, indented/nested code and syntax
+highlighting are not supported yet. No external resources are loaded.
 
 Links show their labels as inert text, never as clickable Qt anchors. You can
 edit a mapped label run in inline/full-reference links while keeping the address,
@@ -200,9 +201,10 @@ require Markdown. Task 031 adds top-level fenced-code body editing while keeping
 fence/info bytes protected. Task 033 renders top-level tables as QTextTable and
 allows existing cell text edits without rewriting the delimiter row. Task 034
 adds continuous context-menu row/column insertion/removal, column alignment and
-Delete Table through the existing engine commands. Empty-cell insertion and
-table creation remain planned. Definitions before the first rendered paragraph
-cannot be combined with task toggling. Task 018 adds exact top-level quote
+Delete Table through the existing engine commands. Task 035 adds plain-text
+entry for empty outer-piped cells. Table creation and multiline/rich cell
+content remain planned. Definitions before the first rendered paragraph cannot
+be combined with task toggling. Task 018 adds exact top-level quote
 ranges and
 source-preserving `WrapInQuote`/`UnwrapQuote` for the document parent: explicit
 `>` prefixes,

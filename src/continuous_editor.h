@@ -98,6 +98,10 @@ class ContinuousEditor final : public QWidget {
     QTextTable* widget;
     size_t node;
   };
+  struct EmptyCellRun {
+    size_t node;
+    int start;
+  };
   struct TableContext {
     size_t node;
     int row;
@@ -148,6 +152,7 @@ class ContinuousEditor final : public QWidget {
   std::vector<Run> runs_;
   std::vector<CodeRun> codeRuns_;
   std::vector<TableRun> tableRuns_;
+  std::vector<EmptyCellRun> emptyCellRuns_;
   std::vector<Context> contexts_;
   std::vector<bool> mappedBlocks_;
   std::optional<Change> change_;

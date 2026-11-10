@@ -1533,6 +1533,63 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(dialogs.errors.empty());
   }
 
+  void continuousEmptyTableCellEditing() {
+    const QByteArray source =
+        "| h | i |\n| --- | --- |\n|  | b |\n| c | d |\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    QVERIFY(window->setContinuousMode(true));
+    auto* editor = window->continuousEditor();
+    auto* rich = editor->editor();
+    const auto table = [&]() -> QTextTable* {
+      for (auto* frame : rich->document()->rootFrame()->childFrames()) {
+        if (auto* value = dynamic_cast<QTextTable*>(frame)) {
+          return value;
+        }
+      }
+      return nullptr;
+    };
+    auto* value = table();
+    QVERIFY(value);
+    auto cursor = value->cellAt(1, 0).firstCursorPosition();
+    rich->setTextCursor(cursor);
+    rich->insertPlainText(QStringLiteral("a"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h | i |\n| --- | --- |\n| a | b |\n| c | d |\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    value = table();
+    QVERIFY(value);
+    cursor = value->cellAt(1, 0).firstCursorPosition();
+    rich->setTextCursor(cursor);
+    rich->insertPlainText(QStringLiteral("x|y"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h | i |\n| --- | --- |\n| x\\|y | b |\n| c | d |\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    value = table();
+    QVERIFY(value);
+    rich->setTextCursor(value->cellAt(1, 0).firstCursorPosition());
+    editor->applyTableAction(ContinuousEditor::TableAction::kInsertColumnRight);
+    value = table();
+    QVERIFY(value);
+    QCOMPARE(value->columns(), 3);
+    rich->setTextCursor(value->cellAt(1, 1).firstCursorPosition());
+    rich->insertPlainText(QStringLiteral("new"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h |  | i |\n| --- | --- | --- |\n"
+                         "|  | new | b |\n| c |  | d |\n"));
+    window->undo();
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(dialogs.errors.empty());
+  }
+
   void continuousTableSingleColumnGuard() {
     const QByteArray source = "| h |\n| --- |\n| a |\n";
     TestDialogs dialogs;

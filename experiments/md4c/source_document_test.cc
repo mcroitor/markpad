@@ -1628,6 +1628,115 @@ class Md4cSourceTest : public QObject {
     QVERIFY(!rejected.error.isEmpty());
   }
 
+  void insertTableCellText_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<bool>("header");
+    QTest::addColumn<QByteArray>("text");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("body") << QByteArray("| h | i |\n| --- | --- |\n|  | b |\n")
+                          << false << QByteArray("a")
+                          << QByteArray("| h | i |\n| --- | --- |\n| a | b |\n");
+    QTest::newRow("header")
+        << QByteArray("|  | i |\n| --- | --- |\n| a | b |\n") << true
+        << QByteArray("h")
+        << QByteArray("| h | i |\n| --- | --- |\n| a | b |\n");
+    QTest::newRow("pipe")
+        << QByteArray("| h | i |\n| --- | --- |\n|  | b |\n") << false
+        << QByteArray("a|b")
+        << QByteArray("| h | i |\n| --- | --- |\n| a\\|b | b |\n");
+    QTest::newRow("markup")
+        << QByteArray("| h | i |\n| --- | --- |\n|  | b |\n") << false
+        << QByteArray("*x*")
+        << QByteArray("| h | i |\n| --- | --- |\n| \\*x\\* | b |\n");
+    QTest::newRow("outside")
+        << QByteArray("pre\n\n| h | i |\n| --- | --- |\n|  | b |\n\npost\n")
+        << false << QByteArray("a")
+        << QByteArray("pre\n\n| h | i |\n| --- | --- |\n| a | b |\n\npost\n");
+    QTest::newRow("crlf")
+        << QByteArray("| h | i |\r\n| --- | --- |\r\n|  | b |\r\n") << false
+        << QByteArray("a")
+        << QByteArray("| h | i |\r\n| --- | --- |\r\n| a | b |\r\n");
+  }
+
+  void insertTableCellText() {
+    QFETCH(QByteArray, source);
+    QFETCH(bool, header);
+    QFETCH(QByteArray, text);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    const auto tableNode = find(doc, NodeKind::kBlock, MD_BLOCK_TABLE);
+    const auto mapped = mapTable(doc, tableNode);
+    QVERIFY2(mapped.table, qPrintable(mapped.error));
+    const auto cell = header ? mapped.table->header.cells.front().node
+                             : mapped.table->body.front().cells.front().node;
+    const auto result = editBytes(doc, InsertTableCellText{cell, text});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+  }
+
+  void insertTableCellTextRejected_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<QByteArray>("text");
+    QTest::addColumn<QString>("error");
+    QTest::newRow("nonempty")
+        << QByteArray("| h | i |\n| --- | --- |\n| a | b |\n")
+        << QByteArray("x") << QStringLiteral("not empty");
+    QTest::newRow("nested") << QByteArray("> | h |\n> | --- |\n> |  |\n")
+                            << QByteArray("x") << QStringLiteral("top-level");
+    QTest::newRow("empty") << QByteArray("| h |\n| --- |\n|  |\n")
+                           << QByteArray("") << QStringLiteral("nonempty");
+    QTest::newRow("newline") << QByteArray("| h |\n| --- |\n|  |\n")
+                             << QByteArray("a\nb") << QStringLiteral("single-line");
+    QTest::newRow("nul") << QByteArray("| h |\n| --- |\n|  |\n")
+                         << QByteArray("a\0b", 3)
+                         << QStringLiteral("single-line");
+    QTest::newRow("invalid-utf8") << QByteArray("| h |\n| --- |\n|  |\n")
+                                  << QByteArray("\xFF", 1)
+                                  << QStringLiteral("UTF-8");
+    QTest::newRow("whitespace") << QByteArray("| h |\n| --- |\n|  |\n")
+                                << QByteArray(" a")
+                                << QStringLiteral("single-line");
+  }
+
+  void insertTableCellTextRejected() {
+    QFETCH(QByteArray, source);
+    QFETCH(QByteArray, text);
+    QFETCH(QString, error);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    const auto tableNode = find(doc, NodeKind::kBlock, MD_BLOCK_TABLE);
+    const auto mapped = mapTable(doc, tableNode);
+    QVERIFY2(mapped.table, qPrintable(mapped.error));
+    size_t cell = mapped.table->header.cells.front().node;
+    if (!mapped.table->body.empty() && !mapped.table->body.front().cells.empty()) {
+      cell = mapped.table->body.front().cells.front().node;
+    }
+    const auto result = editBytes(doc, InsertTableCellText{cell, text});
+    QVERIFY(!result.source);
+    QVERIFY2(result.error.contains(error), qPrintable(result.error));
+    QCOMPARE(doc.source, source);
+    QCOMPARE(doc.revision, quint64(0));
+  }
+
+  void insertTableCellTextStale() {
+    const QByteArray source = "| h |\n| --- |\n|  |\n";
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    const auto mapped = mapTable(doc, find(doc, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY(mapped.table);
+    const auto cell = mapped.table->body.front().cells.front().node;
+    const auto foreign = parse("| h |\n| --- |\n| x |\n");
+    QVERIFY(foreign.document);
+    const auto result = applyEdit(doc, snapshotToken(*foreign.document),
+                                  InsertTableCellText{cell, "x"});
+    QVERIFY(!result.document);
+    QVERIFY(!result.error.isEmpty());
+  }
+
   void wrapInListSecondBlock() {
     const QByteArray source = "before\n\nafter\n";
     const auto parsed = parse(source);

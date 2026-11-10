@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026–034)
+- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026–035)
 - Владелец: архитектор + C++ разработчик
 - Приоритет: P1
 
@@ -87,7 +87,10 @@ WYSIWYG continuous — полноценный редактируемый реж�
   ReplaceText. Nested tables и empty-cell insertion остаются вне среза.
 - Реализована [Task 034](task_034.md): контекстные table actions для
   insert/remove row/column, alignment и RemoveTable через существующие engine
-  commands. Table creation и empty-cell content editing не включены.
+  commands. Table creation не включён.
+- Реализована [Task 035](task_035.md): пустые top-level outer-piped table cells
+  принимают plain single-line text через `InsertTableCellText`; новые
+  row/column cells сразу редактируемы.
 - Выполнена зависимая подготовка структурных команд:
   [Task 016](task_016.md) — exact source-map top-level списков/пунктов.
 - Реализована [Task 017](task_017.md): source-preserving InsertListItem,

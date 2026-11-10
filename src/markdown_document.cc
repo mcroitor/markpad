@@ -4571,6 +4571,123 @@ EditResult removeTableSource(const Document& document, const RemoveTable& edit) 
   return apply(document, expected, removal, QByteArray{});
 }
 
+std::optional<size_t> tableNodeForCell(const Document& document, size_t cell) {
+  auto parent = document.nodes[cell].parent;
+  while (parent) {
+    if (*parent >= document.nodes.size()) {
+      return std::nullopt;
+    }
+    if (document.nodes[*parent].kind == NodeKind::kBlock &&
+        document.nodes[*parent].type == MD_BLOCK_TABLE) {
+      return *parent;
+    }
+    parent = document.nodes[*parent].parent;
+  }
+  return std::nullopt;
+}
+
+const TableCellSource* findTableCell(const TableSource& table, size_t node) {
+  for (const auto& cell : table.header.cells) {
+    if (cell.node == node) {
+      return &cell;
+    }
+  }
+  for (const auto& row : table.body) {
+    for (const auto& cell : row.cells) {
+      if (cell.node == node) {
+        return &cell;
+      }
+    }
+  }
+  return nullptr;
+}
+
+EditResult insertTableCellTextSource(const Document& document,
+                                     const InsertTableCellText& edit) {
+  if (edit.cell >= document.nodes.size() ||
+      document.nodes[edit.cell].kind != NodeKind::kBlock ||
+      (document.nodes[edit.cell].type != MD_BLOCK_TH &&
+       document.nodes[edit.cell].type != MD_BLOCK_TD)) {
+    return {std::nullopt, QStringLiteral("Invalid table cell target")};
+  }
+  const auto tableNode = tableNodeForCell(document, edit.cell);
+  if (!tableNode || document.nodes[*tableNode].parent !=
+                        std::optional<size_t>(0)) {
+    return {std::nullopt,
+            QStringLiteral("Table cell text insertion supports only top-level "
+                           "tables")};
+  }
+  const auto mapped = mapTable(document, *tableNode);
+  if (!mapped.table) {
+    return {std::nullopt, mapped.error};
+  }
+  const auto* cell = findTableCell(*mapped.table, edit.cell);
+  if (!cell || cell->range.size != 0 ||
+      !document.nodes[edit.cell].children.empty()) {
+    return {std::nullopt, QStringLiteral("Table cell is not empty")};
+  }
+  QString payloadError;
+  if (edit.text.isEmpty() || !validTableCellPayload(edit.text, payloadError)) {
+    return {std::nullopt,
+            QStringLiteral("Table cell text must be nonempty single-line UTF-8")};
+  }
+  const auto escaped = escapeTableCell(edit.text);
+  const auto tableSource = document.source.mid(mapped.table->range.offset,
+                                               mapped.table->range.size);
+  const auto lineStart = lineStartAt(document.source, cell->range.offset);
+  auto lineEnd = document.source.indexOf('\n', cell->range.offset);
+  if (lineEnd < 0) {
+    lineEnd = document.source.size();
+  }
+  auto bodyEnd = lineEnd;
+  if (bodyEnd > lineStart && document.source[bodyEnd - 1] == '\r') {
+    --bodyEnd;
+  }
+  qsizetype previousPipe = -1;
+  for (auto i = cell->range.offset - 1; i >= lineStart; --i) {
+    if (document.source[i] == '|' &&
+        !escapedAt(document.source, lineStart, i)) {
+      previousPipe = i;
+      break;
+    }
+  }
+  qsizetype nextPipe = -1;
+  for (auto i = cell->range.offset + cell->range.size; i < bodyEnd; ++i) {
+    if (document.source[i] == '|' &&
+        !escapedAt(document.source, lineStart, i)) {
+      nextPipe = i;
+      break;
+    }
+  }
+  if (previousPipe < 0 || nextPipe <= previousPipe) {
+    return {std::nullopt,
+            QStringLiteral("Table cell insertion requires outer pipes")};
+  }
+  const auto segmentOffset = previousPipe + 1;
+  const auto segmentSize = nextPipe - segmentOffset;
+  const auto replacement = QByteArray(" ") + escaped + " ";
+  const auto relative = segmentOffset - mapped.table->range.offset;
+  const auto relativeEnd =
+      relative + segmentSize;
+  if (relative < 0 || relativeEnd > tableSource.size()) {
+    return {std::nullopt, QStringLiteral("Invalid table cell range")};
+  }
+  auto newTableSource = tableSource.left(relative);
+  newTableSource += replacement;
+  newTableSource += tableSource.mid(relativeEnd);
+  const auto definitions = definitionInventory(document);
+  QString contextError;
+  auto parsed = parseTableContext(
+      document, definitions, mapped.table->range.offset,
+      mapped.table->range.offset + mapped.table->range.size, newTableSource,
+      contextError);
+  if (!parsed) {
+    return {std::nullopt, contextError};
+  }
+  auto expected = graftList(document, *tableNode, *parsed);
+  return apply(document, expected, {segmentOffset, segmentSize}, replacement);
+}
+
 EditResult outdentListItemSource(const Document& document,
                                  const OutdentListItem& edit) {
   QString error;
@@ -4903,6 +5020,8 @@ ParseResult applyEdit(const Document& document, const SnapshotToken& token,
           return removeTableColumnSource(document, edit);
         } else if constexpr (std::is_same_v<Command, RemoveTable>) {
           return removeTableSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, InsertTableCellText>) {
+          return insertTableCellTextSource(document, edit);
         } else {
           return toggleInlineSource(document, edit);
         }

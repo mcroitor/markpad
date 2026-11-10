@@ -131,6 +131,7 @@ QString ContinuousEditor::render(const DocumentSnapshot& snapshot) {
   runs_.clear();
   codeRuns_.clear();
   tableRuns_.clear();
+  emptyCellRuns_.clear();
   contexts_.clear();
   mappedBlocks_.clear();
   editor_->clear();
@@ -269,8 +270,12 @@ void ContinuousEditor::renderTable(size_t index, QTextCursor& cursor, int depth)
       if (cellNode >= document_->nodes.size()) {
         continue;
       }
+      const auto cellStart = cellCursor.position();
       for (auto child : document_->nodes[cellNode].children) {
         renderInline(child, cellCursor, format);
+      }
+      if (document_->nodes[cellNode].children.empty()) {
+        emptyCellRuns_.push_back({cellNode, cellStart});
       }
     }
   };
@@ -494,6 +499,7 @@ void ContinuousEditor::changed() {
   }
   const Run* target = nullptr;
   const CodeRun* codeTarget = nullptr;
+  const EmptyCellRun* emptyCellTarget = nullptr;
   for (const auto& run : codeRuns_) {
     const int offset = change->position - run.start;
     if (offset < 0 || offset > run.length ||
@@ -521,6 +527,35 @@ void ContinuousEditor::changed() {
       return;
     }
     target = &run;
+  }
+  for (const auto& run : emptyCellRuns_) {
+    if (change->position != run.start || change->removed != 0 ||
+        change->added <= 0) {
+      continue;
+    }
+    if (target || codeTarget || emptyCellTarget) {
+      restore(
+          QStringLiteral("This insertion is between editable targets. Move "
+                         "inside one cell or use Markdown."));
+      return;
+    }
+    emptyCellTarget = &run;
+  }
+  if (emptyCellTarget) {
+    const auto replacement = text.mid(change->position, change->added);
+    if (replacement.isEmpty() || !replacement.isValidUtf16() ||
+        replacement.contains('\n') || replacement.contains('\r') ||
+        replacement.contains(QChar::ParagraphSeparator) ||
+        replacement.contains(QChar::LineSeparator) ||
+        replacement.contains(QChar(0))) {
+      restore(QStringLiteral(
+          "Empty table cells accept single-line plain text. Use Markdown."));
+      return;
+    }
+    const auto command = markdown::InsertTableCellText{
+        emptyCellTarget->node, replacement.toUtf8()};
+    emit commandRequested(token_, command, editor_->textCursor().position());
+    return;
   }
   if (codeTarget) {
     auto replacement =

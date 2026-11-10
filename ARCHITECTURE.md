@@ -139,6 +139,7 @@ flowchart TB
 - Cell content рендерится существующим `renderInline`; normal mapped text runs входят в общий `runs_`/ReplaceText path и проверяются полным AST guard. Delimiter row, column count, definitions и байты вне таблицы не меняются.
 - Nested/ragged/failed-map tables остаются opaque placeholder. Пустые cells и table creation пока не имеют continuous UI.
 - Task 034 добавляет continuous context menu для insert/remove row/column, column alignment и Delete Table. QTextTable маппится обратно к markdown node/current cell; header row-above/delete-row и last-column removal недоступны. Команды идут через существующие table engine commands и общий history path.
+- Task 035 добавляет `InsertTableCellText` для пустых top-level outer-piped cells: zero-length empty-cell targets, plain single-line text, cell punctuation escaping, `parseTableContext`/graft и полный AST guard. Новые row/column cells сразу принимают текст.
 - QTextTable — projection, не canonical source; cell edits не пересериализуют таблицу и не меняют table delimiter.
 
 ### Исследовательский GFM слой

@@ -232,6 +232,10 @@ struct RemoveTableColumn {
 struct RemoveTable {
   size_t table;
 };
+struct InsertTableCellText {
+  size_t cell;
+  QByteArray text;  // Nonempty single-line UTF-8 plain text.
+};
 
 using EditCommand =
     std::variant<ReplaceText, SetTaskChecked, SetHeadingLevel, ToggleInlineStyle,
@@ -239,7 +243,8 @@ using EditCommand =
                  WrapInQuote, UnwrapQuote, WrapInList, ReplaceCodeBody,
                  IndentListItem, OutdentListItem, InsertTableRow,
                  RemoveTableRow, SetTableAlignment,
-                 InsertTableColumn, RemoveTableColumn, RemoveTable>;
+                 InsertTableColumn, RemoveTableColumn, RemoveTable,
+                 InsertTableCellText>;
 
 // Edits return a reparsed snapshot; no-op preserves identity, revision and
 // bytes.
