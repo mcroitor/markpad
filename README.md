@@ -61,6 +61,8 @@ window, session and undo/redo history. File commands include New, Open, Save,
 Save As and guarded Close/Exit. New always creates a window; Open reuses only a
 clean, empty, unnamed window. The editor includes basic visual syntax highlighting,
 standard editing shortcuts, an Edit context menu and a cursor/dirty status bar.
+The main toolbar uses theme-aware icon-only buttons with tooltips; menu actions
+and object names remain unchanged.
 A first limited continuous WYSIWYG slice is available through
 **View > Switch mode**. Full WYSIWYG editing, pagination, export and persistent
 settings are still in development/planned.

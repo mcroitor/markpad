@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileOpenEvent>
+#include <QIcon>
 #include <QLabel>
 #include <QMenu>
 #include <QMimeData>
@@ -1303,6 +1304,43 @@ class MainWindowSmokeTest : public QObject {
         QStringLiteral("Words")));
     QVERIFY(window->statusBar()->currentMessage().contains(
         QStringLiteral("Lines")));
+  }
+
+  void toolbarIcons() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    auto* toolbar =
+        window->findChild<QToolBar*>(QStringLiteral("mainToolBar"));
+    QVERIFY(toolbar);
+    QCOMPARE(toolbar->toolButtonStyle(), Qt::ToolButtonIconOnly);
+    QCOMPARE(toolbar->iconSize(), QSize(20, 20));
+    int count = 0;
+    for (auto* value : toolbar->actions()) {
+      if (!value || value->isSeparator()) {
+        continue;
+      }
+      ++count;
+      QVERIFY(!value->objectName().isEmpty());
+      QVERIFY(!value->text().isEmpty());
+      QVERIFY(!value->toolTip().isEmpty());
+      QVERIFY(!value->icon().isNull());
+      QVERIFY(!value->icon().pixmap(20, QIcon::Normal).isNull());
+      QVERIFY(!value->icon().pixmap(20, QIcon::Disabled).isNull());
+    }
+    QCOMPARE(count, 20);
+    QVERIFY(!action(window, "codeAction")->icon().isNull());
+    QVERIFY(!action(window, "headingMenuAction")->icon().isNull());
+    QVERIFY(!action(window, "listMenuAction")->icon().isNull());
+    QVERIFY(!action(window, "switchModeAction")->icon().isNull());
+
+    Settings settings;
+    settings.theme = Theme::kDark;
+    QString error;
+    QVERIFY2(window->applySettings(settings, &error), qPrintable(error));
+    QVERIFY(!action(window, "boldAction")->icon().isNull());
+    QVERIFY(!action(window, "saveAction")->icon().isNull());
+    QVERIFY(dialogs.errors.empty());
   }
 
   void continuousImageAltLabels() {

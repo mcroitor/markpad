@@ -80,6 +80,7 @@ class MainWindow final : public QMainWindow {
   void editorChanged();
   void refreshEditor(int cursor = 0);
   void refreshState();
+  void refreshToolbarIcons();
   void report(const DocumentError& error);
   QString text(const QString& key, const QString& fallback) const;
 

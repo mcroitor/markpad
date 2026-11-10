@@ -74,6 +74,8 @@ add_library(markpad_ui
     src/page_text_edit.h
     src/settings_dialog.cc
     src/settings_dialog.h
+    src/toolbar_icons.cc
+    src/toolbar_icons.h
 )
 target_include_directories(markpad_ui PUBLIC src)
 target_link_libraries(markpad_ui PUBLIC Qt6::Widgets markpad_files markpad_markdown

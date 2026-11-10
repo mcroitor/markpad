@@ -19,6 +19,7 @@
 #include <QPrintDialog>
 #include <QPrinter>
 #include <QSignalBlocker>
+#include <QSize>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QStyle>
@@ -35,6 +36,7 @@
 #include "pdf_export.h"
 #include "qt_html_export_service.h"
 #include "settings_dialog.h"
+#include "toolbar_icons.h"
 
 namespace markpad {
 namespace {
@@ -413,7 +415,8 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
     }
     target->setContextMenuPolicy(Qt::ActionsContextMenu);
   }
-  toolbar->setToolButtonStyle(Qt::ToolButtonTextOnly);
+  toolbar->setToolButtonStyle(Qt::ToolButtonIconOnly);
+  toolbar->setIconSize(QSize(20, 20));
   toolbar->addSeparator();
   toolbar->addAction(undoAction_);
   toolbar->addAction(redoAction_);
@@ -434,6 +437,7 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   toolbar->addAction(unordered);
   toolbar->addSeparator();
   toolbar->addAction(modes->menuAction());
+  refreshToolbarIcons();
   connect(editor_->document(), &QTextDocument::contentsChange, this,
           [this](int position, int removed, int added) {
             if (!refreshing_ && (removed != 0 || added != 0)) {
@@ -660,6 +664,7 @@ bool MainWindow::applySettings(const Settings& settings, QString* error) {
                      QColor(140, 140, 140));
   }
   QApplication::setPalette(palette);
+  refreshToolbarIcons();
 
   QFont font = settings.editorFontFamily.trimmed().isEmpty()
                    ? QFontDatabase::systemFont(QFontDatabase::FixedFont)
@@ -758,6 +763,26 @@ void MainWindow::refreshEditor(int position) {
     continuous_->explainCursorMapping(exact);
   }
   refreshState();
+}
+
+void MainWindow::refreshToolbarIcons() {
+  auto* toolbar = findChild<QToolBar*>(QStringLiteral("mainToolBar"));
+  if (!toolbar) {
+    return;
+  }
+  const auto color = QApplication::palette().color(QPalette::ButtonText);
+  for (auto* action : toolbar->actions()) {
+    if (!action || action->isSeparator() || action->objectName().isEmpty()) {
+      continue;
+    }
+    const auto icon = toolbarIcon(action->objectName(), color);
+    if (!icon.isNull()) {
+      action->setIcon(icon);
+    }
+    if (action->toolTip().isEmpty()) {
+      action->setToolTip(action->text());
+    }
+  }
 }
 
 void MainWindow::refreshState() {
