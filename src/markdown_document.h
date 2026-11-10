@@ -241,6 +241,12 @@ struct InsertTable {
   size_t columns;
   size_t bodyRows;
 };
+struct InsertHorizontalRule {
+  size_t position;
+};
+struct InsertFencedCode {
+  size_t position;
+};
 
 using EditCommand =
     std::variant<ReplaceText, SetTaskChecked, SetHeadingLevel, ToggleInlineStyle,
@@ -249,7 +255,8 @@ using EditCommand =
                  IndentListItem, OutdentListItem, InsertTableRow,
                  RemoveTableRow, SetTableAlignment,
                  InsertTableColumn, RemoveTableColumn, RemoveTable,
-                 InsertTableCellText, InsertTable>;
+                 InsertTableCellText, InsertTable, InsertHorizontalRule,
+                 InsertFencedCode>;
 
 // Edits return a reparsed snapshot; no-op preserves identity, revision and
 // bytes.

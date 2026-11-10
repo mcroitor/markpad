@@ -141,6 +141,7 @@ flowchart TB
 - Task 034 добавляет continuous context menu для insert/remove row/column, column alignment и Delete Table. QTextTable маппится обратно к markdown node/current cell; header row-above/delete-row и last-column removal недоступны. Команды идут через существующие table engine commands и общий history path.
 - Task 035 добавляет `InsertTableCellText` для пустых top-level outer-piped cells: zero-length empty-cell targets, plain single-line text, cell punctuation escaping, `parseTableContext`/graft и полный AST guard. Новые row/column cells сразу принимают текст.
 - Task 036 добавляет `InsertTable`: default 2-column × 1-body-row table с `Column N` header и пустыми body cells, EOL из документа, blank-line separation и insertion после текущего top-level block/table или в конец. Format > Table/toolbar Table активны только в continuous mode.
+- Task 037 добавляет `InsertHorizontalRule`/`InsertFencedCode` через общий top-level insertion helper: `---` и пустой fenced code block после текущего block/table или в конец. HR рендерится protected визуальной линией, code body использует существующий CodeRun editing; actions доступны только в continuous mode.
 - QTextTable — projection, не canonical source; cell edits не пересериализуют таблицу и не меняют table delimiter.
 
 ### Исследовательский GFM слой

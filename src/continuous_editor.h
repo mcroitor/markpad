@@ -65,8 +65,11 @@ class ContinuousEditor final : public QWidget {
   };
   bool tableActionEnabled(TableAction action) const;
   void applyTableAction(TableAction action);
+  bool blockInsertionEnabled() const;
   bool tableCreationEnabled() const;
   void insertTable();
+  void insertHorizontalRule();
+  void insertFencedCode();
   void explainCursorMapping(bool exact);
   void setPaged(bool paged);
   bool paged() const { return paged_; }
@@ -133,6 +136,8 @@ class ContinuousEditor final : public QWidget {
                        std::optional<size_t> list,
                        std::optional<size_t> quote);
   void renderTable(size_t node, QTextCursor& cursor, int depth);
+  void renderHorizontalRule(QTextCursor& cursor, int depth);
+  size_t insertionPosition() const;
   std::optional<TableContext> tableContext() const;
   std::optional<markdown::EditCommand> tableCommand(
       const TableContext& context, TableAction action) const;

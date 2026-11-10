@@ -1628,6 +1628,19 @@ class Md4cSourceTest : public QObject {
     QVERIFY(!rejected.error.isEmpty());
   }
 
+  void createdEmptyCodeSourceMap() {
+    const QByteArray source = "```\n```\n";
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto code = find(*parsed.document, NodeKind::kBlock, MD_BLOCK_CODE);
+    QVERIFY(code < parsed.document->nodes.size());
+    QString error;
+    const auto mapped = mapFencedCodeBody(*parsed.document, code, error);
+    QVERIFY2(mapped, qPrintable(error));
+    QCOMPARE(mapped->body.size, qsizetype(0));
+    QVERIFY(mapped->closed);
+  }
+
   void createdTableSourceMap() {
     const QByteArray source =
         "| Column 1 | Column 2 |\n| --- | --- |\n|  |  |\n";
@@ -1686,6 +1699,82 @@ class Md4cSourceTest : public QObject {
                   InsertTable{position, columns, bodyRows});
     QVERIFY2(result.source, qPrintable(result.error));
     QCOMPARE(*result.source, expected);
+  }
+
+  void insertHorizontalRule_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<size_t>("position");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("empty") << QByteArray{} << size_t(0)
+                           << QByteArray("---\n");
+    QTest::newRow("after") << QByteArray("alpha\n") << size_t(1)
+                           << QByteArray("alpha\n\n---\n");
+    QTest::newRow("before") << QByteArray("beta\n") << size_t(0)
+                            << QByteArray("---\n\nbeta\n");
+    QTest::newRow("crlf") << QByteArray("alpha\r\n") << size_t(1)
+                          << QByteArray("alpha\r\n\r\n---\r\n");
+  }
+
+  void insertHorizontalRule() {
+    QFETCH(QByteArray, source);
+    QFETCH(size_t, position);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto result =
+        editBytes(*parsed.document, InsertHorizontalRule{position});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+    const auto reparsed = parse(*result.source);
+    QVERIFY(reparsed.document);
+    QVERIFY(find(*reparsed.document, NodeKind::kBlock, MD_BLOCK_HR) <
+            reparsed.document->nodes.size());
+  }
+
+  void insertFencedCode_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<size_t>("position");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("empty") << QByteArray{} << size_t(0)
+                           << QByteArray("```\n```\n");
+    QTest::newRow("after") << QByteArray("alpha\n") << size_t(1)
+                           << QByteArray("alpha\n\n```\n```\n");
+    QTest::newRow("before") << QByteArray("beta\n") << size_t(0)
+                            << QByteArray("```\n```\n\nbeta\n");
+    QTest::newRow("crlf") << QByteArray("alpha\r\n") << size_t(1)
+                          << QByteArray("alpha\r\n\r\n```\r\n```\r\n");
+  }
+
+  void insertFencedCode() {
+    QFETCH(QByteArray, source);
+    QFETCH(size_t, position);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto result = editBytes(*parsed.document, InsertFencedCode{position});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+    const auto reparsed = parse(*result.source);
+    QVERIFY(reparsed.document);
+    QVERIFY(find(*reparsed.document, NodeKind::kBlock, MD_BLOCK_CODE) <
+            reparsed.document->nodes.size());
+  }
+
+  void insertBlockRejected() {
+    const auto parsed = parse("alpha\n");
+    QVERIFY(parsed.document);
+    for (const auto& command :
+         std::vector<EditCommand>{InsertHorizontalRule{2},
+                                  InsertFencedCode{2}}) {
+      const auto result = editBytes(*parsed.document, command);
+      QVERIFY(!result.source);
+      QVERIFY(result.error.contains("position"));
+    }
+    const auto foreign = parse("beta\n");
+    QVERIFY(foreign.document);
+    QVERIFY(!applyEdit(*parsed.document, snapshotToken(*foreign.document),
+                       InsertHorizontalRule{1})
+                 .document);
   }
 
   void insertTableRejected_data() {

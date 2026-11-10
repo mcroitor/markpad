@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026–036)
+- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026–037)
 - Владелец: архитектор + C++ разработчик
 - Приоритет: P1
 
@@ -95,6 +95,9 @@ WYSIWYG continuous — полноценный редактируемый реж�
   default 2×1 table (`Column N` header, пустые body cells) после текущего
   top-level block или в конец документа. Table creation доступен только в
   continuous mode.
+- Реализована [Task 037](task_037.md): Format > Code/Horizontal Line вставляют
+  пустой fenced code block или `---` после текущего блока/в конец; HR
+  отображается protected линией, code body редактируется.
 - Выполнена зависимая подготовка структурных команд:
   [Task 016](task_016.md) — exact source-map top-level списков/пунктов.
 - Реализована [Task 017](task_017.md): source-preserving InsertListItem,

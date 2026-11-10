@@ -288,6 +288,17 @@ void ContinuousEditor::renderTable(size_t index, QTextCursor& cursor, int depth)
   cursor = editor_->document()->rootFrame()->lastCursorPosition();
 }
 
+void ContinuousEditor::renderHorizontalRule(QTextCursor& cursor, int depth) {
+  beginBlock(cursor, depth);
+  QTextBlockFormat blockFormat;
+  blockFormat.setAlignment(Qt::AlignHCenter);
+  cursor.setBlockFormat(blockFormat);
+  QTextCharFormat format;
+  format.setForeground(QColor(120, 120, 120));
+  format.setToolTip(QStringLiteral("Horizontal rule - edit in Markdown"));
+  cursor.insertText(QString(40, QChar(0x2500)), format);
+}
+
 void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
                                    QString prefix, std::optional<size_t> task,
                                    std::optional<size_t> list,
@@ -370,6 +381,10 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
   }
   if (node.type == MD_BLOCK_TABLE) {
     renderTable(index, cursor, depth);
+    return;
+  }
+  if (node.type == MD_BLOCK_HR) {
+    renderHorizontalRule(cursor, depth);
     return;
   }
   QString label = QStringLiteral("unsupported block - edit in Markdown");
@@ -968,14 +983,17 @@ void ContinuousEditor::applyTableAction(TableAction action) {
   emit commandRequested(token_, *command, editor_->textCursor().position());
 }
 
-bool ContinuousEditor::tableCreationEnabled() const {
+bool ContinuousEditor::blockInsertionEnabled() const {
   return document_ && !document_->nodes.empty();
 }
 
-void ContinuousEditor::insertTable() {
+bool ContinuousEditor::tableCreationEnabled() const {
+  return blockInsertionEnabled();
+}
+
+size_t ContinuousEditor::insertionPosition() const {
   if (!document_ || document_->nodes.empty()) {
-    emit errorOccurred(QStringLiteral("No document is available."));
-    return;
+    return 0;
   }
   const auto& root = document_->nodes[0];
   size_t position = root.children.size();
@@ -996,7 +1014,33 @@ void ContinuousEditor::insertTable() {
       position = size_t(found - root.children.begin()) + 1;
     }
   }
-  const auto command = markdown::InsertTable{position, 2, 1};
+  return position;
+}
+
+void ContinuousEditor::insertTable() {
+  if (!blockInsertionEnabled()) {
+    emit errorOccurred(QStringLiteral("No document is available."));
+    return;
+  }
+  const auto command = markdown::InsertTable{insertionPosition(), 2, 1};
+  emit commandRequested(token_, command, editor_->textCursor().position());
+}
+
+void ContinuousEditor::insertHorizontalRule() {
+  if (!blockInsertionEnabled()) {
+    emit errorOccurred(QStringLiteral("No document is available."));
+    return;
+  }
+  const auto command = markdown::InsertHorizontalRule{insertionPosition()};
+  emit commandRequested(token_, command, editor_->textCursor().position());
+}
+
+void ContinuousEditor::insertFencedCode() {
+  if (!blockInsertionEnabled()) {
+    emit errorOccurred(QStringLiteral("No document is available."));
+    return;
+  }
+  const auto command = markdown::InsertFencedCode{insertionPosition()};
   emit commandRequested(token_, command, editor_->textCursor().position());
 }
 

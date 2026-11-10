@@ -1663,6 +1663,55 @@ class MainWindowSmokeTest : public QObject {
                          "| --- | --- |\n|  |  |\n"));
   }
 
+  void continuousCodeAndRuleInsertion() {
+    const QByteArray source = "alpha\n\nbeta\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    auto* code = action(window, "codeAction");
+    auto* rule = action(window, "horizontalLineAction");
+    QVERIFY(code);
+    QVERIFY(rule);
+    QVERIFY(!code->isEnabled());
+    QVERIFY(!rule->isEnabled());
+    QVERIFY(window->setContinuousMode(true));
+    QVERIFY(code->isEnabled());
+    QVERIFY(rule->isEnabled());
+    auto* rich = window->continuousEditor()->editor();
+    auto cursor = rich->document()->find(QStringLiteral("alpha"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    code->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\n```\n```\n\nbeta\n"));
+    auto body = rich->document()->find(QStringLiteral("alpha"));
+    QVERIFY(!body.isNull());
+    body.movePosition(QTextCursor::NextBlock);
+    rich->setTextCursor(body);
+    rich->insertPlainText(QStringLiteral("x"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\n```\nx\n```\n\nbeta\n"));
+    window->undo();
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    cursor = rich->document()->find(QStringLiteral("alpha"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    rule->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\n---\n\nbeta\n"));
+    QVERIFY(rich->document()->toPlainText().contains(QChar(0x2500)));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(window->setContinuousMode(false));
+    QVERIFY(!code->isEnabled());
+    QVERIFY(!rule->isEnabled());
+    QVERIFY(dialogs.errors.empty());
+  }
+
   void continuousUnsupportedTableFallback() {
     const QByteArray source = "> | h |\n> | --- |\n> | a |\n";
     TestDialogs dialogs;

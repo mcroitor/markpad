@@ -132,8 +132,10 @@ editable, and row/column/alignment/delete actions are available from the
 continuous-editor context menu. Empty cells in top-level outer-piped tables
 accept plain single-line text, including newly inserted rows/columns. Format >
 Table/toolbar Table inserts a default 2-column table with editable body cells.
-Multiline/rich cell content, size selection, indented/nested code and syntax
-highlighting are not supported yet. No external resources are loaded.
+Format > Code inserts an empty fenced code block, and Horizontal Line inserts
+and renders `---`. Multiline/rich cell content, table size selection,
+indented/nested code, code language pickers and syntax highlighting are not
+supported yet. No external resources are loaded.
 
 Links show their labels as inert text, never as clickable Qt anchors. You can
 edit a mapped label run in inline/full-reference links while keeping the address,
@@ -204,10 +206,11 @@ allows existing cell text edits without rewriting the delimiter row. Task 034
 adds continuous context-menu row/column insertion/removal, column alignment and
 Delete Table through the existing engine commands. Task 035 adds plain-text
 entry for empty outer-piped cells. Task 036 enables Format > Table/toolbar
-Table to insert a default 2-column table in continuous mode. Multiline/rich
-cell content and table size selection remain planned. Definitions before the
-first rendered paragraph cannot be combined with task toggling. Task 018 adds
-exact top-level quote
+Table to insert a default 2-column table in continuous mode. Task 037 adds
+Format > Code and Horizontal Line insertion for empty fenced code blocks and
+`---`. Multiline/rich cell content, table size selection and code language
+pickers remain planned. Definitions before the first rendered paragraph cannot
+be combined with task toggling. Task 018 adds exact top-level quote
 ranges and
 source-preserving `WrapInQuote`/`UnwrapQuote` for the document parent: explicit
 `>` prefixes,

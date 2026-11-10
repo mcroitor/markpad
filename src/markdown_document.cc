@@ -3458,9 +3458,11 @@ std::optional<SourceRange> mapFencedCodeRange(const Document& document,
       continue;
     }
     bool anchored = false;
+    const bool empty =
+        isolated.document->nodes[child].children.empty();
     if (!sameListSources(document, node, *isolated.document, child,
                          range.offset, anchored) ||
-        !anchored) {
+        (!anchored && !empty)) {
       continue;
     }
     return range;
@@ -4703,30 +4705,77 @@ std::optional<qsizetype> topLevelBlockStart(const Document& document,
   return std::nullopt;
 }
 
-EditResult insertTableSource(const Document& document, const InsertTable& edit) {
+struct TopLevelInsertion {
+  qsizetype offset;
+  QByteArray prefix;
+  QByteArray suffix;
+};
+
+std::optional<TopLevelInsertion> topLevelInsertion(const Document& document,
+                                                   size_t position,
+                                                   QString& error) {
   if (document.nodes.empty() ||
       document.nodes[0].kind != NodeKind::kBlock ||
       document.nodes[0].type != MD_BLOCK_DOC) {
-    return {std::nullopt, QStringLiteral("Invalid table insertion")};
-  }
-  if (edit.columns == 0 || edit.columns > 1000 || edit.bodyRows > 10000) {
-    return {std::nullopt, QStringLiteral("Invalid table dimensions")};
+    error = QStringLiteral("Invalid block insertion");
+    return std::nullopt;
   }
   const auto& root = document.nodes[0];
-  if (edit.position > root.children.size()) {
-    return {std::nullopt, QStringLiteral("Invalid table insertion position")};
+  if (position > root.children.size()) {
+    error = QStringLiteral("Invalid block insertion position");
+    return std::nullopt;
   }
   qsizetype offset = document.source.size();
-  if (edit.position < root.children.size()) {
-    const auto start = topLevelBlockStart(document, root.children[edit.position]);
+  if (position < root.children.size()) {
+    const auto start = topLevelBlockStart(document, root.children[position]);
     if (!start) {
-      return {std::nullopt,
-              QStringLiteral("Cannot find table insertion boundary")};
+      error = QStringLiteral("Cannot find block insertion boundary");
+      return std::nullopt;
     }
     offset = *start;
   }
-  if (offset < 0 || offset > document.source.size()) {
-    return {std::nullopt, QStringLiteral("Invalid table insertion boundary")};
+  const auto eol = documentEol(document.source);
+  QByteArray prefix;
+  if (offset > 0) {
+    const auto before = document.source.left(offset);
+    const bool blank = before.endsWith("\n\n") ||
+                       before.endsWith("\r\n\r\n") || before.endsWith("\r\r");
+    const bool one = before.endsWith('\n') || before.endsWith('\r');
+    if (!blank) {
+      prefix = one ? eol : eol + eol;
+    }
+  }
+  const QByteArray suffix = offset < document.source.size() ? eol : QByteArray{};
+  return TopLevelInsertion{offset, prefix, suffix};
+}
+
+EditResult insertTopLevelFragment(const Document& document, size_t position,
+                                  const QByteArray& fragment,
+                                  int expectedType) {
+  QString error;
+  const auto insertion = topLevelInsertion(document, position, error);
+  if (!insertion) {
+    return {std::nullopt, error};
+  }
+  auto parsed = parse(fragment);
+  if (!parsed.document || parsed.document->nodes[0].children.size() != 1) {
+    return {std::nullopt, QStringLiteral("Structural block insertion failed")};
+  }
+  const auto child = parsed.document->nodes[0].children.front();
+  if (parsed.document->nodes[child].type != expectedType) {
+    return {std::nullopt, QStringLiteral("Structural block insertion failed")};
+  }
+  auto expected = document;
+  const auto newIndex = copySubtree(expected, *parsed.document, child, 0);
+  expected.nodes[0].children.insert(
+      expected.nodes[0].children.begin() + qsizetype(position), newIndex);
+  return apply(document, expected, {insertion->offset, 0},
+               insertion->prefix + fragment + insertion->suffix);
+}
+
+EditResult insertTableSource(const Document& document, const InsertTable& edit) {
+  if (edit.columns == 0 || edit.columns > 1000 || edit.bodyRows > 10000) {
+    return {std::nullopt, QStringLiteral("Invalid table dimensions")};
   }
   const auto eol = documentEol(document.source);
   const auto row = [&](bool delimiter) {
@@ -4748,32 +4797,24 @@ EditResult insertTableSource(const Document& document, const InsertTable& edit) 
   for (size_t body = 0; body < edit.bodyRows; ++body) {
     table += row(false);
   }
-  QByteArray prefix;
-  if (offset > 0) {
-    const auto before = document.source.left(offset);
-    const bool blank = before.endsWith("\n\n") ||
-                       before.endsWith("\r\n\r\n") || before.endsWith("\r\r");
-    const bool one = before.endsWith('\n') || before.endsWith('\r');
-    if (!blank) {
-      prefix = one ? eol : eol + eol;
-    }
-  }
-  const QByteArray suffix = offset < document.source.size() ? eol : QByteArray{};
-  const auto insertion = prefix + table + suffix;
-  auto parsed = parse(table);
-  if (!parsed.document || parsed.document->nodes[0].children.size() != 1) {
-    return {std::nullopt, QStringLiteral("Structural table creation failed")};
-  }
-  const auto tableChild = parsed.document->nodes[0].children.front();
-  if (parsed.document->nodes[tableChild].type != MD_BLOCK_TABLE) {
-    return {std::nullopt, QStringLiteral("Structural table creation failed")};
-  }
-  auto expected = document;
-  const auto newIndex =
-      copySubtree(expected, *parsed.document, tableChild, 0);
-  expected.nodes[0].children.insert(
-      expected.nodes[0].children.begin() + qsizetype(edit.position), newIndex);
-  return apply(document, expected, {offset, 0}, insertion);
+  return insertTopLevelFragment(document, edit.position, table,
+                                MD_BLOCK_TABLE);
+}
+
+EditResult insertHorizontalRuleSource(const Document& document,
+                                      const InsertHorizontalRule& edit) {
+  const auto fragment = QByteArray("---") + documentEol(document.source);
+  return insertTopLevelFragment(document, edit.position, fragment,
+                                MD_BLOCK_HR);
+}
+
+EditResult insertFencedCodeSource(const Document& document,
+                                  const InsertFencedCode& edit) {
+  const auto eol = documentEol(document.source);
+  const auto fragment =
+      QByteArray("```") + eol + QByteArray("```") + eol;
+  return insertTopLevelFragment(document, edit.position, fragment,
+                                MD_BLOCK_CODE);
 }
 
 EditResult outdentListItemSource(const Document& document,
@@ -5112,6 +5153,10 @@ ParseResult applyEdit(const Document& document, const SnapshotToken& token,
           return insertTableCellTextSource(document, edit);
         } else if constexpr (std::is_same_v<Command, InsertTable>) {
           return insertTableSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, InsertHorizontalRule>) {
+          return insertHorizontalRuleSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, InsertFencedCode>) {
+          return insertFencedCodeSource(document, edit);
         } else {
           return toggleInlineSource(document, edit);
         }

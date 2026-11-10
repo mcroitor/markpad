@@ -321,13 +321,19 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   connect(blockquoteAction_, &QAction::triggered, this,
           [this] { continuous_->toggleBlockquote(); });
   auto* blockquote = blockquoteAction_;
-  auto* code =
-      unavailable(text(QStringLiteral("action.code"), QStringLiteral("Code")),
-                  QStringLiteral("codeAction"));
-  auto* horizontal = unavailable(
+  codeAction_ = format->addAction(
+      text(QStringLiteral("action.code"), QStringLiteral("Code")));
+  codeAction_->setObjectName(QStringLiteral("codeAction"));
+  connect(codeAction_, &QAction::triggered, this,
+          [this] { continuous_->insertFencedCode(); });
+  auto* code = codeAction_;
+  horizontalLineAction_ = format->addAction(
       text(QStringLiteral("action.horizontalLine"),
-           QStringLiteral("Horizontal Line")),
-      QStringLiteral("horizontalLineAction"));
+           QStringLiteral("Horizontal Line")));
+  horizontalLineAction_->setObjectName(QStringLiteral("horizontalLineAction"));
+  connect(horizontalLineAction_, &QAction::triggered, this,
+          [this] { continuous_->insertHorizontalRule(); });
+  auto* horizontal = horizontalLineAction_;
   auto* link =
       unavailable(text(QStringLiteral("action.link"), QStringLiteral("Link")),
                   QStringLiteral("linkAction"));
@@ -921,12 +927,24 @@ void MainWindow::refreshState() {
   unorderedListAction_->setEnabled(continuousMode_ &&
                                    unorderedState.command.has_value());
   unorderedListAction_->setToolTip(unorderedState.reason);
-  tableAction_->setEnabled(continuousMode_ &&
-                           continuous_->tableCreationEnabled());
+  const bool blockInsertion =
+      continuousMode_ && continuous_->blockInsertionEnabled();
+  tableAction_->setEnabled(blockInsertion);
   tableAction_->setToolTip(
-      continuousMode_
+      blockInsertion
           ? QStringLiteral("Insert a 2-column table after the current block")
           : QStringLiteral("Table creation requires continuous WYSIWYG mode"));
+  codeAction_->setEnabled(blockInsertion);
+  codeAction_->setToolTip(
+      blockInsertion
+          ? QStringLiteral("Insert a fenced code block after the current block")
+          : QStringLiteral("Code insertion requires continuous WYSIWYG mode"));
+  horizontalLineAction_->setEnabled(blockInsertion);
+  horizontalLineAction_->setToolTip(
+      blockInsertion
+          ? QStringLiteral("Insert a horizontal rule after the current block")
+          : QStringLiteral(
+                "Horizontal rule insertion requires continuous WYSIWYG mode"));
   if (tableMenu_) {
     tableMenu_->menuAction()->setEnabled(continuousMode_);
     for (auto* tableAction : tableMenu_->actions()) {
