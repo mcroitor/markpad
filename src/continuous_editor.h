@@ -74,6 +74,11 @@ class ContinuousEditor final : public QWidget {
     int start;
     int length;
   };
+  struct CodeRun {
+    size_t node;
+    int start;
+    int length;
+  };
   struct Context {
     int start;
     int end;
@@ -92,6 +97,9 @@ class ContinuousEditor final : public QWidget {
                    QString prefix = {}, std::optional<size_t> task = {},
                    std::optional<size_t> list = {},
                    std::optional<size_t> quote = {});
+  void renderCodeBlock(size_t node, QTextCursor& cursor, int depth,
+                       std::optional<size_t> list,
+                       std::optional<size_t> quote);
   void renderInline(size_t node, QTextCursor& cursor, QTextCharFormat format,
                     bool allowEditing = true);
   void beginBlock(QTextCursor& cursor, int depth);
@@ -108,6 +116,7 @@ class ContinuousEditor final : public QWidget {
   std::optional<markdown::Document> document_;
   DocumentToken token_;
   std::vector<Run> runs_;
+  std::vector<CodeRun> codeRuns_;
   std::vector<Context> contexts_;
   std::vector<bool> mappedBlocks_;
   std::optional<Change> change_;

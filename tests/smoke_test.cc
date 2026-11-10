@@ -472,8 +472,6 @@ class MainWindowSmokeTest : public QObject {
     QTest::addColumn<QByteArray>("source");
     QTest::addColumn<QString>("selection");
     QTest::addColumn<QString>("replacement");
-    QTest::newRow("code") << QByteArray("```\ncode\n```\n")
-                          << QStringLiteral("Read-only") << QStringLiteral("x");
     QTest::newRow("autolink")
         << QByteArray("<https://invalid.test>\n")
         << QStringLiteral("https://invalid.test") << QStringLiteral("x");
@@ -1454,7 +1452,7 @@ class MainWindowSmokeTest : public QObject {
     auto* rich = window->continuousEditor()->editor();
     auto* quote = action(window, "blockquoteAction");
     QVERIFY(quote);
-    auto cursor = rich->document()->find(QStringLiteral("Read-only: code"));
+    auto cursor = rich->document()->find(QStringLiteral("code"));
     QVERIFY(!cursor.isNull());
     rich->setTextCursor(cursor);
     QVERIFY(quote->isEnabled());
@@ -1464,6 +1462,53 @@ class MainWindowSmokeTest : public QObject {
     window->undo();
     QCOMPARE(window->session().snapshot().source, original.source);
     QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousCodeBlockEditing() {
+    const QByteArray source =
+        "before\n\n```js\nold\nline2\n```\n\nafter\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    const auto displayed = rich->document()->toRawText();
+    QVERIFY(displayed.contains(QStringLiteral("old")));
+    QVERIFY(displayed.contains(QStringLiteral("line2")));
+    QVERIFY(!displayed.contains(QStringLiteral("```")));
+
+    auto cursor = rich->document()->find(QStringLiteral("old"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    rich->insertPlainText(QStringLiteral("new"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("before\n\n```js\nnew\nline2\n```\n\nafter\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    cursor = rich->document()->find(QStringLiteral("line2"));
+    QVERIFY(!cursor.isNull());
+    cursor.setPosition(cursor.selectionEnd());
+    rich->setTextCursor(cursor);
+    rich->insertPlainText(QStringLiteral("\nadded"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("before\n\n```js\nold\nline2\nadded\n```\n\nafter\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(dialogs.errors.empty());
+
+    cursor = rich->document()->find(QStringLiteral("old"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    rich->insertPlainText(QStringLiteral("```"));
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(!dialogs.errors.empty());
+    QVERIFY(window->setContinuousMode(false));
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(window->setContinuousMode(true));
+    QCOMPARE(window->session().snapshot().source, original.source);
   }
 
   void settingsAppliedToExistingWindow() {

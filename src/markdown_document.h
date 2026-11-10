@@ -67,6 +67,16 @@ struct EvidenceEnvelope {
 std::vector<EvidenceEnvelope> evidenceEnvelopes(const Document& document);
 // Partial map: single-line P/ATX, top-level or under explicit quote prefixes.
 std::vector<BlockSource> mapBlocks(const Document& document);
+struct FencedCodeBodySource {
+  SourceRange block;
+  SourceRange body;
+  QByteArray eol;
+  bool closed = false;
+};
+// Top-level fenced code only; body excludes opening/closing fence lines.
+std::optional<FencedCodeBodySource> mapFencedCodeBody(const Document& document,
+                                                      size_t node,
+                                                      QString& error);
 struct ListItemSource {
   size_t node;
   SourceRange range;
@@ -184,6 +194,10 @@ struct WrapInList {
   bool ordered;
   int start;  // Required for ordered; ignored for unordered.
 };
+struct ReplaceCodeBody {
+  size_t node;
+  QByteArray body;  // UTF-8; line endings are normalized to the block EOL.
+};
 struct IndentListItem {
   size_t item;
 };
@@ -222,9 +236,9 @@ struct RemoveTable {
 using EditCommand =
     std::variant<ReplaceText, SetTaskChecked, SetHeadingLevel, ToggleInlineStyle,
                  InsertListItem, RemoveListItem, SetListKind, SetItemTask,
-                 WrapInQuote, UnwrapQuote, WrapInList, IndentListItem,
-                 OutdentListItem, InsertTableRow, RemoveTableRow,
-                 SetTableAlignment,
+                 WrapInQuote, UnwrapQuote, WrapInList, ReplaceCodeBody,
+                 IndentListItem, OutdentListItem, InsertTableRow,
+                 RemoveTableRow, SetTableAlignment,
                  InsertTableColumn, RemoveTableColumn, RemoveTable>;
 
 // Edits return a reparsed snapshot; no-op preserves identity, revision and

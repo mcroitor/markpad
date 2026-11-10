@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026, 027, 028, 029, 030)
+- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026–031)
 - Владелец: архитектор + C++ разработчик
 - Приоритет: P1
 
@@ -79,6 +79,9 @@ WYSIWYG continuous — полноценный редактируемый реж�
   actions, WrapInList для top-level paragraph и SetListKind для существующих
   списков. Multi-block selection, list removal и list item operations остаются
   вне среза.
+- Реализована [Task 031](task_031.md): top-level fenced code body отображается
+  и редактируется в continuous через `ReplaceCodeBody`; fences/info и байты вне
+  body сохраняются. Indented/nested code и syntax highlighting не включены.
 - Выполнена зависимая подготовка структурных команд:
   [Task 016](task_016.md) — exact source-map top-level списков/пунктов.
 - Реализована [Task 017](task_017.md): source-preserving InsertListItem,

@@ -94,7 +94,7 @@ flowchart TB
 - Проверенное MD4C API 013 перенесено без копирования в `markpad_markdown` (`src/markdown_document.{h,cc}`, namespace `markpad::markdown`). Старые experiment fixtures тестируют тот же target. Зависимость MD4C теперь обязательна; pinned commit/hash прежние, сборка сохраняет MIT notice.
 - `ContinuousEditor` строит QTextDocument вручную через QTextCursor, не через HTML/Markdown importer/exporter. Это projection, не canonical source. Текстовые runs привязаны к callback node/source range. Маппинг UTF-16/UTF-8 учитывает Unicode/EOL; edit ограничен одним source-backed normal text run.
 - ReplaceText/heading/task вызывают единое `applyEdit`, повторный parse и проверку ожидаемой сигнатуры. MainWindow сверяет Session token projection с текущей Session перед записью результата в общую source history.
-- Необеспеченные операции явно отклоняются, projection восстанавливается; неподдержанные элементы/границы защищены и помечены. Code/HTML/tables пока placeholders; image alt labels редактируются как inert текст (Task 029). Enter, пустой результат run и cross-run edits выполняются в Markdown. Native rich undo/HTML paste/resources отключены.
+- Необеспеченные операции явно отклоняются, projection восстанавливается; неподдержанные элементы/границы защищены и помечены. HTML/tables пока placeholders; fenced code body редактируется в continuous (Task 031); image alt labels редактируются как inert текст (Task 029). Enter, пустой результат normal text run и cross-run edits выполняются в Markdown. Native rich undo/HTML paste/resources отключены.
 - Переключение режима не меняет source/revision/dirty/history. Selection переносится для mapped текста; немаппируемые позиции сопровождаются пояснением. При switch-back без правок/перемещения выделение восстанавливается точно.
 - Heading/task commands контекстные; создание inline formatting и сложные структурные операции не включены в Task 026. Полная Task 005 остаётся In Progress.
 
@@ -125,6 +125,13 @@ flowchart TB
 - `WrapInList` — новый source-preserving engine command для одного top-level paragraph: marker `- ` или `<start>. `, continuation indent для soft line breaks, сохранение EOL и байтов вне диапазона. Reference bindings проверяются через `parseListContext` и общий AST guard.
 - Ordered/Unordered actions вызывают `WrapInList` для top-level paragraph и `SetListKind` для существующего списка; tooltip/enabled state пересчитываются по контексту. Multi-block selection, list removal и list item insert/remove/indent/outdent UI не добавлены.
 - Structural actions идут через тот же `commandRequested`/Session/history path, что text/inline commands; direct source replacement и глобальная сериализация не используются.
+
+### Редактируемые fenced code blocks (Task 031)
+
+- Public `mapFencedCodeBody` возвращает full block range, body range, EOL и closed flag для top-level fenced code; fences и info string остаются вне body. Indented/nested code явно отвергаются.
+- `ReplaceCodeBody` нормализует line endings к EOL блока, сохраняет fence marker/count, indentation и info string, добавляет EOL перед закрывающим fence при необходимости и не создаёт closing fence для unclosed block. Кандидат парсится отдельно, expected subtree копируется через `copySubtree`, затем полный `apply` проверяет AST.
+- `ContinuousEditor` рендерит body monospace с CodeRun mapping; изменения внутри body, включая Enter и plain paste, отправляются единой командой. Fences остаются protected, code body не получает inline format commands, reject восстанавливает projection.
+- Точный cursor mapping code body в Markdown остаётся approximate; syntax highlighting, nested/indented code и изменение info/fence не входят в срез.
 
 ### Исследовательский GFM слой
 

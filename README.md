@@ -111,7 +111,9 @@ checked** are available only where the source map proves the operation safe.
 code block or containing list. **Format > List > Ordered/Unordered** converts a
 top-level paragraph into a list or changes an existing list kind. These actions
 are enabled contextually; multi-block selections and unsupported containers are
-rejected or disabled with an explanation.
+rejected or disabled with an explanation. Top-level fenced code bodies are shown
+in a monospace frame and can be edited, including adding/removing lines; fences
+and info strings stay protected.
 **Bold**, **Italic** and **Strikethrough** operate on a nonempty selection within
 one editable text run; Bold/Italic also support their standard keyboard shortcuts.
 Repeating a style removes it only when the entire simple span is selected.
@@ -122,8 +124,8 @@ requests report an error. Delimiter collisions that would change the surrounding
 Markdown semantics are rejected rather than normalized globally.
 Other edits, including Enter, cross-run replacements and deleting an entire text
 run, explicitly return you to Markdown for the change. Empty documents start in
-Markdown. Code, HTML and tables remain read-only placeholders, not fully
-rendered/editable features. No external resources are loaded.
+Markdown. HTML and tables remain read-only placeholders; indented/nested code
+and syntax highlighting are not supported yet. No external resources are loaded.
 
 Links show their labels as inert text, never as clickable Qt anchors. You can
 edit a mapped label run in inline/full-reference links while keeping the address,
@@ -188,8 +190,10 @@ equivalence: collisions and changes to surviving bindings are rejected atomicall
 used definitions cannot be removed, and unused definitions are deleted with their
 owner. Task 030 exposes Blockquote and Ordered/Unordered in the continuous UI;
 list item insert/remove/indent/outdent and list removal remain internal or
-require Markdown. Definitions before the first rendered paragraph cannot be
-combined with task toggling. Task 018 adds exact top-level quote ranges and
+require Markdown. Task 031 adds top-level fenced-code body editing while keeping
+fence/info bytes protected. Definitions before the first rendered paragraph
+cannot be combined with task toggling. Task 018 adds exact top-level quote
+ranges and
 source-preserving `WrapInQuote`/`UnwrapQuote` for the document parent: explicit
 `>` prefixes,
 quoted blank lines, multiline paragraphs, closed fenced code and inline HTML are

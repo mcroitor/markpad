@@ -1509,6 +1509,125 @@ class Md4cSourceTest : public QObject {
     QVERIFY(!rejected.error.isEmpty());
   }
 
+  void replaceCodeBody_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<QByteArray>("body");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("basic") << QByteArray("```\nold\n```\n")
+                           << QByteArray("new\n")
+                           << QByteArray("```\nnew\n```\n");
+    QTest::newRow("info") << QByteArray("```js\nold\n```\n")
+                          << QByteArray("new\n")
+                          << QByteArray("```js\nnew\n```\n");
+    QTest::newRow("crlf") << QByteArray("~~~\r\nold\r\n~~~\r\n")
+                          << QByteArray("new\n")
+                          << QByteArray("~~~\r\nnew\r\n~~~\r\n");
+    QTest::newRow("append-eol") << QByteArray("```\nold\n```\n")
+                                << QByteArray("new")
+                                << QByteArray("```\nnew\n```\n");
+    QTest::newRow("empty-body") << QByteArray("```\nold\n```\n")
+                                << QByteArray("")
+                                << QByteArray("```\n```\n");
+    QTest::newRow("unclosed") << QByteArray("```\nold\n")
+                              << QByteArray("new\n")
+                              << QByteArray("```\nnew\n");
+    QTest::newRow("outside") << QByteArray(
+                                    "before\n\n```\nold\n```\n\nafter\n")
+                             << QByteArray("new\n")
+                             << QByteArray(
+                                    "before\n\n```\nnew\n```\n\nafter\n");
+    QTest::newRow("shorter-fence-in-body")
+        << QByteArray("````\nold\n```\n````\n") << QByteArray("new\n")
+        << QByteArray("````\nnew\n````\n");
+    QTest::newRow("longer-close") << QByteArray("```\nold\n`````\n")
+                                  << QByteArray("new\n")
+                                  << QByteArray("```\nnew\n`````\n");
+    QTest::newRow("blank-lines") << QByteArray("```\nold\n```\n")
+                                 << QByteArray("one\n\ntwo\n")
+                                 << QByteArray("```\none\n\ntwo\n```\n");
+  }
+
+  void replaceCodeBody() {
+    QFETCH(QByteArray, source);
+    QFETCH(QByteArray, body);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY2(parsed.document, qPrintable(parsed.error));
+    const auto& doc = *parsed.document;
+    const auto code = find(doc, NodeKind::kBlock, MD_BLOCK_CODE);
+    QVERIFY(code < doc.nodes.size());
+    QString mapError;
+    const auto mapped = mapFencedCodeBody(doc, code, mapError);
+    QVERIFY2(mapped, qPrintable(mapError));
+    QVERIFY(mapped->body.offset >= mapped->block.offset);
+    QVERIFY(mapped->body.offset + mapped->body.size <=
+            mapped->block.offset + mapped->block.size);
+    const auto result = editBytes(doc, ReplaceCodeBody{code, body});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+  }
+
+  void replaceCodeBodyRejected_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<QByteArray>("body");
+    QTest::addColumn<QString>("error");
+    QTest::newRow("non-code") << QByteArray("alpha\n") << QByteArray("new\n")
+                              << QStringLiteral("fenced code target");
+    QTest::newRow("nested") << QByteArray("> ```\n> old\n> ```\n")
+                            << QByteArray("new\n")
+                            << QStringLiteral("top-level");
+    QTest::newRow("indented") << QByteArray("    old\n") << QByteArray("new\n")
+                              << QStringLiteral("fenced code source map");
+    QTest::newRow("invalid-utf8")
+        << QByteArray("```\nold\n```\n") << QByteArray("\xFF", 1)
+        << QStringLiteral("Invalid fenced code body");
+    QTest::newRow("nul") << QByteArray("```\nold\n```\n")
+                         << QByteArray("new\0old", 7)
+                         << QStringLiteral("Invalid fenced code body");
+    QTest::newRow("early-close") << QByteArray("```\nold\n```\n")
+                                 << QByteArray("new\n```\n")
+                                 << QStringLiteral("Structural fenced code");
+  }
+
+  void replaceCodeBodyRejected() {
+    QFETCH(QByteArray, source);
+    QFETCH(QByteArray, body);
+    QFETCH(QString, error);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    auto code = find(doc, NodeKind::kBlock, MD_BLOCK_CODE);
+    if (code >= doc.nodes.size()) {
+      code = 0;
+    }
+    const auto result = editBytes(doc, ReplaceCodeBody{code, body});
+    QVERIFY(!result.source);
+    QVERIFY2(result.error.contains(error), qPrintable(result.error));
+    QCOMPARE(doc.source, source);
+    QCOMPARE(doc.revision, quint64(0));
+  }
+
+  void replaceCodeBodyNoop() {
+    const QByteArray source = "```\nold\n```\n";
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    const auto code = find(doc, NodeKind::kBlock, MD_BLOCK_CODE);
+    QVERIFY(code < doc.nodes.size());
+    const auto result =
+        applyEdit(doc, snapshotToken(doc), ReplaceCodeBody{code, "old\n"});
+    QVERIFY2(result.document, qPrintable(result.error));
+    QCOMPARE(result.document->source, source);
+    QCOMPARE(result.document->revision, doc.revision);
+
+    const auto foreign = parse("```\nother\n```\n");
+    QVERIFY(foreign.document);
+    const auto rejected = applyEdit(doc, snapshotToken(*foreign.document),
+                                    ReplaceCodeBody{code, "new\n"});
+    QVERIFY(!rejected.document);
+    QVERIFY(!rejected.error.isEmpty());
+  }
+
   void wrapInListSecondBlock() {
     const QByteArray source = "before\n\nafter\n";
     const auto parsed = parse(source);

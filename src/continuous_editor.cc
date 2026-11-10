@@ -54,6 +54,20 @@ QString literal(const QByteArray& bytes) {
   return decoder(bytes);
 }
 
+std::optional<QString> codeDisplay(const QByteArray& bytes) {
+  QStringDecoder decoder(QStringConverter::Utf8);
+  QString text = decoder(bytes);
+  if (decoder.hasError()) {
+    return std::nullopt;
+  }
+  text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+  text.replace(QChar('\r'), QChar('\n'));
+  if (text.endsWith(QChar('\n'))) {
+    text.chop(1);
+  }
+  return text;
+}
+
 bool editable(const markdown::Document& document, const markdown::Node& node) {
   return node.kind == markdown::NodeKind::kText &&
          node.type == MD_TEXT_NORMAL && node.source &&
@@ -97,6 +111,7 @@ QString ContinuousEditor::render(const DocumentSnapshot& snapshot) {
                                 snapshot.token.revision);
   document_ = std::move(parsed.document);
   runs_.clear();
+  codeRuns_.clear();
   contexts_.clear();
   mappedBlocks_.clear();
   editor_->clear();
@@ -149,6 +164,36 @@ void ContinuousEditor::opaque(QTextCursor& cursor, const QString& label,
     contexts_.push_back(
         {start, cursor.position(), {}, {}, *block, list, quote});
   }
+}
+
+void ContinuousEditor::renderCodeBlock(size_t index, QTextCursor& cursor,
+                                       int depth, std::optional<size_t> list,
+                                       std::optional<size_t> quote) {
+  QString error;
+  const auto mapped = markdown::mapFencedCodeBody(*document_, index, error);
+  const auto display =
+      mapped ? codeDisplay(document_->source.mid(mapped->body.offset,
+                                                 mapped->body.size))
+             : std::nullopt;
+  if (!mapped || !display) {
+    opaque(cursor, QStringLiteral("code - edit in Markdown"), depth, index,
+           list, quote);
+    return;
+  }
+  beginBlock(cursor, depth);
+  const int start = cursor.position();
+  QTextCharFormat format;
+  auto font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+  font.setStyleHint(QFont::Monospace);
+  format.setFont(font);
+  format.setForeground(QColor(40, 40, 40));
+  format.setBackground(QColor(245, 245, 245));
+  format.setToolTip(QStringLiteral(
+      "Editable fenced code body; fences and info string are protected."));
+  cursor.insertText(*display, format);
+  codeRuns_.push_back({index, start, int(display->size())});
+  contexts_.push_back(
+      {start, cursor.position(), {}, {}, index, list, quote});
 }
 
 void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
@@ -227,11 +272,12 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
                          quote});
     return;
   }
+  if (node.type == MD_BLOCK_CODE) {
+    renderCodeBlock(index, cursor, depth, list, quote);
+    return;
+  }
   QString label = QStringLiteral("unsupported block - edit in Markdown");
   switch (node.type) {
-    case MD_BLOCK_CODE:
-      label = QStringLiteral("code - edit in Markdown");
-      break;
     case MD_BLOCK_HTML:
       label = QStringLiteral("HTML - edit in Markdown");
       break;
@@ -244,9 +290,7 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
     default:
       break;
   }
-  const auto block =
-      node.type == MD_BLOCK_CODE ? std::optional<size_t>(index) : std::nullopt;
-  opaque(cursor, label, depth, block, list, quote);
+  opaque(cursor, label, depth);
 }
 
 void ContinuousEditor::renderInline(size_t index, QTextCursor& cursor,
@@ -361,19 +405,51 @@ void ContinuousEditor::changed() {
     return;
   }
   const Run* target = nullptr;
+  const CodeRun* codeTarget = nullptr;
+  for (const auto& run : codeRuns_) {
+    const int offset = change->position - run.start;
+    if (offset < 0 || offset > run.length ||
+        change->removed > run.length - offset) {
+      continue;
+    }
+    if (target || codeTarget) {
+      restore(
+          QStringLiteral("This insertion is between text runs. Move inside a "
+                         "run or use Markdown."));
+      return;
+    }
+    codeTarget = &run;
+  }
   for (const auto& run : runs_) {
     const int offset = change->position - run.start;
     if (offset < 0 || offset > run.length ||
         change->removed > run.length - offset) {
       continue;
     }
-    if (target) {
+    if (target || codeTarget) {
       restore(
           QStringLiteral("This insertion is between text runs. Move inside a "
                          "run or use Markdown."));
       return;
     }
     target = &run;
+  }
+  if (codeTarget) {
+    auto replacement =
+        renderedText_.mid(codeTarget->start, codeTarget->length);
+    replacement.replace(change->position - codeTarget->start, change->removed,
+                        text.mid(change->position, change->added));
+    replacement.replace(QChar::LineSeparator, QChar('\n'));
+    replacement.replace(QChar::ParagraphSeparator, QChar('\n'));
+    if (!replacement.isValidUtf16() || replacement.contains(QChar(0))) {
+      restore(QStringLiteral(
+          "Code edits must be valid Unicode without NUL. Use Markdown."));
+      return;
+    }
+    const auto command =
+        markdown::ReplaceCodeBody{codeTarget->node, replacement.toUtf8()};
+    emit commandRequested(token_, command, editor_->textCursor().position());
+    return;
   }
   if (target) {
     auto replacement = renderedText_.mid(target->start, target->length);

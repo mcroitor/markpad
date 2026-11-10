@@ -3469,6 +3469,95 @@ std::optional<SourceRange> mapFencedCodeRange(const Document& document,
   return std::nullopt;
 }
 
+std::optional<FencedCodeBodySource> mapFencedCodeBodyInternal(
+    const Document& document, size_t node, QString& error) {
+  if (node >= document.nodes.size() ||
+      document.nodes[node].kind != NodeKind::kBlock ||
+      document.nodes[node].type != MD_BLOCK_CODE ||
+      document.nodes[node].parent != std::optional<size_t>(0)) {
+    error = QStringLiteral(
+        "Fenced code body mapping supports only top-level code blocks");
+    return std::nullopt;
+  }
+  QString rangeError;
+  const auto blockRange = mapFencedCodeRange(document, node, rangeError);
+  if (!blockRange) {
+    error = rangeError;
+    return std::nullopt;
+  }
+  const auto original =
+      document.source.mid(blockRange->offset, blockRange->size);
+  const auto lines = listLines(original);
+  if (lines.empty()) {
+    error = QStringLiteral("Fenced code has no source lines");
+    return std::nullopt;
+  }
+  const auto& opening = lines.front();
+  auto position = opening.start;
+  while (position < opening.bodyEnd && original[position] == ' ') {
+    ++position;
+  }
+  if (position - opening.start > 3 || position >= opening.bodyEnd) {
+    error = QStringLiteral("Unsupported fenced code opening line");
+    return std::nullopt;
+  }
+  const auto marker = original[position];
+  if (marker != '`' && marker != '~') {
+    error = QStringLiteral("Unsupported fenced code marker");
+    return std::nullopt;
+  }
+  const auto markerStart = position;
+  while (position < opening.bodyEnd && original[position] == marker) {
+    ++position;
+  }
+  const auto markerCount = position - markerStart;
+  if (markerCount < 3) {
+    error = QStringLiteral("Unsupported fenced code marker");
+    return std::nullopt;
+  }
+  size_t closingLine = lines.size();
+  for (size_t i = 1; i < lines.size(); ++i) {
+    auto close = lines[i].start;
+    while (close < lines[i].bodyEnd && original[close] == ' ') {
+      ++close;
+    }
+    if (close - lines[i].start > 3 || close >= lines[i].bodyEnd ||
+        original[close] != marker) {
+      continue;
+    }
+    auto run = close;
+    while (run < lines[i].bodyEnd && original[run] == marker) {
+      ++run;
+    }
+    if (run - close < markerCount) {
+      continue;
+    }
+    while (run < lines[i].bodyEnd && space(original[run])) {
+      ++run;
+    }
+    if (run == lines[i].bodyEnd) {
+      closingLine = i;
+      break;
+    }
+  }
+  const auto bodyStart = opening.end;
+  const auto bodyEnd =
+      closingLine < lines.size() ? lines[closingLine].start : original.size();
+  if (bodyStart > bodyEnd) {
+    error = QStringLiteral("Invalid fenced code body range");
+    return std::nullopt;
+  }
+  auto eol = original.mid(opening.bodyEnd, opening.end - opening.bodyEnd);
+  if (eol.isEmpty()) {
+    eol = documentEol(document.source);
+  }
+  return FencedCodeBodySource{
+      *blockRange,
+      {blockRange->offset + bodyStart, bodyEnd - bodyStart},
+      eol,
+      closingLine < lines.size()};
+}
+
 std::optional<SourceRange> mapTextBlockRange(const Document& document,
                                              size_t node, QString& error) {
   qsizetype first = document.source.size();
@@ -3839,6 +3928,69 @@ EditResult wrapInListSource(const Document& document, const WrapInList& edit) {
       copySubtree(expected, parsed->document, parsed->root, 0);
   *position = newIndex;
   return apply(document, expected, range, replacement);
+}
+
+EditResult replaceCodeBodySource(const Document& document,
+                                 const ReplaceCodeBody& edit) {
+  if (edit.node >= document.nodes.size() ||
+      document.nodes[edit.node].kind != NodeKind::kBlock ||
+      document.nodes[edit.node].type != MD_BLOCK_CODE) {
+    return {std::nullopt, QStringLiteral("Invalid fenced code target")};
+  }
+  QString mapError;
+  const auto mapped = mapFencedCodeBodyInternal(document, edit.node, mapError);
+  if (!mapped) {
+    return {std::nullopt, mapError};
+  }
+  if (!validUtf8(edit.body) || edit.body.contains('\0')) {
+    return {std::nullopt, QStringLiteral("Invalid fenced code body")};
+  }
+  QByteArray normalized = edit.body;
+  normalized.replace("\r\n", "\n");
+  normalized.replace('\r', '\n');
+  if (!normalized.isEmpty()) {
+    if (!normalized.endsWith('\n')) {
+      normalized += '\n';
+    }
+    if (mapped->eol != "\n") {
+      normalized.replace('\n', mapped->eol);
+    }
+  }
+  const auto originalBody =
+      document.source.mid(mapped->body.offset, mapped->body.size);
+  if (normalized == originalBody) {
+    return {document.source, {}};
+  }
+  const auto blockEnd = mapped->block.offset + mapped->block.size;
+  const auto suffixStart = mapped->body.offset + mapped->body.size;
+  if (suffixStart < mapped->body.offset || suffixStart > blockEnd) {
+    return {std::nullopt, QStringLiteral("Invalid fenced code body range")};
+  }
+  const auto candidate =
+      document.source.mid(mapped->block.offset,
+                          mapped->body.offset - mapped->block.offset) +
+      normalized +
+      document.source.mid(suffixStart, blockEnd - suffixStart);
+  auto parsed = parse(candidate);
+  if (!parsed.document || parsed.document->nodes[0].children.size() != 1) {
+    return {std::nullopt, QStringLiteral("Structural fenced code mismatch")};
+  }
+  const auto child = parsed.document->nodes[0].children.front();
+  if (parsed.document->nodes[child].type != MD_BLOCK_CODE ||
+      parsed.document->nodes[child].attributes !=
+          document.nodes[edit.node].attributes) {
+    return {std::nullopt, QStringLiteral("Structural fenced code mismatch")};
+  }
+  auto expected = document;
+  auto& siblings = expected.nodes[0].children;
+  const auto position =
+      std::find(siblings.begin(), siblings.end(), edit.node);
+  if (position == siblings.end()) {
+    return {std::nullopt, QStringLiteral("Invalid fenced code target")};
+  }
+  const auto newIndex = copySubtree(expected, *parsed.document, child, 0);
+  *position = newIndex;
+  return apply(document, expected, mapped->body, normalized);
 }
 
 std::optional<SourceRange> contentRangeFor(const Document& document,
@@ -4698,6 +4850,11 @@ EditResult toggleInlineSource(const Document& document,
 
 }  // namespace
 
+std::optional<FencedCodeBodySource> mapFencedCodeBody(
+    const Document& document, size_t node, QString& error) {
+  return mapFencedCodeBodyInternal(document, node, error);
+}
+
 ParseResult applyEdit(const Document& document, const SnapshotToken& token,
                       const EditCommand& command) {
   const auto current = snapshotToken(document);
@@ -4728,6 +4885,8 @@ ParseResult applyEdit(const Document& document, const SnapshotToken& token,
           return unwrapQuoteSource(document, edit);
         } else if constexpr (std::is_same_v<Command, WrapInList>) {
           return wrapInListSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, ReplaceCodeBody>) {
+          return replaceCodeBodySource(document, edit);
         } else if constexpr (std::is_same_v<Command, IndentListItem>) {
           return indentListItemSource(document, edit);
         } else if constexpr (std::is_same_v<Command, OutdentListItem>) {
