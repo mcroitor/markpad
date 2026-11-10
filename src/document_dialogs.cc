@@ -103,6 +103,17 @@ std::optional<QString> DocumentDialogs::chooseLink(QWidget* parent) {
   return value.trimmed();
 }
 
+std::optional<QString> DocumentDialogs::chooseImage(QWidget* parent) {
+  bool accepted = false;
+  const auto value = QInputDialog::getText(
+      parent, QStringLiteral("Insert image"), QStringLiteral("Image URL"),
+      QLineEdit::Normal, {}, &accepted);
+  if (!accepted || value.trimmed().isEmpty()) {
+    return std::nullopt;
+  }
+  return value.trimmed();
+}
+
 CloseChoice DocumentDialogs::confirmClose(QWidget* parent,
                                           const QString& name) {
   const auto answer = QMessageBox::warning(

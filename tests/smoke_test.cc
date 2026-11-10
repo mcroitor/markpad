@@ -59,10 +59,12 @@ class TestDialogs final : public DocumentDialogs {
   std::optional<SaveSelection> saveSelection;
   std::optional<Encoding> encoding;
   std::optional<QString> linkUrl;
+  std::optional<QString> imageUrl;
   CloseChoice closeChoice = CloseChoice::kCancel;
   QStringList errors;
   int closePrompts = 0;
   int linkPrompts = 0;
+  int imagePrompts = 0;
   QString chooseOpen(QWidget*) override { return openPath; }
   std::optional<SaveSelection> chooseSave(QWidget*, const QString&,
                                           FileFormat) override {
@@ -72,6 +74,10 @@ class TestDialogs final : public DocumentDialogs {
   std::optional<QString> chooseLink(QWidget*) override {
     ++linkPrompts;
     return linkUrl;
+  }
+  std::optional<QString> chooseImage(QWidget*) override {
+    ++imagePrompts;
+    return imageUrl;
   }
   CloseChoice confirmClose(QWidget*, const QString&) override {
     ++closePrompts;
@@ -1757,6 +1763,48 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(!link->isEnabled());
     QVERIFY(window->setContinuousMode(false));
     QVERIFY(!link->isEnabled());
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousImageCreation() {
+    const QByteArray source = "alpha beta\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    auto* image = action(window, "imageAction");
+    QVERIFY(image);
+    QVERIFY(!image->isEnabled());
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    auto cursor = rich->document()->find(QStringLiteral("alpha"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    QVERIFY(image->isEnabled());
+    dialogs.imageUrl = QStringLiteral("https://example.test/image.png");
+    image->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("![alpha](<https://example.test/image.png>) beta\n"));
+    QCOMPARE(dialogs.imagePrompts, 1);
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    cursor = rich->document()->find(QStringLiteral("beta"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    QVERIFY(image->isEnabled());
+    dialogs.imageUrl.reset();
+    image->trigger();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QCOMPARE(dialogs.imagePrompts, 2);
+
+    auto collapsed = rich->document()->find(QStringLiteral("beta"));
+    collapsed.clearSelection();
+    rich->setTextCursor(collapsed);
+    QVERIFY(!image->isEnabled());
+    QVERIFY(window->setContinuousMode(false));
+    QVERIFY(!image->isEnabled());
     QVERIFY(dialogs.errors.empty());
   }
 

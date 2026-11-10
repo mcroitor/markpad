@@ -307,14 +307,6 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
     connect(value, &QAction::triggered, this,
             [this, style] { continuous_->toggleInlineStyle(style); });
   }
-  const auto unavailable = [&](const QString& label, const QString& name) {
-    auto* value = format->addAction(label);
-    value->setObjectName(name);
-    value->setEnabled(false);
-    value->setToolTip(QStringLiteral("Not implemented in WYSIWYG yet; use "
-                                     "Markdown mode"));
-    return value;
-  };
   blockquoteAction_ = format->addAction(
       text(QStringLiteral("action.blockquote"), QStringLiteral("Blockquote")));
   blockquoteAction_->setObjectName(QStringLiteral("blockquoteAction"));
@@ -344,9 +336,16 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
     }
   });
   auto* link = linkAction_;
-  auto* image =
-      unavailable(text(QStringLiteral("action.image"), QStringLiteral("Image")),
-                  QStringLiteral("imageAction"));
+  imageAction_ = format->addAction(
+      text(QStringLiteral("action.image"), QStringLiteral("Image")));
+  imageAction_->setObjectName(QStringLiteral("imageAction"));
+  connect(imageAction_, &QAction::triggered, this, [this] {
+    const auto src = dialogs_.chooseImage(this);
+    if (src) {
+      continuous_->insertImage(*src);
+    }
+  });
+  auto* image = imageAction_;
   tableAction_ = format->addAction(
       text(QStringLiteral("action.table"), QStringLiteral("Table")));
   tableAction_->setObjectName(QStringLiteral("tableAction"));
@@ -960,6 +959,14 @@ void MainWindow::refreshState() {
           ? QStringLiteral("Create a link from the selected text")
           : QStringLiteral("Select text inside one editable run to create a "
                            "link"));
+  const bool imageCreation =
+      continuousMode_ && continuous_->imageCreationEnabled();
+  imageAction_->setEnabled(imageCreation);
+  imageAction_->setToolTip(
+      imageCreation
+          ? QStringLiteral("Insert an image using the selected text as alt")
+          : QStringLiteral("Select alt text inside one editable run to insert "
+                           "an image"));
   if (tableMenu_) {
     tableMenu_->menuAction()->setEnabled(continuousMode_);
     for (auto* tableAction : tableMenu_->actions()) {

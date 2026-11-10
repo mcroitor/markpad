@@ -5050,6 +5050,105 @@ EditResult wrapInLinkSource(const Document& document,
                {node.source->offset + range.offset, range.size}, replacement);
 }
 
+EditResult insertImageSource(const Document& document,
+                             const InsertImage& edit) {
+  if (edit.node >= document.nodes.size()) {
+    return {std::nullopt, QStringLiteral("Invalid image text target")};
+  }
+  const auto& node = document.nodes[edit.node];
+  const auto& range = edit.textRange;
+  if (node.kind != NodeKind::kText || node.type != MD_TEXT_NORMAL ||
+      !node.source || node.source->offset < 0 ||
+      node.source->offset > document.source.size() ||
+      node.source->size != node.text.size() ||
+      node.source->size > document.source.size() - node.source->offset ||
+      document.source.mid(node.source->offset, node.source->size) !=
+          node.text ||
+      range.offset < 0 || range.size <= 0 ||
+      range.offset > node.text.size() ||
+      range.size > node.text.size() - range.offset) {
+    return {std::nullopt,
+            QStringLiteral("Image creation requires a mapped text selection")};
+  }
+  const auto alt = node.text.mid(range.offset, range.size);
+  if (alt.isEmpty() || !validUtf8(alt) || alt.contains('\0') ||
+      alt.contains('\r') || alt.contains('\n')) {
+    return {std::nullopt, QStringLiteral("Invalid image alt selection")};
+  }
+  if (edit.src.isEmpty() || !validUtf8(edit.src) ||
+      edit.src.contains('\0') || edit.src.contains('\r') ||
+      edit.src.contains('\n') || edit.src.contains('<') ||
+      edit.src.contains('>') || edit.src.contains(' ') ||
+      edit.src.contains('\t')) {
+    return {std::nullopt, QStringLiteral("Invalid image source")};
+  }
+  auto ancestor = node.parent;
+  while (ancestor) {
+    if (*ancestor >= document.nodes.size()) {
+      return {std::nullopt, QStringLiteral("Invalid image ancestry")};
+    }
+    const auto& parent = document.nodes[*ancestor];
+    if (parent.kind == NodeKind::kSpan &&
+        (parent.type == MD_SPAN_A || parent.type == MD_SPAN_IMG)) {
+      return {std::nullopt,
+              QStringLiteral("Nested links/images are not supported")};
+    }
+    ancestor = parent.parent;
+  }
+  const auto replacement = QByteArray("![") + alt + QByteArray("](<") +
+                           edit.src + QByteArray(">)");
+  auto parsed = parse(replacement);
+  if (!parsed.document || parsed.document->nodes[0].children.size() != 1) {
+    return {std::nullopt, QStringLiteral("Invalid image source")};
+  }
+  const auto paragraph = parsed.document->nodes[0].children.front();
+  if (parsed.document->nodes[paragraph].type != MD_BLOCK_P ||
+      parsed.document->nodes[paragraph].children.size() != 1) {
+    return {std::nullopt, QStringLiteral("Invalid image source")};
+  }
+  const auto image = parsed.document->nodes[paragraph].children.front();
+  if (parsed.document->nodes[image].type != MD_SPAN_IMG) {
+    return {std::nullopt, QStringLiteral("Invalid image source")};
+  }
+  const auto parent = node.parent;
+  if (!parent || *parent >= document.nodes.size()) {
+    return {std::nullopt, QStringLiteral("Invalid image parent")};
+  }
+  auto& siblings = document.nodes[*parent].children;
+  const auto position = std::find(siblings.begin(), siblings.end(), edit.node);
+  if (position == siblings.end()) {
+    return {std::nullopt, QStringLiteral("Invalid image parent")};
+  }
+  auto expected = document;
+  std::vector<size_t> replacementNodes;
+  const auto addText = [&](const QByteArray& text) {
+    auto copy = document.nodes[edit.node];
+    copy.text = text;
+    copy.children.clear();
+    copy.source.reset();
+    expected.nodes.push_back(std::move(copy));
+    replacementNodes.push_back(expected.nodes.size() - 1);
+  };
+  const auto before = node.text.left(range.offset);
+  const auto after = node.text.mid(range.offset + range.size);
+  if (!before.isEmpty()) {
+    addText(before);
+  }
+  const auto imageIndex = copySubtree(expected, *parsed.document, image,
+                                      *parent);
+  replacementNodes.push_back(imageIndex);
+  if (!after.isEmpty()) {
+    addText(after);
+  }
+  const auto index = size_t(position - siblings.begin());
+  auto& expectedSiblings = expected.nodes[*parent].children;
+  expectedSiblings.erase(expectedSiblings.begin() + qsizetype(index));
+  expectedSiblings.insert(expectedSiblings.begin() + qsizetype(index),
+                          replacementNodes.begin(), replacementNodes.end());
+  return apply(document, expected,
+               {node.source->offset + range.offset, range.size}, replacement);
+}
+
 EditResult toggleInlineSource(const Document& document,
                               const ToggleInlineStyle& edit) {
   const int type = spanType(edit.style);
@@ -5258,6 +5357,8 @@ ParseResult applyEdit(const Document& document, const SnapshotToken& token,
           return insertFencedCodeSource(document, edit);
         } else if constexpr (std::is_same_v<Command, WrapInLink>) {
           return wrapInLinkSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, InsertImage>) {
+          return insertImageSource(document, edit);
         } else {
           return toggleInlineSource(document, edit);
         }

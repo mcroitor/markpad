@@ -141,7 +141,9 @@ Links show their labels as inert text, never as clickable Qt anchors. You can
 edit a mapped label run in inline/full-reference links while keeping the address,
 title and reference definitions unchanged. Format > Link/toolbar Link creates an
 inline link from a selection inside one editable text run after prompting for a
-URL; titles and reference-style creation remain unsupported. Images are rendered as inert styled
+URL; titles and reference-style creation remain unsupported. Format >
+Image/toolbar Image similarly creates an inert inline image using the selected
+text as alt text and a prompted source URL. Images are rendered as inert styled
 alt labels: alt text is locally editable, while source, title and reference
 definitions stay unchanged and resources are never loaded. Label/alt formatting
 commands and
@@ -211,10 +213,11 @@ entry for empty outer-piped cells. Task 036 enables Format > Table/toolbar
 Table to insert a default 2-column table in continuous mode. Task 037 adds
 Format > Code and Horizontal Line insertion for empty fenced code blocks and
 `---`. Task 038 adds inline-link creation from a single editable selection via
-URL prompt. Multiline/rich cell content, table size selection, code language
-pickers, link titles and reference-style links remain planned. Definitions
-before the first rendered paragraph cannot be combined with task toggling.
-Task 018 adds exact top-level quote
+URL prompt; Task 039 adds inline-image creation from a selected alt label via
+source prompt. Multiline/rich cell content, table size selection, code language
+pickers, link/image titles and reference-style links remain planned.
+Definitions before the first rendered paragraph cannot be combined with task
+toggling. Task 018 adds exact top-level quote
 ranges and
 source-preserving `WrapInQuote`/`UnwrapQuote` for the document parent: explicit
 `>` prefixes,

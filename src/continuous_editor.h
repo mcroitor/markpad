@@ -72,6 +72,8 @@ class ContinuousEditor final : public QWidget {
   void insertFencedCode();
   bool linkCreationEnabled() const;
   void insertLink(const QString& url);
+  bool imageCreationEnabled() const;
+  void insertImage(const QString& src);
   void explainCursorMapping(bool exact);
   void setPaged(bool paged);
   bool paged() const { return paged_; }

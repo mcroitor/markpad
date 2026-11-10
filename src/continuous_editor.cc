@@ -822,6 +822,33 @@ void ContinuousEditor::insertLink(const QString& url) {
   emit commandRequested(token_, command, editor_->textCursor().position());
 }
 
+bool ContinuousEditor::imageCreationEnabled() const {
+  const auto selection = linkSelection();
+  if (!selection) {
+    return false;
+  }
+  return apply(markdown::InsertImage{selection->node, selection->range,
+                                     "https://example.invalid/image.png"})
+      .document.has_value();
+}
+
+void ContinuousEditor::insertImage(const QString& src) {
+  const auto selection = linkSelection();
+  if (!selection) {
+    emit errorOccurred(
+        QStringLiteral("Select alt text inside one editable run to insert an "
+                       "image."));
+    return;
+  }
+  if (src.trimmed().isEmpty()) {
+    emit errorOccurred(QStringLiteral("Image source must not be empty."));
+    return;
+  }
+  const auto command = markdown::InsertImage{
+      selection->node, selection->range, src.trimmed().toUtf8()};
+  emit commandRequested(token_, command, editor_->textCursor().position());
+}
+
 ContinuousEditor::StructuralState ContinuousEditor::blockquoteState() const {
   const auto* value = context();
   if (!document_ || !value) {
