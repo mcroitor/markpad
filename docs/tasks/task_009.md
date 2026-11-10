@@ -69,10 +69,10 @@ Sketch предусматривает настройки языка, темы, e
 - Shortcuts: validation QKeySequence, duplicates и reserved standard commands
   отклоняются. Settings dialog показывает ошибку до accept; MainWindow
   применяет валидные mapping к actions по objectName после перезапуска.
-- `SettingsDialog`: theme/language/font/size/wrap/default location/page
-  size/orientation/margins и shortcut overrides; OK валидирует значения.
-  Auto Save и Line Numbers присутствуют как явно disabled/deferred controls по
-  решению Task 010.
+- `SettingsDialog`: группы General (Language, Theme, Auto Save deferred,
+  Default file location), Editor (Font size, Font family, Line numbers deferred,
+  Word wrap), Page (size/orientation/margins) и Shortcuts; OK валидирует
+  значения до применения.
 - Menu bar приведён к [sketch.md](../../sketch.md): File (New, Open, Save,
   Save As, Export→PDF/HTML, Print, Exit), Edit (Undo/Redo/Cut/Copy/Paste,
   Settings), Format (Heading H1–H6, Bold/Italic/Strikethrough, Blockquote,

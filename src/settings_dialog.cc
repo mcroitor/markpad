@@ -21,19 +21,16 @@ SettingsDialog::SettingsDialog(const QStringList& languages, QWidget* parent)
   setWindowTitle(QStringLiteral("Settings"));
   auto* layout = new QVBoxLayout(this);
 
-  auto* general = new QGroupBox(QStringLiteral("Application"), this);
+  auto* general = new QGroupBox(QStringLiteral("General"), this);
   auto* generalForm = new QFormLayout(general);
+  language_ = new QComboBox(general);
+  language_->addItems(languages);
+  generalForm->addRow(QStringLiteral("Language"), language_);
   theme_ = new QComboBox(general);
   theme_->addItem(QStringLiteral("System"), int(Theme::kSystem));
   theme_->addItem(QStringLiteral("Light"), int(Theme::kLight));
   theme_->addItem(QStringLiteral("Dark"), int(Theme::kDark));
   generalForm->addRow(QStringLiteral("Theme"), theme_);
-  language_ = new QComboBox(general);
-  language_->addItems(languages);
-  generalForm->addRow(QStringLiteral("Language"), language_);
-  defaultLocation_ = new QLineEdit(general);
-  generalForm->addRow(QStringLiteral("Default file location"),
-                      defaultLocation_);
   auto* autoSave = new QCheckBox(
       QStringLiteral("Auto Save (deferred)"), general);
   autoSave->setObjectName(QStringLiteral("settingsAutoSave"));
@@ -42,15 +39,18 @@ SettingsDialog::SettingsDialog(const QStringList& languages, QWidget* parent)
       QStringLiteral("Auto Save is deferred until a recovery policy is "
                      "approved"));
   generalForm->addRow(autoSave);
+  defaultLocation_ = new QLineEdit(general);
+  generalForm->addRow(QStringLiteral("Default file location"),
+                      defaultLocation_);
   layout->addWidget(general);
 
   auto* editor = new QGroupBox(QStringLiteral("Editor"), this);
   auto* editorForm = new QFormLayout(editor);
-  font_ = new QFontComboBox(editor);
-  editorForm->addRow(QStringLiteral("Font"), font_);
   fontSize_ = new QSpinBox(editor);
   fontSize_->setRange(6, 48);
   editorForm->addRow(QStringLiteral("Font size"), fontSize_);
+  font_ = new QFontComboBox(editor);
+  editorForm->addRow(QStringLiteral("Font family"), font_);
   wordWrap_ = new QCheckBox(QStringLiteral("Wrap long lines"), editor);
   editorForm->addRow(wordWrap_);
   auto* lineNumbers = new QCheckBox(
