@@ -130,6 +130,7 @@ QString ContinuousEditor::render(const DocumentSnapshot& snapshot) {
   document_ = std::move(parsed.document);
   runs_.clear();
   codeRuns_.clear();
+  tableRuns_.clear();
   contexts_.clear();
   mappedBlocks_.clear();
   editor_->clear();
@@ -277,6 +278,7 @@ void ContinuousEditor::renderTable(size_t index, QTextCursor& cursor, int depth)
   for (size_t row = 0; row < source.body.size(); ++row) {
     fillRow(source.body[row], int(row + 1), false);
   }
+  tableRuns_.push_back({table, index});
   firstBlock_ = false;
   cursor = editor_->document()->rootFrame()->lastCursorPosition();
 }
@@ -829,6 +831,106 @@ void ContinuousEditor::changeListKind(bool ordered) {
   }
   emit commandRequested(token_, *state.command,
                         editor_->textCursor().position());
+}
+
+std::optional<ContinuousEditor::TableContext>
+ContinuousEditor::tableContext() const {
+  if (!document_ || !editor_) {
+    return std::nullopt;
+  }
+  auto* table = editor_->textCursor().currentTable();
+  if (!table) {
+    return std::nullopt;
+  }
+  for (const auto& run : tableRuns_) {
+    if (run.widget != table) {
+      continue;
+    }
+    const auto cell = table->cellAt(editor_->textCursor());
+    if (!cell.isValid()) {
+      return std::nullopt;
+    }
+    return TableContext{run.node, cell.row(), cell.column(), table->rows(),
+                        table->columns()};
+  }
+  return std::nullopt;
+}
+
+std::optional<markdown::EditCommand> ContinuousEditor::tableCommand(
+    const TableContext& context, TableAction action) const {
+  const auto emptyCells = [](int count) {
+    return std::vector<QByteArray>(size_t(std::max(0, count)));
+  };
+  switch (action) {
+    case TableAction::kInsertRowAbove:
+      if (context.row <= 0) {
+        return std::nullopt;
+      }
+      return markdown::InsertTableRow{
+          context.node, size_t(context.row - 1),
+          emptyCells(context.columns)};
+    case TableAction::kInsertRowBelow:
+      return markdown::InsertTableRow{
+          context.node, size_t(std::max(0, context.row)),
+          emptyCells(context.columns)};
+    case TableAction::kRemoveRow:
+      if (context.row <= 0) {
+        return std::nullopt;
+      }
+      return markdown::RemoveTableRow{context.node,
+                                      size_t(context.row - 1)};
+    case TableAction::kInsertColumnLeft:
+      return markdown::InsertTableColumn{
+          context.node, size_t(std::max(0, context.column)), {},
+          emptyCells(context.rows - 1), markdown::TableAlignment::kNone};
+    case TableAction::kInsertColumnRight:
+      return markdown::InsertTableColumn{
+          context.node, size_t(std::max(0, context.column + 1)), {},
+          emptyCells(context.rows - 1), markdown::TableAlignment::kNone};
+    case TableAction::kRemoveColumn:
+      if (context.columns <= 1) {
+        return std::nullopt;
+      }
+      return markdown::RemoveTableColumn{context.node,
+                                         size_t(context.column)};
+    case TableAction::kAlignLeft:
+      return markdown::SetTableAlignment{
+          context.node, size_t(context.column),
+          markdown::TableAlignment::kLeft};
+    case TableAction::kAlignCenter:
+      return markdown::SetTableAlignment{
+          context.node, size_t(context.column),
+          markdown::TableAlignment::kCenter};
+    case TableAction::kAlignRight:
+      return markdown::SetTableAlignment{
+          context.node, size_t(context.column),
+          markdown::TableAlignment::kRight};
+    case TableAction::kRemoveTable:
+      return markdown::RemoveTable{context.node};
+  }
+  return std::nullopt;
+}
+
+bool ContinuousEditor::tableActionEnabled(TableAction action) const {
+  const auto context = tableContext();
+  return context && tableCommand(*context, action).has_value();
+}
+
+void ContinuousEditor::applyTableAction(TableAction action) {
+  const auto context = tableContext();
+  if (!context) {
+    emit errorOccurred(
+        QStringLiteral("Place the cursor inside a rendered table first."));
+    return;
+  }
+  const auto command = tableCommand(*context, action);
+  if (!command) {
+    emit errorOccurred(
+        QStringLiteral("This table action is not available for the current "
+                       "cell."));
+    return;
+  }
+  emit commandRequested(token_, *command, editor_->textCursor().position());
 }
 
 void ContinuousEditor::explainCursorMapping(bool exact) {

@@ -1423,6 +1423,140 @@ class MainWindowSmokeTest : public QObject {
     QCOMPARE(window->session().snapshot().source, original.source);
   }
 
+  void continuousTableStructureActions() {
+    const QByteArray source =
+        "| h | i |\n| --- | --- |\n| a | b |\n| c | d |\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    QVERIFY(window->setContinuousMode(true));
+    auto* editor = window->continuousEditor();
+    auto* rich = editor->editor();
+    const auto place = [&](const QString& text) {
+      auto cursor = rich->document()->find(text);
+      QVERIFY(!cursor.isNull());
+      rich->setTextCursor(cursor);
+    };
+    place(QStringLiteral("a"));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kInsertRowAbove));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kInsertRowBelow));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kRemoveRow));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kInsertColumnLeft));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kInsertColumnRight));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kRemoveColumn));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kAlignCenter));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kRemoveTable));
+    auto* removeRow = action(window, "tableRemoveRowAction");
+    QVERIFY(removeRow);
+    QVERIFY(removeRow->isEnabled());
+
+    editor->applyTableAction(ContinuousEditor::TableAction::kInsertRowAbove);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h | i |\n| --- | --- |\n|  |  |\n"
+                         "| a | b |\n| c | d |\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    place(QStringLiteral("a"));
+    editor->applyTableAction(ContinuousEditor::TableAction::kInsertRowBelow);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h | i |\n| --- | --- |\n| a | b |\n"
+                         "|  |  |\n| c | d |\n"));
+    window->undo();
+    place(QStringLiteral("a"));
+    editor->applyTableAction(ContinuousEditor::TableAction::kRemoveRow);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h | i |\n| --- | --- |\n| c | d |\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    place(QStringLiteral("a"));
+    editor->applyTableAction(ContinuousEditor::TableAction::kInsertColumnLeft);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("|  | h | i |\n| --- | --- | --- |\n"
+                         "|  | a | b |\n|  | c | d |\n"));
+    window->undo();
+    place(QStringLiteral("a"));
+    editor->applyTableAction(ContinuousEditor::TableAction::kInsertColumnRight);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h |  | i |\n| --- | --- | --- |\n"
+                         "| a |  | b |\n| c |  | d |\n"));
+    window->undo();
+    place(QStringLiteral("b"));
+    editor->applyTableAction(ContinuousEditor::TableAction::kRemoveColumn);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h |\n| --- |\n| a |\n| c |\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    place(QStringLiteral("b"));
+    editor->applyTableAction(ContinuousEditor::TableAction::kAlignLeft);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h | i |\n| --- | :--- |\n| a | b |\n| c | d |\n"));
+    window->undo();
+    place(QStringLiteral("b"));
+    editor->applyTableAction(ContinuousEditor::TableAction::kAlignCenter);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h | i |\n| --- | :---: |\n| a | b |\n| c | d |\n"));
+    window->undo();
+    place(QStringLiteral("b"));
+    editor->applyTableAction(ContinuousEditor::TableAction::kAlignRight);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h | i |\n| --- | ---: |\n| a | b |\n| c | d |\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    place(QStringLiteral("h"));
+    QVERIFY(!editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kInsertRowAbove));
+    QVERIFY(!editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kRemoveRow));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kInsertRowBelow));
+
+    editor->applyTableAction(ContinuousEditor::TableAction::kRemoveTable);
+    QCOMPARE(window->session().snapshot().source, std::string{});
+    QVERIFY(!removeRow->isEnabled());
+    QVERIFY(!action(window, "tableInsertRowAboveAction")->isEnabled());
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousTableSingleColumnGuard() {
+    const QByteArray source = "| h |\n| --- |\n| a |\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    QVERIFY(window->setContinuousMode(true));
+    auto* editor = window->continuousEditor();
+    auto* rich = editor->editor();
+    auto cursor = rich->document()->find(QStringLiteral("a"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    QVERIFY(!editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kRemoveColumn));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kInsertColumnLeft));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kInsertColumnRight));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kRemoveTable));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h |\n| --- |\n| a |\n"));
+  }
+
   void continuousUnsupportedTableFallback() {
     const QByteArray source = "> | h |\n> | --- |\n> | a |\n";
     TestDialogs dialogs;

@@ -137,7 +137,8 @@ flowchart TB
 
 - `ContinuousEditor::renderTable` строит QTextTable для top-level tables с успешным `mapTable`: header/body rows, column count, header bold/background, alignment из delimiter row и базовый border/padding.
 - Cell content рендерится существующим `renderInline`; normal mapped text runs входят в общий `runs_`/ReplaceText path и проверяются полным AST guard. Delimiter row, column count, definitions и байты вне таблицы не меняются.
-- Nested/ragged/failed-map tables остаются opaque placeholder. Пустые cells и structural table commands (insert/remove row/column, alignment, remove) пока не имеют continuous UI.
+- Nested/ragged/failed-map tables остаются opaque placeholder. Пустые cells и table creation пока не имеют continuous UI.
+- Task 034 добавляет continuous context menu для insert/remove row/column, column alignment и Delete Table. QTextTable маппится обратно к markdown node/current cell; header row-above/delete-row и last-column removal недоступны. Команды идут через существующие table engine commands и общий history path.
 - QTextTable — projection, не canonical source; cell edits не пересериализуют таблицу и не меняют table delimiter.
 
 ### Исследовательский GFM слой

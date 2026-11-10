@@ -41,6 +41,41 @@
 namespace markpad {
 namespace {
 
+std::optional<ContinuousEditor::TableAction> tableActionKind(
+    const QString& name) {
+  if (name == QStringLiteral("tableInsertRowAboveAction")) {
+    return ContinuousEditor::TableAction::kInsertRowAbove;
+  }
+  if (name == QStringLiteral("tableInsertRowBelowAction")) {
+    return ContinuousEditor::TableAction::kInsertRowBelow;
+  }
+  if (name == QStringLiteral("tableRemoveRowAction")) {
+    return ContinuousEditor::TableAction::kRemoveRow;
+  }
+  if (name == QStringLiteral("tableInsertColumnLeftAction")) {
+    return ContinuousEditor::TableAction::kInsertColumnLeft;
+  }
+  if (name == QStringLiteral("tableInsertColumnRightAction")) {
+    return ContinuousEditor::TableAction::kInsertColumnRight;
+  }
+  if (name == QStringLiteral("tableRemoveColumnAction")) {
+    return ContinuousEditor::TableAction::kRemoveColumn;
+  }
+  if (name == QStringLiteral("tableAlignLeftAction")) {
+    return ContinuousEditor::TableAction::kAlignLeft;
+  }
+  if (name == QStringLiteral("tableAlignCenterAction")) {
+    return ContinuousEditor::TableAction::kAlignCenter;
+  }
+  if (name == QStringLiteral("tableAlignRightAction")) {
+    return ContinuousEditor::TableAction::kAlignRight;
+  }
+  if (name == QStringLiteral("tableRemoveTableAction")) {
+    return ContinuousEditor::TableAction::kRemoveTable;
+  }
+  return std::nullopt;
+}
+
 struct Projection {
   QString text;
   std::vector<qsizetype> offsets;
@@ -331,6 +366,53 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
           markdown::SetTaskChecked{*node, !continuous_->taskChecked()});
     }
   });
+  tableMenu_ = new QMenu(text(QStringLiteral("action.table"),
+                              QStringLiteral("Table")),
+                        this);
+  tableMenu_->setObjectName(QStringLiteral("tableContextMenu"));
+  tableMenu_->menuAction()->setObjectName(
+      QStringLiteral("tableContextMenuAction"));
+  const auto addTableAction = [this](const QString& label, const QString& name,
+                                     ContinuousEditor::TableAction kind) {
+    auto* value = tableMenu_->addAction(label);
+    value->setObjectName(name);
+    connect(value, &QAction::triggered, this,
+            [this, kind] { continuous_->applyTableAction(kind); });
+    return value;
+  };
+  addTableAction(QStringLiteral("Insert Row Above"),
+                 QStringLiteral("tableInsertRowAboveAction"),
+                 ContinuousEditor::TableAction::kInsertRowAbove);
+  addTableAction(QStringLiteral("Insert Row Below"),
+                 QStringLiteral("tableInsertRowBelowAction"),
+                 ContinuousEditor::TableAction::kInsertRowBelow);
+  addTableAction(QStringLiteral("Delete Row"),
+                 QStringLiteral("tableRemoveRowAction"),
+                 ContinuousEditor::TableAction::kRemoveRow);
+  tableMenu_->addSeparator();
+  addTableAction(QStringLiteral("Insert Column Left"),
+                 QStringLiteral("tableInsertColumnLeftAction"),
+                 ContinuousEditor::TableAction::kInsertColumnLeft);
+  addTableAction(QStringLiteral("Insert Column Right"),
+                 QStringLiteral("tableInsertColumnRightAction"),
+                 ContinuousEditor::TableAction::kInsertColumnRight);
+  addTableAction(QStringLiteral("Delete Column"),
+                 QStringLiteral("tableRemoveColumnAction"),
+                 ContinuousEditor::TableAction::kRemoveColumn);
+  tableMenu_->addSeparator();
+  addTableAction(QStringLiteral("Align Column Left"),
+                 QStringLiteral("tableAlignLeftAction"),
+                 ContinuousEditor::TableAction::kAlignLeft);
+  addTableAction(QStringLiteral("Align Column Center"),
+                 QStringLiteral("tableAlignCenterAction"),
+                 ContinuousEditor::TableAction::kAlignCenter);
+  addTableAction(QStringLiteral("Align Column Right"),
+                 QStringLiteral("tableAlignRightAction"),
+                 ContinuousEditor::TableAction::kAlignRight);
+  tableMenu_->addSeparator();
+  addTableAction(QStringLiteral("Delete Table"),
+                 QStringLiteral("tableRemoveTableAction"),
+                 ContinuousEditor::TableAction::kRemoveTable);
   auto* view = menuBar()->addMenu(
       text(QStringLiteral("menu.view"), QStringLiteral("&View")));
   view->setObjectName(QStringLiteral("viewMenu"));
@@ -415,6 +497,7 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
     }
     target->setContextMenuPolicy(Qt::ActionsContextMenu);
   }
+  continuous_->editor()->addAction(tableMenu_->menuAction());
   toolbar->setToolButtonStyle(Qt::ToolButtonIconOnly);
   toolbar->setIconSize(QSize(20, 20));
   toolbar->addSeparator();
@@ -835,6 +918,17 @@ void MainWindow::refreshState() {
   unorderedListAction_->setEnabled(continuousMode_ &&
                                    unorderedState.command.has_value());
   unorderedListAction_->setToolTip(unorderedState.reason);
+  if (tableMenu_) {
+    tableMenu_->menuAction()->setEnabled(continuousMode_);
+    for (auto* tableAction : tableMenu_->actions()) {
+      if (!tableAction || tableAction->isSeparator()) {
+        continue;
+      }
+      const auto kind = tableActionKind(tableAction->objectName());
+      tableAction->setEnabled(continuousMode_ && kind.has_value() &&
+                              continuous_->tableActionEnabled(*kind));
+    }
+  }
   const auto documentText = sourceText(session_.snapshot().source);
   int words = 0;
   bool inWord = false;

@@ -14,6 +14,7 @@
 
 class QAction;
 class QCloseEvent;
+class QMenu;
 class QPlainTextEdit;
 class QStackedWidget;
 
@@ -104,6 +105,7 @@ class MainWindow final : public QMainWindow {
   QAction* blockquoteAction_;
   QAction* orderedListAction_;
   QAction* unorderedListAction_;
+  QMenu* tableMenu_;
   QStackedWidget* workspace_;
   ContinuousEditor* continuous_;
   bool continuousMode_ = false;

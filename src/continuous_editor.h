@@ -14,6 +14,7 @@ class QLabel;
 class QTextEdit;
 class QTextCursor;
 class QTextCharFormat;
+class QTextTable;
 
 namespace markpad {
 
@@ -50,6 +51,20 @@ class ContinuousEditor final : public QWidget {
   StructuralState listState(bool ordered) const;
   void toggleBlockquote();
   void changeListKind(bool ordered);
+  enum class TableAction {
+    kInsertRowAbove,
+    kInsertRowBelow,
+    kRemoveRow,
+    kInsertColumnLeft,
+    kInsertColumnRight,
+    kRemoveColumn,
+    kAlignLeft,
+    kAlignCenter,
+    kAlignRight,
+    kRemoveTable
+  };
+  bool tableActionEnabled(TableAction action) const;
+  void applyTableAction(TableAction action);
   void explainCursorMapping(bool exact);
   void setPaged(bool paged);
   bool paged() const { return paged_; }
@@ -79,6 +94,17 @@ class ContinuousEditor final : public QWidget {
     int start;
     int length;
   };
+  struct TableRun {
+    QTextTable* widget;
+    size_t node;
+  };
+  struct TableContext {
+    size_t node;
+    int row;
+    int column;
+    int rows;
+    int columns;
+  };
   struct Context {
     int start;
     int end;
@@ -101,6 +127,9 @@ class ContinuousEditor final : public QWidget {
                        std::optional<size_t> list,
                        std::optional<size_t> quote);
   void renderTable(size_t node, QTextCursor& cursor, int depth);
+  std::optional<TableContext> tableContext() const;
+  std::optional<markdown::EditCommand> tableCommand(
+      const TableContext& context, TableAction action) const;
   void renderInline(size_t node, QTextCursor& cursor, QTextCharFormat format,
                     bool allowEditing = true);
   void beginBlock(QTextCursor& cursor, int depth);
@@ -118,6 +147,7 @@ class ContinuousEditor final : public QWidget {
   DocumentToken token_;
   std::vector<Run> runs_;
   std::vector<CodeRun> codeRuns_;
+  std::vector<TableRun> tableRuns_;
   std::vector<Context> contexts_;
   std::vector<bool> mappedBlocks_;
   std::optional<Change> change_;

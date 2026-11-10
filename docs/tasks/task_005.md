@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026–033)
+- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026–034)
 - Владелец: архитектор + C++ разработчик
 - Приоритет: P1
 
@@ -84,8 +84,10 @@ WYSIWYG continuous — полноценный редактируемый реж�
   body сохраняются. Indented/nested code и syntax highlighting не включены.
 - Реализована [Task 033](task_033.md): top-level tables рендерятся как
   QTextTable с header/alignment, normal cell text редактируется через
-  ReplaceText. Nested tables, empty-cell insertion и structural table commands
-  остаются вне среза.
+  ReplaceText. Nested tables и empty-cell insertion остаются вне среза.
+- Реализована [Task 034](task_034.md): контекстные table actions для
+  insert/remove row/column, alignment и RemoveTable через существующие engine
+  commands. Table creation и empty-cell content editing не включены.
 - Выполнена зависимая подготовка структурных команд:
   [Task 016](task_016.md) — exact source-map top-level списков/пунктов.
 - Реализована [Task 017](task_017.md): source-preserving InsertListItem,

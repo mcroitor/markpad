@@ -127,9 +127,11 @@ Markdown semantics are rejected rather than normalized globally.
 Other edits, including Enter, cross-run replacements and deleting an entire text
 run, explicitly return you to Markdown for the change. Empty documents start in
 Markdown. HTML and unsupported/nested tables remain read-only placeholders;
-top-level GFM tables render as visual grids and their existing cell text is
-editable. Indented/nested code, table structure editing and syntax highlighting
-are not supported yet. No external resources are loaded.
+top-level GFM tables render as visual grids, their existing cell text is
+editable, and row/column/alignment/delete actions are available from the
+continuous-editor context menu. Table creation, empty-cell editing,
+indented/nested code and syntax highlighting are not supported yet. No external
+resources are loaded.
 
 Links show their labels as inert text, never as clickable Qt anchors. You can
 edit a mapped label run in inline/full-reference links while keeping the address,
@@ -196,10 +198,12 @@ owner. Task 030 exposes Blockquote and Ordered/Unordered in the continuous UI;
 list item insert/remove/indent/outdent and list removal remain internal or
 require Markdown. Task 031 adds top-level fenced-code body editing while keeping
 fence/info bytes protected. Task 033 renders top-level tables as QTextTable and
-allows existing cell text edits without rewriting the delimiter row. Empty-cell
-insertion and structural table commands remain planned. Definitions before the
-first rendered paragraph cannot be combined with task toggling. Task 018 adds
-exact top-level quote ranges and
+allows existing cell text edits without rewriting the delimiter row. Task 034
+adds continuous context-menu row/column insertion/removal, column alignment and
+Delete Table through the existing engine commands. Empty-cell insertion and
+table creation remain planned. Definitions before the first rendered paragraph
+cannot be combined with task toggling. Task 018 adds exact top-level quote
+ranges and
 source-preserving `WrapInQuote`/`UnwrapQuote` for the document parent: explicit
 `>` prefixes,
 quoted blank lines, multiline paragraphs, closed fenced code and inline HTML are
