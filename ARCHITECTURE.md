@@ -236,7 +236,11 @@ real offsets с восстановлением parent prefixes. Ancestor list ti
 добавляет атомарные IndentListItem/OutdentListItem: один LI с поддеревом
 переносится в child list предыдущего LI или после enclosing LI; start
 сохраняется, перенумеровываются только затронутые ordered lists, пустой nested
-list удаляется без переноса siblings. UI-команд списков/цитат нет.
+list удаляется без переноса siblings. [Task 021](docs/tasks/task_021.md)
+добавляет read-only `mapTable`: exact table/header/delimiter/body-row ranges,
+raw cell fragments с escaped pipes и inline spelling, dimensions/alignment и
+context-aware reference validation. Table mutations 022–024 и nested-table
+mapping пока не реализованы. UI-команд списков/цитат нет.
 Последовательность продолжения: [Task 013](docs/tasks/task_013.md) →
 [Task 014: списки/цитаты](docs/tasks/task_014.md) →
 [Task 015: таблицы](docs/tasks/task_015.md). UI/production-интеграция не включены.

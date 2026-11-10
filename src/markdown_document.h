@@ -100,6 +100,34 @@ struct QuoteMapResult {
 };
 // Exact top-level quote ownership, not an evidence envelope.
 QuoteMapResult mapQuote(const Document& document, size_t node);
+
+enum class TableAlignment { kNone = 0, kLeft = 1, kCenter = 2, kRight = 3 };
+
+struct TableCellSource {
+  size_t node;
+  SourceRange range;  // Exact raw cell fragment without structural whitespace.
+};
+struct TableRowSource {
+  size_t node;
+  SourceRange range;  // Includes the row EOL when present.
+  std::vector<TableCellSource> cells;
+};
+struct TableSource {
+  size_t node;
+  SourceRange range;
+  size_t columns = 0;
+  std::vector<TableAlignment> alignments;
+  TableRowSource header;
+  SourceRange delimiterRange;
+  std::vector<SourceRange> delimiterCells;
+  std::vector<TableRowSource> body;
+};
+struct TableMapResult {
+  std::optional<TableSource> table;
+  QString error;
+};
+// Exact top-level GFM table ownership, not an evidence envelope.
+TableMapResult mapTable(const Document& document, size_t node);
 SnapshotToken snapshotToken(const Document& document);
 
 struct ReplaceText {

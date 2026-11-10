@@ -209,6 +209,8 @@ incremental оптимизации. Отказы должны быть явны�
 ## Итог выполнения
 
 - Контракт v2 исправляет замечания review и разделён на Tasks 021–024.
-  Reference policy 025 v1 согласована; реализация ожидает Done 014.
-  Table commands не добавлены в код;
-  проверки нового поведения ещё не запускались.
+  Reference policy 025 v1 согласована; Task 014 Done.
+- [Task 021](task_021.md) Done: exact top-level table/header/delimiter/body
+  row/raw-cell ranges, alignment mapping и context-aware reference validation.
+  Windows/Linux CTest и Linux ASan/UBSan/leaks — 3/3. Table mutations 022–024
+  ещё не реализованы; родитель 015 остаётся In Progress.

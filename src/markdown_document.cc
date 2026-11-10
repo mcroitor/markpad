@@ -1340,6 +1340,8 @@ QuoteMapResult mapTopLevelQuote(const Document& document, size_t index) {
 namespace {
 ListMapResult mapNestedList(const Document& document, size_t index);
 QuoteMapResult mapNestedQuote(const Document& document, size_t index);
+TableMapResult mapTopLevelTable(const Document& document, size_t index);
+TableMapResult mapNestedTable(const Document& document, size_t index);
 }  // namespace
 
 ListMapResult mapList(const Document& document, size_t index) {
@@ -1365,6 +1367,18 @@ QuoteMapResult mapQuote(const Document& document, size_t index) {
     return mapTopLevelQuote(document, index);
   }
   return mapNestedQuote(document, index);
+}
+
+TableMapResult mapTable(const Document& document, size_t index) {
+  if (index >= document.nodes.size() ||
+      document.nodes[index].kind != NodeKind::kBlock ||
+      document.nodes[index].type != MD_BLOCK_TABLE) {
+    return {std::nullopt, QStringLiteral("Invalid table target")};
+  }
+  if (document.nodes[index].parent == std::optional<size_t>(0)) {
+    return mapTopLevelTable(document, index);
+  }
+  return mapNestedTable(document, index);
 }
 
 SnapshotToken snapshotToken(const Document& document) {
@@ -1863,12 +1877,270 @@ std::optional<ContextList> parseListContext(
   return ContextList{std::move(*parsed.document), root};
 }
 
+bool escapedAt(const QByteArray& source, qsizetype lineStart, qsizetype position) {
+  qsizetype backslashes = 0;
+  for (auto i = position; i > lineStart && source[i - 1] == '\\'; --i) {
+    ++backslashes;
+  }
+  return backslashes % 2 == 1;
+}
+
+struct ScannedTableRow {
+  bool valid = false;
+  bool hasPipe = false;
+  SourceRange row;
+  std::vector<SourceRange> cells;
+};
+
+ScannedTableRow scanTableRow(const QByteArray& source, const ListLine& line) {
+  ScannedTableRow result;
+  result.row = {line.start, line.end - line.start};
+  auto position = line.start;
+  while (position < line.bodyEnd && source[position] == ' ') {
+    ++position;
+  }
+  if (position - line.start > 3) {
+    return result;
+  }
+  if (position < line.bodyEnd && source[position] == '|') {
+    result.hasPipe = true;
+    ++position;
+  }
+  auto end = line.bodyEnd;
+  while (end > position && (source[end - 1] == ' ' || source[end - 1] == '\t')) {
+    --end;
+  }
+  if (end > position && source[end - 1] == '|' &&
+      !escapedAt(source, line.start, end - 1)) {
+    result.hasPipe = true;
+    --end;
+  }
+  auto cellStart = position;
+  for (auto i = position; i < end; ++i) {
+    if (source[i] == '\\' && i + 1 < end) {
+      ++i;
+      continue;
+    }
+    if (source[i] != '|') {
+      continue;
+    }
+    result.hasPipe = true;
+    auto cellEnd = i;
+    while (cellStart < cellEnd &&
+           (source[cellStart] == ' ' || source[cellStart] == '\t')) {
+      ++cellStart;
+    }
+    while (cellEnd > cellStart &&
+           (source[cellEnd - 1] == ' ' || source[cellEnd - 1] == '\t')) {
+      --cellEnd;
+    }
+    result.cells.push_back({cellStart, cellEnd - cellStart});
+    cellStart = i + 1;
+  }
+  auto cellEnd = end;
+  while (cellStart < cellEnd &&
+         (source[cellStart] == ' ' || source[cellStart] == '\t')) {
+    ++cellStart;
+  }
+  while (cellEnd > cellStart &&
+         (source[cellEnd - 1] == ' ' || source[cellEnd - 1] == '\t')) {
+    --cellEnd;
+  }
+  result.cells.push_back({cellStart, cellEnd - cellStart});
+  result.valid = true;
+  return result;
+}
+
+bool delimiterCell(const QByteArray& source, SourceRange range) {
+  auto position = range.offset;
+  const auto end = range.offset + range.size;
+  if (position < end && source[position] == ':') {
+    ++position;
+  }
+  const auto hyphens = position;
+  while (position < end && source[position] == '-') {
+    ++position;
+  }
+  if (position == hyphens) {
+    return false;
+  }
+  if (position < end && source[position] == ':') {
+    ++position;
+  }
+  return position == end;
+}
+
+TableMapResult mapTopLevelTable(const Document& document, size_t index) {
+  if (index >= document.nodes.size() ||
+      document.nodes[index].kind != NodeKind::kBlock ||
+      document.nodes[index].type != MD_BLOCK_TABLE ||
+      document.nodes[index].parent != std::optional<size_t>(0)) {
+    return {std::nullopt, QStringLiteral("Invalid table target")};
+  }
+  const auto& node = document.nodes[index];
+  const auto columns = node.attributes["columns"].toInt();
+  if (columns <= 0) {
+    return {std::nullopt, QStringLiteral("Unsupported table dimensions")};
+  }
+  const auto lines = listLines(document.source);
+  const auto definitions = definitionInventory(document);
+  for (size_t first = 0; first + 1 < lines.size(); ++first) {
+    const auto header = scanTableRow(document.source, lines[first]);
+    if (!header.valid || !header.hasPipe ||
+        header.cells.size() != size_t(columns)) {
+      continue;
+    }
+    const auto delimiter = scanTableRow(document.source, lines[first + 1]);
+    if (!delimiter.valid || !delimiter.hasPipe ||
+        delimiter.cells.size() != size_t(columns)) {
+      continue;
+    }
+    if (!std::all_of(delimiter.cells.begin(), delimiter.cells.end(),
+                     [&document](SourceRange range) {
+                       return delimiterCell(document.source, range);
+                     })) {
+      continue;
+    }
+    std::vector<std::vector<SourceRange>> bodyCells;
+    std::vector<SourceRange> bodyRows;
+    bool ragged = false;
+    size_t last = first + 1;
+    for (size_t i = first + 2; i < lines.size(); ++i) {
+      if (blankListLine(document.source, lines[i])) {
+        break;
+      }
+      const auto row = scanTableRow(document.source, lines[i]);
+      if (!row.valid || !row.hasPipe) {
+        break;
+      }
+      if (row.cells.size() != size_t(columns)) {
+        ragged = true;
+      }
+      bodyCells.push_back(row.cells);
+      bodyRows.push_back(row.row);
+      last = i;
+    }
+    const auto end = lines[last].end;
+    const SourceRange range{lines[first].start, end - lines[first].start};
+    const auto tableSource = document.source.mid(range.offset, range.size);
+
+    qsizetype contextOffset = 0;
+    const auto context = definitionContext(document, definitions, range.offset,
+                                           range.offset + range.size,
+                                           contextOffset);
+    const auto headerSource = context.left(contextOffset);
+    QByteArray suffix;
+    if (context.size() > contextOffset + range.size) {
+      suffix = context.mid(contextOffset + range.size);
+    }
+    auto parsed = parse(headerSource + tableSource + suffix);
+    if (!parsed.document) {
+      continue;
+    }
+    size_t contextTable = parsed.document->nodes.size();
+    for (auto child : parsed.document->nodes[0].children) {
+      if (parsed.document->nodes[child].type == MD_BLOCK_TABLE) {
+        contextTable = child;
+        break;
+      }
+    }
+    if (contextTable >= parsed.document->nodes.size()) {
+      continue;
+    }
+    bool anchored = false;
+    if (!sameListSources(document, index, *parsed.document, contextTable,
+                         range.offset - contextOffset, anchored) ||
+        !anchored) {
+      continue;
+    }
+    if (ragged) {
+      return {std::nullopt,
+              QStringLiteral("Unsupported ragged table source")};
+    }
+    if (node.children.empty()) {
+      continue;
+    }
+    size_t head = document.nodes.size();
+    for (auto child : node.children) {
+      if (document.nodes[child].type == MD_BLOCK_THEAD) {
+        head = child;
+        break;
+      }
+    }
+    if (head >= document.nodes.size() || document.nodes[head].children.empty()) {
+      continue;
+    }
+    const auto headerRow = document.nodes[head].children.front();
+    if (document.nodes[headerRow].children.size() != size_t(columns)) {
+      continue;
+    }
+    std::vector<TableRowSource> body;
+    size_t bodyContainer = document.nodes.size();
+    for (auto child : node.children) {
+      if (document.nodes[child].type == MD_BLOCK_TBODY) {
+        bodyContainer = child;
+        break;
+      }
+    }
+    if (bodyContainer < document.nodes.size()) {
+      for (auto rowNode : document.nodes[bodyContainer].children) {
+        if (document.nodes[rowNode].type != MD_BLOCK_TR) {
+          continue;
+        }
+        body.push_back({rowNode, {}, {}});
+      }
+    }
+    if (body.size() != bodyCells.size() ||
+        bodyCells.size() != size_t(node.attributes["body_rows"].toInt())) {
+      return {std::nullopt,
+              QStringLiteral("Unsupported table row source map")};
+    }
+
+    TableSource mapped;
+    mapped.node = index;
+    mapped.range = range;
+    mapped.columns = size_t(columns);
+    mapped.delimiterRange = delimiter.row;
+    mapped.delimiterCells = delimiter.cells;
+    mapped.header.node = headerRow;
+    mapped.header.range = header.row;
+    const auto& headerCellNodes = document.nodes[headerRow].children;
+    for (size_t i = 0; i < headerCellNodes.size(); ++i) {
+      mapped.header.cells.push_back({headerCellNodes[i], header.cells[i]});
+      mapped.alignments.push_back(static_cast<TableAlignment>(
+          document.nodes[headerCellNodes[i]].attributes["align"].toInt()));
+    }
+    for (size_t row = 0; row < body.size(); ++row) {
+      const auto& cellNodes = document.nodes[body[row].node].children;
+      if (cellNodes.size() != size_t(columns)) {
+        return {std::nullopt,
+                QStringLiteral("Unsupported table row source map")};
+      }
+      body[row].range = bodyRows[row];
+      for (size_t column = 0; column < cellNodes.size(); ++column) {
+        body[row].cells.push_back({cellNodes[column], bodyCells[row][column]});
+        if (static_cast<TableAlignment>(
+                document.nodes[cellNodes[column]].attributes["align"].toInt()) !=
+            mapped.alignments[column]) {
+          return {std::nullopt,
+                  QStringLiteral("Unsupported table alignment source map")};
+        }
+      }
+    }
+    mapped.body = std::move(body);
+    return {std::move(mapped), {}};
+  }
+  return {std::nullopt,
+          QStringLiteral("Unsupported table source map: canonical rows, "
+                         "escaped pipes and matching callback offsets are "
+                         "required")};
+}
+
 struct VirtualLine {
   qsizetype virtualStart;
   qsizetype realContentStart;
   qsizetype size;
 };
-
 struct VirtualContent {
   QByteArray source;
   std::vector<VirtualLine> lines;
@@ -2199,6 +2471,13 @@ QuoteMapResult mapNestedQuote(const Document& document, size_t index) {
   return {QuoteSource{index, {start, end - start},
                       content.continuationPrefix, content.blankLinePrefix},
           {}};
+}
+
+TableMapResult mapNestedTable(const Document& document, size_t index) {
+  Q_UNUSED(document);
+  Q_UNUSED(index);
+  return {std::nullopt,
+          QStringLiteral("Unsupported nested table source map: Task 024")};
 }
 
 size_t copySubtree(Document& destination, const Document& source, size_t index,

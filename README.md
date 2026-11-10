@@ -190,16 +190,20 @@ document-global definition bindings are preserved, and cascading quote deletion
 is rejected. Task 020 adds atomic `IndentListItem`/`OutdentListItem`: the selected
 item moves with its subtree, ordered starts are preserved, only affected lists
 are renumbered, and empty nested lists are removed without moving siblings or
-cascading parent containers.
+cascading parent containers. Task 021 adds exact top-level GFM table mapping:
+table/header/delimiter/body-row ranges, raw cell fragments with escaped pipes and
+inline spelling, dimensions and alignment; bound references are validated in
+document context. Table mutation commands (022–024) and nested-table mapping are
+not implemented yet.
 See [Task 016](docs/tasks/task_016.md), [Task 017](docs/tasks/task_017.md),
-[Task 018](docs/tasks/task_018.md), [Task 019](docs/tasks/task_019.md) and
-[Task 020](docs/tasks/task_020.md).
+[Task 018](docs/tasks/task_018.md), [Task 019](docs/tasks/task_019.md),
+[Task 020](docs/tasks/task_020.md) and [Task 021](docs/tasks/task_021.md).
 The MD4C tests pass locally on Windows and Ubuntu, including Linux ASan/UBSan.
 See [Task 002](docs/tasks/task_002.md) for limits, licensing and reproduction.
 See [Task 012](docs/tasks/task_012.md) for structural edits and snapshot guarantees.
 See [Task 013](docs/tasks/task_013.md) for the unified command contract and nested
-mapping limits. Next: [GFM tables](docs/tasks/task_015.md) via Tasks 021–024;
-their structural operations are not implemented.
+mapping limits. Next: table row commands in [Task 022](docs/tasks/task_022.md),
+then columns/tables in 023–024; their structural operations are not implemented.
 The agreed [reference-definition policy](docs/tasks/task_025.md) uses document-wide
 scope: future structural edits reject normalized label collisions or changes to
 surviving reference bindings, and reject removal of a definition still in use.

@@ -2633,6 +2633,198 @@ class Md4cSourceTest : public QObject {
     }
   }
 
+  void tableSourceRanges() {
+    const QByteArray source = "pre\n\n| h |\n| --- |\n| a |\n\npost\n";
+    auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    const auto table = find(doc, NodeKind::kBlock, MD_BLOCK_TABLE);
+    QVERIFY(table < doc.nodes.size());
+    const auto mapped = mapTable(doc, table);
+    QVERIFY2(mapped.table, qPrintable(mapped.error));
+    QCOMPARE(mapped.table->range.offset, qsizetype(5));
+    QCOMPARE(mapped.table->range.size, qsizetype(20));
+    QCOMPARE(mapped.table->columns, size_t(1));
+    QCOMPARE(mapped.table->header.range.offset, qsizetype(5));
+    QCOMPARE(mapped.table->header.range.size, qsizetype(6));
+    QCOMPARE(mapped.table->delimiterRange.offset, qsizetype(11));
+    QCOMPARE(mapped.table->delimiterRange.size, qsizetype(8));
+    QCOMPARE(mapped.table->body.size(), size_t(1));
+    QCOMPARE(mapped.table->body[0].range.offset, qsizetype(19));
+    QCOMPARE(mapped.table->body[0].range.size, qsizetype(6));
+    QCOMPARE(mapped.table->header.cells.size(), size_t(1));
+    QCOMPARE(mapped.table->header.cells[0].range.offset, qsizetype(7));
+    QCOMPARE(mapped.table->header.cells[0].range.size, qsizetype(1));
+    QCOMPARE(mapped.table->body[0].cells[0].range.offset, qsizetype(21));
+    QCOMPARE(mapped.table->body[0].cells[0].range.size, qsizetype(1));
+    QCOMPARE(doc.source.mid(mapped.table->header.cells[0].range.offset,
+                            mapped.table->header.cells[0].range.size),
+             QByteArray("h"));
+
+    const QByteArray headerOnly = "| h |\n| --- |\n";
+    auto headerParsed = parse(headerOnly);
+    QVERIFY(headerParsed.document);
+    const auto headerMap =
+        mapTable(*headerParsed.document,
+                 find(*headerParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(headerMap.table, qPrintable(headerMap.error));
+    QCOMPARE(headerMap.table->columns, size_t(1));
+    QCOMPARE(headerMap.table->body.size(), size_t(0));
+    QCOMPARE(headerMap.table->range.size, qsizetype(headerOnly.size()));
+    QCOMPARE(headerMap.table->delimiterCells.size(), size_t(1));
+    QCOMPARE(headerMap.table->delimiterCells[0].offset, qsizetype(8));
+    QCOMPARE(headerMap.table->delimiterCells[0].size, qsizetype(3));
+
+    const QByteArray noOuter = "a | b\n--- | ---\nx | y\n";
+    auto noOuterParsed = parse(noOuter);
+    QVERIFY(noOuterParsed.document);
+    const auto noOuterMap =
+        mapTable(*noOuterParsed.document,
+                 find(*noOuterParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(noOuterMap.table, qPrintable(noOuterMap.error));
+    QCOMPARE(noOuterMap.table->columns, size_t(2));
+    QCOMPARE(noOuterMap.table->body.size(), size_t(1));
+    QCOMPARE(noOuterMap.table->header.cells.size(), size_t(2));
+    QCOMPARE(noOuterMap.table->body[0].cells.size(), size_t(2));
+    QCOMPARE(noOuterParsed.document->source.mid(
+                 noOuterMap.table->header.cells[0].range.offset,
+                 noOuterMap.table->header.cells[0].range.size),
+             QByteArray("a"));
+    QCOMPARE(noOuterParsed.document->source.mid(
+                 noOuterMap.table->body[0].cells[1].range.offset,
+                 noOuterMap.table->body[0].cells[1].range.size),
+             QByteArray("y"));
+
+    const QByteArray code = "| h |\n| --- |\n| `a\\|b` |\n";
+    auto codeParsed = parse(code);
+    QVERIFY(codeParsed.document);
+    const auto codeMap =
+        mapTable(*codeParsed.document,
+                 find(*codeParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(codeMap.table, qPrintable(codeMap.error));
+    QCOMPARE(codeMap.table->body[0].cells.size(), size_t(1));
+    QCOMPARE(codeParsed.document->source.mid(
+                 codeMap.table->body[0].cells[0].range.offset,
+                 codeMap.table->body[0].cells[0].range.size),
+             QByteArray("`a\\|b`"));
+
+    const QByteArray inlineFragment =
+        "| h |\n| --- |\n| *x* [y](/url) &amp; <i>z</i> |\n";
+    auto inlineParsed = parse(inlineFragment);
+    QVERIFY(inlineParsed.document);
+    const auto inlineMap =
+        mapTable(*inlineParsed.document,
+                 find(*inlineParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(inlineMap.table, qPrintable(inlineMap.error));
+    QCOMPARE(inlineParsed.document->source.mid(
+                 inlineMap.table->body[0].cells[0].range.offset,
+                 inlineMap.table->body[0].cells[0].range.size),
+             QByteArray("*x* [y](/url) &amp; <i>z</i>"));
+
+    const QByteArray ragged =
+        "| h | i |\n| --- | --- |\n| a |\n";
+    auto raggedParsed = parse(ragged);
+    QVERIFY(raggedParsed.document);
+    const auto raggedMap =
+        mapTable(*raggedParsed.document,
+                 find(*raggedParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY(!raggedMap.table);
+    QVERIFY(raggedMap.error.contains("ragged"));
+
+    const QByteArray reference =
+        "[new]: /new \"N\"\n\n| h |\n| --- |\n| [cell][new] |\n";
+    auto referenceParsed = parse(reference);
+    QVERIFY(referenceParsed.document);
+    const auto referenceMap =
+        mapTable(*referenceParsed.document,
+                 find(*referenceParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(referenceMap.table, qPrintable(referenceMap.error));
+    QCOMPARE(referenceMap.table->range.offset, qsizetype(17));
+    QCOMPARE(referenceMap.table->range.size, qsizetype(30));
+    QCOMPARE(referenceParsed.document->source.mid(
+                 referenceMap.table->body[0].cells[0].range.offset,
+                 referenceMap.table->body[0].cells[0].range.size),
+             QByteArray("[cell][new]"));
+    const auto link =
+        find(*referenceParsed.document, NodeKind::kSpan, MD_SPAN_A);
+    QVERIFY(link < referenceParsed.document->nodes.size());
+    QCOMPARE(referenceParsed.document->nodes[link].attributes["href"].toString(),
+             QStringLiteral("/new"));
+
+    const QByteArray aligned = "| h |\n| :---: |\n";
+    auto alignedParsed = parse(aligned);
+    QVERIFY(alignedParsed.document);
+    const auto alignedMap =
+        mapTable(*alignedParsed.document,
+                 find(*alignedParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(alignedMap.table, qPrintable(alignedMap.error));
+    QCOMPARE(alignedMap.table->alignments.size(), size_t(1));
+    QCOMPARE(int(alignedMap.table->alignments[0]),
+             int(TableAlignment::kCenter));
+
+    const auto notTable = parse("| h |\nno delimiter\n");
+    QVERIFY(notTable.document);
+    const auto invalid = mapTable(*notTable.document, 0);
+    QVERIFY(!invalid.table);
+    QCOMPARE(invalid.error, QStringLiteral("Invalid table target"));
+
+    const QByteArray crlf =
+        "pre\r\n\r\n| h |\r\n| --- |\r\n| a |\r\n\r\npost\r\n";
+    auto crlfParsed = parse(crlf);
+    QVERIFY(crlfParsed.document);
+    const auto crlfMap =
+        mapTable(*crlfParsed.document,
+                 find(*crlfParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(crlfMap.table, qPrintable(crlfMap.error));
+    QCOMPARE(crlfMap.table->range.offset, qsizetype(7));
+    QCOMPARE(crlfMap.table->range.size, qsizetype(23));
+    QCOMPARE(crlfMap.table->header.cells[0].range.offset, qsizetype(9));
+    QCOMPARE(crlfMap.table->body[0].cells[0].range.offset, qsizetype(25));
+
+    const QByteArray eof = "| h |\n| --- |\n| a |";
+    auto eofParsed = parse(eof);
+    QVERIFY(eofParsed.document);
+    const auto eofMap =
+        mapTable(*eofParsed.document,
+                 find(*eofParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(eofMap.table, qPrintable(eofMap.error));
+    QCOMPARE(eofMap.table->range.offset, qsizetype(0));
+    QCOMPARE(eofMap.table->range.size, qsizetype(eof.size()));
+
+    const auto unicode = QStringLiteral("| h |\n| --- |\n| \u0430\U0001f600 |\n")
+                             .toUtf8();
+    auto unicodeParsed = parse(unicode);
+    QVERIFY(unicodeParsed.document);
+    const auto unicodeMap =
+        mapTable(*unicodeParsed.document,
+                 find(*unicodeParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(unicodeMap.table, qPrintable(unicodeMap.error));
+    QCOMPARE(unicodeParsed.document->source.mid(
+                 unicodeMap.table->body[0].cells[0].range.offset,
+                 unicodeMap.table->body[0].cells[0].range.size),
+             QStringLiteral("\u0430\U0001f600").toUtf8());
+
+    const QByteArray duplicate =
+        "| h |\n| --- |\n\n| h |\n| --- |\n";
+    auto duplicateParsed = parse(duplicate);
+    QVERIFY(duplicateParsed.document);
+    std::vector<size_t> tables;
+    for (size_t i = 0; i < duplicateParsed.document->nodes.size(); ++i) {
+      if (duplicateParsed.document->nodes[i].type == MD_BLOCK_TABLE) {
+        tables.push_back(i);
+      }
+    }
+    QCOMPARE(tables.size(), size_t(2));
+    const auto duplicateFirst =
+        mapTable(*duplicateParsed.document, tables[0]);
+    const auto duplicateSecond =
+        mapTable(*duplicateParsed.document, tables[1]);
+    QVERIFY(duplicateFirst.table);
+    QVERIFY(duplicateSecond.table);
+    QCOMPARE(duplicateFirst.table->range.offset, qsizetype(0));
+    QCOMPARE(duplicateSecond.table->range.offset, qsizetype(15));
+  }
+
   void unifiedCommandContract() {
     auto parsed = parse("before\n\n- [x] task\n\n> quoted\n", 17);
     QVERIFY(parsed.document);
