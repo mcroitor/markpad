@@ -15,6 +15,11 @@ struct SaveSelection {
   FileFormat format;
 };
 
+struct TableSelection {
+  int columns = 2;
+  int bodyRows = 1;
+};
+
 enum class CloseChoice { kSave, kDiscard, kCancel };
 
 // Override in GUI tests to avoid native modal dialogs.
@@ -30,6 +35,7 @@ class DocumentDialogs {
   virtual std::optional<Encoding> chooseEncoding(QWidget* parent);
   virtual std::optional<QString> chooseLink(QWidget* parent);
   virtual std::optional<QString> chooseImage(QWidget* parent);
+  virtual std::optional<TableSelection> chooseTableSize(QWidget* parent);
   virtual CloseChoice confirmClose(QWidget* parent, const QString& name);
   virtual void showError(QWidget* parent, const QString& message);
 

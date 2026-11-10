@@ -60,11 +60,13 @@ class TestDialogs final : public DocumentDialogs {
   std::optional<Encoding> encoding;
   std::optional<QString> linkUrl;
   std::optional<QString> imageUrl;
+  std::optional<TableSelection> tableSelection = TableSelection{2, 1};
   CloseChoice closeChoice = CloseChoice::kCancel;
   QStringList errors;
   int closePrompts = 0;
   int linkPrompts = 0;
   int imagePrompts = 0;
+  int tablePrompts = 0;
   QString chooseOpen(QWidget*) override { return openPath; }
   std::optional<SaveSelection> chooseSave(QWidget*, const QString&,
                                           FileFormat) override {
@@ -78,6 +80,10 @@ class TestDialogs final : public DocumentDialogs {
   std::optional<QString> chooseImage(QWidget*) override {
     ++imagePrompts;
     return imageUrl;
+  }
+  std::optional<TableSelection> chooseTableSize(QWidget*) override {
+    ++tablePrompts;
+    return tableSelection;
   }
   CloseChoice confirmClose(QWidget*, const QString&) override {
     ++closePrompts;
@@ -1673,6 +1679,18 @@ class MainWindowSmokeTest : public QObject {
     QCOMPARE(empty->session().snapshot().source,
              std::string("| Column 1 | Column 2 |\n"
                          "| --- | --- |\n|  |  |\n"));
+    empty->undo();
+    QCOMPARE(empty->session().snapshot().source, std::string{});
+    dialogs.tableSelection = TableSelection{3, 2};
+    table->trigger();
+    QCOMPARE(empty->session().snapshot().source,
+             std::string("| Column 1 | Column 2 | Column 3 |\n"
+                         "| --- | --- | --- |\n"
+                         "|  |  |  |\n|  |  |  |\n"));
+    const auto sized = empty->session().snapshot().source;
+    dialogs.tableSelection.reset();
+    table->trigger();
+    QCOMPARE(empty->session().snapshot().source, sized);
   }
 
   void continuousCodeAndRuleInsertion() {

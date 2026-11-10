@@ -9,6 +9,7 @@
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QSpinBox>
 
 namespace markpad {
 namespace {
@@ -112,6 +113,32 @@ std::optional<QString> DocumentDialogs::chooseImage(QWidget* parent) {
     return std::nullopt;
   }
   return value.trimmed();
+}
+
+std::optional<TableSelection> DocumentDialogs::chooseTableSize(
+    QWidget* parent) {
+  QDialog dialog(parent);
+  dialog.setWindowTitle(QStringLiteral("Insert table"));
+  auto* layout = new QFormLayout(&dialog);
+  auto* columns = new QSpinBox(&dialog);
+  columns->setRange(1, 50);
+  columns->setValue(2);
+  auto* rows = new QSpinBox(&dialog);
+  rows->setRange(0, 100);
+  rows->setValue(1);
+  auto* buttons = new QDialogButtonBox(
+      QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+  layout->addRow(QStringLiteral("Columns"), columns);
+  layout->addRow(QStringLiteral("Body rows"), rows);
+  layout->addRow(buttons);
+  QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog,
+                   &QDialog::accept);
+  QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog,
+                   &QDialog::reject);
+  if (dialog.exec() != QDialog::Accepted) {
+    return std::nullopt;
+  }
+  return TableSelection{columns->value(), rows->value()};
 }
 
 CloseChoice DocumentDialogs::confirmClose(QWidget* parent,

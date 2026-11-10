@@ -349,8 +349,12 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   tableAction_ = format->addAction(
       text(QStringLiteral("action.table"), QStringLiteral("Table")));
   tableAction_->setObjectName(QStringLiteral("tableAction"));
-  connect(tableAction_, &QAction::triggered, this,
-          [this] { continuous_->insertTable(); });
+  connect(tableAction_, &QAction::triggered, this, [this] {
+    const auto size = dialogs_.chooseTableSize(this);
+    if (size) {
+      continuous_->insertTable(size_t(size->columns), size_t(size->bodyRows));
+    }
+  });
   auto* table = tableAction_;
   auto* listMenu = format->addMenu(
       text(QStringLiteral("action.list"), QStringLiteral("List")));

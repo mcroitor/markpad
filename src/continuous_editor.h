@@ -67,7 +67,7 @@ class ContinuousEditor final : public QWidget {
   void applyTableAction(TableAction action);
   bool blockInsertionEnabled() const;
   bool tableCreationEnabled() const;
-  void insertTable();
+  void insertTable(size_t columns = 2, size_t bodyRows = 1);
   void insertHorizontalRule();
   void insertFencedCode();
   bool linkCreationEnabled() const;

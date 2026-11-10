@@ -1107,12 +1107,13 @@ size_t ContinuousEditor::insertionPosition() const {
   return position;
 }
 
-void ContinuousEditor::insertTable() {
+void ContinuousEditor::insertTable(size_t columns, size_t bodyRows) {
   if (!blockInsertionEnabled()) {
     emit errorOccurred(QStringLiteral("No document is available."));
     return;
   }
-  const auto command = markdown::InsertTable{insertionPosition(), 2, 1};
+  const auto command = markdown::InsertTable{insertionPosition(), columns,
+                                             bodyRows};
   emit commandRequested(token_, command, editor_->textCursor().position());
 }
 

@@ -144,6 +144,7 @@ flowchart TB
 - Task 037 добавляет `InsertHorizontalRule`/`InsertFencedCode` через общий top-level insertion helper: `---` и пустой fenced code block после текущего block/table или в конец. HR рендерится protected визуальной линией, code body использует существующий CodeRun editing; actions доступны только в continuous mode.
 - Task 038 добавляет `WrapInLink` для selection внутри одного mapped normal run: URL prompt через DocumentDialogs, inline `[label](<url>)`, parse/graft/apply и reject nested link/image/invalid URL. Link action enabled только при валидном selection.
 - Task 039 добавляет `InsertImage` по тому же selection contract: selected text становится alt, source prompt через DocumentDialogs, inline `![alt](<src>)`, inert rendering и reject nested link/image/invalid src.
+- Task 040 добавляет size prompt для table creation: `TableSelection` columns/body rows через DocumentDialogs, затем existing `InsertTable`; cancel не создаёт command.
 - QTextTable — projection, не canonical source; cell edits не пересериализуют таблицу и не меняют table delimiter.
 
 ### Исследовательский GFM слой
