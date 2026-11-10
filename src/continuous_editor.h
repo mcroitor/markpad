@@ -100,6 +100,7 @@ class ContinuousEditor final : public QWidget {
   void renderCodeBlock(size_t node, QTextCursor& cursor, int depth,
                        std::optional<size_t> list,
                        std::optional<size_t> quote);
+  void renderTable(size_t node, QTextCursor& cursor, int depth);
   void renderInline(size_t node, QTextCursor& cursor, QTextCharFormat format,
                     bool allowEditing = true);
   void beginBlock(QTextCursor& cursor, int depth);

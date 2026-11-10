@@ -17,6 +17,7 @@
 #include <QTextCursor>
 #include <QTextEdit>
 #include <QTextLayout>
+#include <QTextTable>
 #include <QToolBar>
 #include <QUrl>
 #include <QtTest/QtTest>
@@ -422,7 +423,7 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(rich->isVisible());
     QVERIFY(rich->toPlainText().contains("Before bold after"));
     QVERIFY(rich->toPlainText().contains("[Read-only: HTML"));
-    QVERIFY(rich->toPlainText().contains("[Read-only: table"));
+    QVERIFY(rich->toPlainText().contains(QStringLiteral("x")));
     QCOMPARE(window->session().snapshot().token, initial.token);
     QVERIFY(!window->session().dirty());
     auto cursor = rich->document()->find("bold");
@@ -478,9 +479,6 @@ class MainWindowSmokeTest : public QObject {
         << QStringLiteral("https://invalid.test") << QStringLiteral("x");
     QTest::newRow("html") << QByteArray("<script>bad()</script>\n")
                           << QStringLiteral("Read-only") << QStringLiteral("x");
-    QTest::newRow("table") << QByteArray("| A |\n| - |\n| x |\n")
-                           << QStringLiteral("Read-only")
-                           << QStringLiteral("x");
     QTest::newRow("delete-run")
         << QByteArray("word\n") << QStringLiteral("word") << QString{};
     QTest::newRow("newline") << QByteArray("word\n") << QStringLiteral("word")
@@ -1341,6 +1339,102 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(!action(window, "boldAction")->icon().isNull());
     QVERIFY(!action(window, "saveAction")->icon().isNull());
     QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousTableRenderingAndCellEdit() {
+    const QByteArray source =
+        "pre\n\n| L | C | R |\n| :--- | :---: | ---: |\n"
+        "| a | b | c |\n| d | e | f |\n\npost\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    const auto text = rich->document()->toRawText();
+    QVERIFY(text.contains(QStringLiteral("pre")));
+    QVERIFY(text.contains(QStringLiteral("L")));
+    QVERIFY(text.contains(QStringLiteral("a")));
+    QVERIFY(text.contains(QStringLiteral("post")));
+    QVERIFY(!text.contains(QStringLiteral("| L |")));
+    QTextTable* table = nullptr;
+    for (auto* frame : rich->document()->rootFrame()->childFrames()) {
+      if ((table = dynamic_cast<QTextTable*>(frame))) {
+        break;
+      }
+    }
+    QVERIFY(table);
+    QCOMPARE(table->rows(), 3);
+    QCOMPARE(table->columns(), 3);
+    auto header = table->cellAt(0, 0).firstCursorPosition();
+    QVERIFY(header.charFormat().fontWeight() >= QFont::Bold);
+    QCOMPARE(table->cellAt(0, 0).firstCursorPosition().blockFormat().alignment(),
+             Qt::AlignLeft);
+    QCOMPARE(table->cellAt(0, 1).firstCursorPosition().blockFormat().alignment(),
+             Qt::AlignHCenter);
+    QCOMPARE(table->cellAt(0, 2).firstCursorPosition().blockFormat().alignment(),
+             Qt::AlignRight);
+
+    auto cursor = rich->document()->find(QStringLiteral("a"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    rich->insertPlainText(QStringLiteral("x"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("pre\n\n| L | C | R |\n| :--- | :---: | ---: |\n"
+                         "| x | b | c |\n| d | e | f |\n\npost\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    cursor = rich->document()->find(QStringLiteral("b"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    rich->insertPlainText(QStringLiteral("b|c"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("pre\n\n| L | C | R |\n| :--- | :---: | ---: |\n"
+                         "| a | b\\|c | c |\n| d | e | f |\n\npost\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(window->setContinuousMode(false));
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousTableAtStart() {
+    const QByteArray source = "| h |\n| --- |\n| a |\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    QTextTable* table = nullptr;
+    for (auto* frame : rich->document()->rootFrame()->childFrames()) {
+      if ((table = dynamic_cast<QTextTable*>(frame))) {
+        break;
+      }
+    }
+    QVERIFY(table);
+    QCOMPARE(table->rows(), 2);
+    QCOMPARE(table->columns(), 1);
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(window->setContinuousMode(false));
+    QCOMPARE(window->session().snapshot().source, original.source);
+  }
+
+  void continuousUnsupportedTableFallback() {
+    const QByteArray source = "> | h |\n> | --- |\n> | a |\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    QVERIFY(rich->document()->toRawText().contains(
+        QStringLiteral("table - edit in Markdown")));
+    QCOMPARE(window->session().snapshot().source, original.source);
   }
 
   void continuousImageAltLabels() {

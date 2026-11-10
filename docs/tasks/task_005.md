@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026–031)
+- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026–033)
 - Владелец: архитектор + C++ разработчик
 - Приоритет: P1
 
@@ -82,6 +82,10 @@ WYSIWYG continuous — полноценный редактируемый реж�
 - Реализована [Task 031](task_031.md): top-level fenced code body отображается
   и редактируется в continuous через `ReplaceCodeBody`; fences/info и байты вне
   body сохраняются. Indented/nested code и syntax highlighting не включены.
+- Реализована [Task 033](task_033.md): top-level tables рендерятся как
+  QTextTable с header/alignment, normal cell text редактируется через
+  ReplaceText. Nested tables, empty-cell insertion и structural table commands
+  остаются вне среза.
 - Выполнена зависимая подготовка структурных команд:
   [Task 016](task_016.md) — exact source-map top-level списков/пунктов.
 - Реализована [Task 017](task_017.md): source-preserving InsertListItem,

@@ -10,6 +10,10 @@
 #include <QTextBlockFormat>
 #include <QTextCursor>
 #include <QTextEdit>
+#include <QTextTable>
+#include <QTextTableCell>
+#include <QTextTableCellFormat>
+#include <QTextTableFormat>
 #include <QVBoxLayout>
 #include <algorithm>
 #include <limits>
@@ -66,6 +70,20 @@ std::optional<QString> codeDisplay(const QByteArray& bytes) {
     text.chop(1);
   }
   return text;
+}
+
+Qt::Alignment tableAlignment(markdown::TableAlignment alignment) {
+  switch (alignment) {
+    case markdown::TableAlignment::kLeft:
+      return Qt::AlignLeft;
+    case markdown::TableAlignment::kCenter:
+      return Qt::AlignHCenter;
+    case markdown::TableAlignment::kRight:
+      return Qt::AlignRight;
+    case markdown::TableAlignment::kNone:
+    default:
+      return Qt::AlignLeft;
+  }
 }
 
 bool editable(const markdown::Document& document, const markdown::Node& node) {
@@ -196,6 +214,73 @@ void ContinuousEditor::renderCodeBlock(size_t index, QTextCursor& cursor,
       {start, cursor.position(), {}, {}, index, list, quote});
 }
 
+void ContinuousEditor::renderTable(size_t index, QTextCursor& cursor, int depth) {
+  if (document_->nodes[index].parent != std::optional<size_t>(0)) {
+    opaque(cursor, QStringLiteral("table - edit in Markdown"), depth);
+    return;
+  }
+  const auto mapped = markdown::mapTable(*document_, index);
+  if (!mapped.table) {
+    opaque(cursor, QStringLiteral("table - edit in Markdown"), depth);
+    return;
+  }
+  const auto& source = *mapped.table;
+  const auto rows = source.body.size() + 1;
+  if (source.columns == 0 || source.columns > 1000 || rows > 10000 ||
+      source.alignments.size() != source.columns ||
+      source.header.cells.size() != source.columns) {
+    opaque(cursor, QStringLiteral("table - edit in Markdown"), depth);
+    return;
+  }
+  for (const auto& row : source.body) {
+    if (row.cells.size() != source.columns) {
+      opaque(cursor, QStringLiteral("table - edit in Markdown"), depth);
+      return;
+    }
+  }
+  QTextTableFormat tableFormat;
+  tableFormat.setBorder(1);
+  tableFormat.setBorderStyle(QTextFrameFormat::BorderStyle_Solid);
+  tableFormat.setCellSpacing(0);
+  tableFormat.setCellPadding(4);
+  tableFormat.setWidth(QTextLength(QTextLength::PercentageLength, 100));
+  auto* table =
+      cursor.insertTable(int(rows), int(source.columns), tableFormat);
+  const auto fillRow = [&](const markdown::TableRowSource& row, int rowIndex,
+                           bool header) {
+    for (size_t column = 0; column < row.cells.size(); ++column) {
+      auto cell = table->cellAt(rowIndex, int(column));
+      if (header) {
+        QTextTableCellFormat cellFormat;
+        cellFormat.setBackground(QColor(235, 235, 235));
+        cell.setFormat(cellFormat);
+      }
+      auto cellCursor = cell.firstCursorPosition();
+      QTextBlockFormat blockFormat;
+      blockFormat.setAlignment(
+          tableAlignment(source.alignments[column]));
+      cellCursor.setBlockFormat(blockFormat);
+      QTextCharFormat format;
+      if (header) {
+        format.setFontWeight(QFont::Bold);
+      }
+      const auto cellNode = row.cells[column].node;
+      if (cellNode >= document_->nodes.size()) {
+        continue;
+      }
+      for (auto child : document_->nodes[cellNode].children) {
+        renderInline(child, cellCursor, format);
+      }
+    }
+  };
+  fillRow(source.header, 0, true);
+  for (size_t row = 0; row < source.body.size(); ++row) {
+    fillRow(source.body[row], int(row + 1), false);
+  }
+  firstBlock_ = false;
+  cursor = editor_->document()->rootFrame()->lastCursorPosition();
+}
+
 void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
                                    QString prefix, std::optional<size_t> task,
                                    std::optional<size_t> list,
@@ -276,13 +361,14 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
     renderCodeBlock(index, cursor, depth, list, quote);
     return;
   }
+  if (node.type == MD_BLOCK_TABLE) {
+    renderTable(index, cursor, depth);
+    return;
+  }
   QString label = QStringLiteral("unsupported block - edit in Markdown");
   switch (node.type) {
     case MD_BLOCK_HTML:
       label = QStringLiteral("HTML - edit in Markdown");
-      break;
-    case MD_BLOCK_TABLE:
-      label = QStringLiteral("table - edit in Markdown");
       break;
     case MD_BLOCK_HR:
       label = QStringLiteral("horizontal rule - edit in Markdown");
