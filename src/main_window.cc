@@ -722,16 +722,10 @@ void MainWindow::refreshState() {
   const int lines =
       documentText.isEmpty() ? 0 : int(documentText.count(QChar('\n')) + 1);
   QString status =
-      QStringLiteral("%1 | Chars %2 | Words %3 | Lines %4 | %5")
-          .arg(pagedMode_
-                   ? QStringLiteral("WYSIWYG (Page layout)")
-                   : continuousMode_ ? QStringLiteral("WYSIWYG (Continuous layout)")
-                                     : QStringLiteral("Markdown"))
+      QStringLiteral("Chars %1 | Words %2 | Lines %3")
           .arg(documentText.size())
           .arg(words)
-          .arg(lines)
-          .arg(session_.dirty() ? QStringLiteral("Modified")
-                                : QStringLiteral("Saved"));
+          .arg(lines);
   if (pagedMode_) {
     status += QStringLiteral(" | Page %1 of %2")
                   .arg(continuous_->currentPage() + 1)
