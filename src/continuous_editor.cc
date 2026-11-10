@@ -759,6 +759,69 @@ void ContinuousEditor::toggleInlineStyle(markdown::InlineStyle style) {
                         editor_->textCursor().position());
 }
 
+std::optional<ContinuousEditor::LinkSelection>
+ContinuousEditor::linkSelection() const {
+  if (!document_) {
+    return std::nullopt;
+  }
+  const auto cursor = editor_->textCursor();
+  if (!cursor.hasSelection()) {
+    return std::nullopt;
+  }
+  for (const auto& run : runs_) {
+    if (cursor.selectionStart() < run.start ||
+        cursor.selectionEnd() > run.start + run.length) {
+      continue;
+    }
+    const auto& node = document_->nodes[run.node];
+    if (node.kind != markdown::NodeKind::kText ||
+        node.type != MD_TEXT_NORMAL) {
+      return std::nullopt;
+    }
+    const auto text = literal(node.text);
+    const auto first = cursor.selectionStart() - run.start;
+    const auto end = cursor.selectionEnd() - run.start;
+    if (first >= end ||
+        (first < text.size() && text[first].isLowSurrogate()) ||
+        (end < text.size() && text[end].isLowSurrogate())) {
+      return std::nullopt;
+    }
+    const auto offset = text.left(first).toUtf8().size();
+    const auto size = text.mid(first, end - first).toUtf8().size();
+    if (offset < 0 || size <= 0) {
+      return std::nullopt;
+    }
+    return LinkSelection{run.node, {offset, size}};
+  }
+  return std::nullopt;
+}
+
+bool ContinuousEditor::linkCreationEnabled() const {
+  const auto selection = linkSelection();
+  if (!selection) {
+    return false;
+  }
+  return apply(markdown::WrapInLink{selection->node, selection->range,
+                                    "https://example.invalid"})
+      .document.has_value();
+}
+
+void ContinuousEditor::insertLink(const QString& url) {
+  const auto selection = linkSelection();
+  if (!selection) {
+    emit errorOccurred(
+        QStringLiteral("Select text inside one editable run to create a link."));
+    return;
+  }
+  if (url.trimmed().isEmpty()) {
+    emit errorOccurred(QStringLiteral("Link URL must not be empty."));
+    return;
+  }
+  const auto command = markdown::WrapInLink{
+      selection->node, selection->range, url.trimmed().toUtf8()};
+  emit commandRequested(token_, command, editor_->textCursor().position());
+}
+
 ContinuousEditor::StructuralState ContinuousEditor::blockquoteState() const {
   const auto* value = context();
   if (!document_ || !value) {

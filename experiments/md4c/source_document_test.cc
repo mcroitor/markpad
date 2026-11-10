@@ -4117,6 +4117,86 @@ class Md4cSourceTest : public QObject {
     }
   }
 
+  void wrapInLink_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<QByteArray>("text");
+    QTest::addColumn<int>("offset");
+    QTest::addColumn<int>("size");
+    QTest::addColumn<QByteArray>("url");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("full")
+        << QByteArray("alpha beta\n") << QByteArray("alpha beta") << 0 << 5
+        << QByteArray("https://example.test")
+        << QByteArray("[alpha](<https://example.test>) beta\n");
+    QTest::newRow("partial")
+        << QByteArray("alpha beta\n") << QByteArray("alpha beta") << 6 << 4
+        << QByteArray("https://example.test")
+        << QByteArray("alpha [beta](<https://example.test>)\n");
+    QTest::newRow("paren-url")
+        << QByteArray("alpha\n") << QByteArray("alpha") << 0 << 5
+        << QByteArray("https://example.test/a(b)")
+        << QByteArray("[alpha](<https://example.test/a(b)>)\n");
+    QTest::newRow("formatted")
+        << QByteArray("**alpha**\n") << QByteArray("alpha") << 0 << 5
+        << QByteArray("https://example.test")
+        << QByteArray("**[alpha](<https://example.test>)**\n");
+  }
+
+  void wrapInLink() {
+    QFETCH(QByteArray, source);
+    QFETCH(QByteArray, text);
+    QFETCH(int, offset);
+    QFETCH(int, size);
+    QFETCH(QByteArray, url);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto node =
+        find(*parsed.document, NodeKind::kText, MD_TEXT_NORMAL, text);
+    QVERIFY(node < parsed.document->nodes.size());
+    const auto result = editBytes(
+        *parsed.document,
+        WrapInLink{node, {offset, size}, url});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+  }
+
+  void wrapInLinkRejected() {
+    const auto parsed = parse("alpha [link](/keep)\n");
+    QVERIFY(parsed.document);
+    const auto linkText =
+        find(*parsed.document, NodeKind::kText, MD_TEXT_NORMAL, "link");
+    QVERIFY(linkText < parsed.document->nodes.size());
+    for (const auto& command :
+         std::vector<EditCommand>{
+             WrapInLink{linkText, {0, 4}, "https://example.test"},
+             WrapInLink{linkText, {0, 0}, "https://example.test"},
+             WrapInLink{linkText, {0, 4}, ""},
+             WrapInLink{linkText, {0, 4}, "bad url"},
+             WrapInLink{linkText, {0, 4}, "bad<url"}}) {
+      QVERIFY(!editBytes(*parsed.document, command).source);
+    }
+    const auto image = parse("![alt](/keep)\n");
+    QVERIFY(image.document);
+    const auto alt = find(*image.document, NodeKind::kText, MD_TEXT_NORMAL, "alt");
+    QVERIFY(alt < image.document->nodes.size());
+    QVERIFY(!editBytes(*image.document,
+                       WrapInLink{alt, {0, 3}, "https://example.test"})
+                 .source);
+  }
+
+  void wrapInLinkStale() {
+    const auto parsed = parse("alpha\n");
+    QVERIFY(parsed.document);
+    const auto node =
+        find(*parsed.document, NodeKind::kText, MD_TEXT_NORMAL, "alpha");
+    const auto foreign = parse("beta\n");
+    QVERIFY(foreign.document);
+    QVERIFY(!applyEdit(*parsed.document, snapshotToken(*foreign.document),
+                       WrapInLink{node, {0, 5}, "https://example.test"})
+                 .document);
+  }
+
   void unifiedCommandContract() {
     auto parsed = parse("before\n\n- [x] task\n\n> quoted\n", 17);
     QVERIFY(parsed.document);

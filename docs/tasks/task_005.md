@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026–037)
+- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026–038)
 - Владелец: архитектор + C++ разработчик
 - Приоритет: P1
 
@@ -98,6 +98,9 @@ WYSIWYG continuous — полноценный редактируемый реж�
 - Реализована [Task 037](task_037.md): Format > Code/Horizontal Line вставляют
   пустой fenced code block или `---` после текущего блока/в конец; HR
   отображается protected линией, code body редактируется.
+- Реализована [Task 038](task_038.md): Format > Link создаёт inline-link вокруг
+  selection одного normal run через URL dialog. Titles/reference links и Image
+  creation не включены.
 - Выполнена зависимая подготовка структурных команд:
   [Task 016](task_016.md) — exact source-map top-level списков/пунктов.
 - Реализована [Task 017](task_017.md): source-preserving InsertListItem,

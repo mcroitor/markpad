@@ -58,15 +58,21 @@ class TestDialogs final : public DocumentDialogs {
   QString openPath;
   std::optional<SaveSelection> saveSelection;
   std::optional<Encoding> encoding;
+  std::optional<QString> linkUrl;
   CloseChoice closeChoice = CloseChoice::kCancel;
   QStringList errors;
   int closePrompts = 0;
+  int linkPrompts = 0;
   QString chooseOpen(QWidget*) override { return openPath; }
   std::optional<SaveSelection> chooseSave(QWidget*, const QString&,
                                           FileFormat) override {
     return saveSelection;
   }
   std::optional<Encoding> chooseEncoding(QWidget*) override { return encoding; }
+  std::optional<QString> chooseLink(QWidget*) override {
+    ++linkPrompts;
+    return linkUrl;
+  }
   CloseChoice confirmClose(QWidget*, const QString&) override {
     ++closePrompts;
     return closeChoice;
@@ -1709,6 +1715,48 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(window->setContinuousMode(false));
     QVERIFY(!code->isEnabled());
     QVERIFY(!rule->isEnabled());
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousLinkCreation() {
+    const QByteArray source = "alpha beta\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    auto* link = action(window, "linkAction");
+    QVERIFY(link);
+    QVERIFY(!link->isEnabled());
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    auto cursor = rich->document()->find(QStringLiteral("alpha"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    QVERIFY(link->isEnabled());
+    dialogs.linkUrl = QStringLiteral("https://example.test");
+    link->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("[alpha](<https://example.test>) beta\n"));
+    QCOMPARE(dialogs.linkPrompts, 1);
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    cursor = rich->document()->find(QStringLiteral("beta"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    QVERIFY(link->isEnabled());
+    dialogs.linkUrl.reset();
+    link->trigger();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QCOMPARE(dialogs.linkPrompts, 2);
+
+    auto collapsed = rich->document()->find(QStringLiteral("beta"));
+    collapsed.clearSelection();
+    rich->setTextCursor(collapsed);
+    QVERIFY(!link->isEnabled());
+    QVERIFY(window->setContinuousMode(false));
+    QVERIFY(!link->isEnabled());
     QVERIFY(dialogs.errors.empty());
   }
 

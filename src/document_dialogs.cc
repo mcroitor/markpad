@@ -7,6 +7,7 @@
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QInputDialog>
+#include <QLineEdit>
 #include <QMessageBox>
 
 namespace markpad {
@@ -89,6 +90,17 @@ std::optional<Encoding> DocumentDialogs::chooseEncoding(QWidget* parent) {
     return std::nullopt;
   }
   return static_cast<Encoding>(names.indexOf(selected));
+}
+
+std::optional<QString> DocumentDialogs::chooseLink(QWidget* parent) {
+  bool accepted = false;
+  const auto value = QInputDialog::getText(
+      parent, QStringLiteral("Insert link"), QStringLiteral("URL"),
+      QLineEdit::Normal, {}, &accepted);
+  if (!accepted || value.trimmed().isEmpty()) {
+    return std::nullopt;
+  }
+  return value.trimmed();
 }
 
 CloseChoice DocumentDialogs::confirmClose(QWidget* parent,

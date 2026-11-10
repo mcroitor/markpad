@@ -70,6 +70,8 @@ class ContinuousEditor final : public QWidget {
   void insertTable();
   void insertHorizontalRule();
   void insertFencedCode();
+  bool linkCreationEnabled() const;
+  void insertLink(const QString& url);
   void explainCursorMapping(bool exact);
   void setPaged(bool paged);
   bool paged() const { return paged_; }
@@ -138,6 +140,11 @@ class ContinuousEditor final : public QWidget {
   void renderTable(size_t node, QTextCursor& cursor, int depth);
   void renderHorizontalRule(QTextCursor& cursor, int depth);
   size_t insertionPosition() const;
+  struct LinkSelection {
+    size_t node;
+    markdown::SourceRange range;
+  };
+  std::optional<LinkSelection> linkSelection() const;
   std::optional<TableContext> tableContext() const;
   std::optional<markdown::EditCommand> tableCommand(
       const TableContext& context, TableAction action) const;

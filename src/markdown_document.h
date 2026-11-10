@@ -160,6 +160,11 @@ struct ToggleInlineStyle {
   SourceRange textRange;  // UTF-8 bytes relative to the normal text node.
   InlineStyle style;
 };
+struct WrapInLink {
+  size_t node;
+  SourceRange textRange;  // UTF-8 bytes relative to the normal text node.
+  QByteArray url;
+};
 
 enum class TaskState { kNone, kUnchecked, kChecked };
 
@@ -251,7 +256,8 @@ struct InsertFencedCode {
 using EditCommand =
     std::variant<ReplaceText, SetTaskChecked, SetHeadingLevel, ToggleInlineStyle,
                  InsertListItem, RemoveListItem, SetListKind, SetItemTask,
-                 WrapInQuote, UnwrapQuote, WrapInList, ReplaceCodeBody,
+                 WrapInLink, WrapInQuote, UnwrapQuote, WrapInList,
+                 ReplaceCodeBody,
                  IndentListItem, OutdentListItem, InsertTableRow,
                  RemoveTableRow, SetTableAlignment,
                  InsertTableColumn, RemoveTableColumn, RemoveTable,

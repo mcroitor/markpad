@@ -334,9 +334,16 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   connect(horizontalLineAction_, &QAction::triggered, this,
           [this] { continuous_->insertHorizontalRule(); });
   auto* horizontal = horizontalLineAction_;
-  auto* link =
-      unavailable(text(QStringLiteral("action.link"), QStringLiteral("Link")),
-                  QStringLiteral("linkAction"));
+  linkAction_ = format->addAction(
+      text(QStringLiteral("action.link"), QStringLiteral("Link")));
+  linkAction_->setObjectName(QStringLiteral("linkAction"));
+  connect(linkAction_, &QAction::triggered, this, [this] {
+    const auto url = dialogs_.chooseLink(this);
+    if (url) {
+      continuous_->insertLink(*url);
+    }
+  });
+  auto* link = linkAction_;
   auto* image =
       unavailable(text(QStringLiteral("action.image"), QStringLiteral("Image")),
                   QStringLiteral("imageAction"));
@@ -945,6 +952,14 @@ void MainWindow::refreshState() {
           ? QStringLiteral("Insert a horizontal rule after the current block")
           : QStringLiteral(
                 "Horizontal rule insertion requires continuous WYSIWYG mode"));
+  const bool linkCreation =
+      continuousMode_ && continuous_->linkCreationEnabled();
+  linkAction_->setEnabled(linkCreation);
+  linkAction_->setToolTip(
+      linkCreation
+          ? QStringLiteral("Create a link from the selected text")
+          : QStringLiteral("Select text inside one editable run to create a "
+                           "link"));
   if (tableMenu_) {
     tableMenu_->menuAction()->setEnabled(continuousMode_);
     for (auto* tableAction : tableMenu_->actions()) {

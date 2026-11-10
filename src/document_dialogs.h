@@ -28,6 +28,7 @@ class DocumentDialogs {
                                                   const QString& path,
                                                   FileFormat format);
   virtual std::optional<Encoding> chooseEncoding(QWidget* parent);
+  virtual std::optional<QString> chooseLink(QWidget* parent);
   virtual CloseChoice confirmClose(QWidget* parent, const QString& name);
   virtual void showError(QWidget* parent, const QString& message);
 
