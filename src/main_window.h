@@ -33,6 +33,8 @@ class MainWindow final : public QMainWindow {
   bool saveDocument();
   bool saveDocumentAs();
   bool exportHtml();
+  bool exportPdf();
+  bool printDocument();
   bool applySettings(const Settings& settings, QString* error = nullptr);
   void showSettings();
   void undo();

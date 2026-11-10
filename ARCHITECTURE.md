@@ -142,11 +142,11 @@ flowchart TB
 
 [Task 007](docs/tasks/task_007.md) реализует безопасный HTML-экспорт из общего  GFM AST: headings, paragraphs, lists/tasks, tables, code, emphasis, links/images;  raw HTML экранируется, небезопасные URI схемы отклоняются, внешние ресурсы не  загружаются. Запись UTF-8 идёт через `QSaveFile` с explicit error.
 
-[Task 009](docs/tasks/task_009.md) добавляет Settings Service: versioned JSON в  `AppConfigLocation` Markpad, defaults/validation/fallback, theme/language/editor  preferences/default file location/shortcuts и глобальные page defaults (A4  portrait/20 мм). Language — English fallback + `lang/*.ini`; настройки  применяются после перезапуска. Menu bar/toolbar приведены к `sketch.md`;  недоступные пока Format/PDF/Print действия disabled, Settings находится в Edit.
+[Task 009](docs/tasks/task_009.md) добавляет Settings Service: versioned JSON в  `AppConfigLocation` Markpad, defaults/validation/fallback, theme/language/editor  preferences/default file location/shortcuts и глобальные page defaults (A4  portrait/20 мм). Language — English fallback + `lang/*.ini`; настройки  применяются после перезапуска. Menu bar/toolbar приведены к `sketch.md`;  Settings находится в Edit; PDF/Print/Format actions подключены или явно disabled по готовности этапов.
 
-[Task 006](docs/tasks/task_006.md) добавляет  editable paged WYSIWYG: независимый `PageLayoutEngine` (page size/orientation/  margins, block placement, page count, oversized-block overflow warning) и  page-guide surface в общем rich-text editor. Auto Save и per-document page  metadata отложены. PDF/paged print остаются будущей работой; UI-команд  списков/цитат/таблиц нет.
+[Task 006](docs/tasks/task_006.md) добавляет  editable paged WYSIWYG: независимый `PageLayoutEngine` (page size/orientation/  margins, block placement, page count, oversized-block overflow warning) и  page-guide surface в общем rich-text editor. [Task 008](docs/tasks/task_008.md) добавляет PDF export и печать через Qt PrintSupport с той же page geometry, safe HTML rendering и explicit write errors. Auto Save и per-document page metadata отложены; UI-команд списков/цитат/таблиц нет.
 
-Следующие крупные направления — PDF export/print и финальная release-проверка.
+Следующие крупные направления — финальная release-проверка и ручная визуальная/printer QA.
 
 Последовательность продолжения: [Task 013](docs/tasks/task_013.md) → [Task 014: списки/цитаты](docs/tasks/task_014.md) → [Task 015: таблицы](docs/tasks/task_015.md). UI/production-интеграция не включены.
 

@@ -78,7 +78,8 @@ Sketch предусматривает настройки языка, темы, e
   Settings), Format (Heading H1–H6, Bold/Italic/Strikethrough, Blockquote,
   Code, Horizontal Line, Link, Image, Table, List→Ordered/Unordered), View
   (Full Screen, Zoom In/Out/Reset, Switch Mode), Help. Недоступные сейчас
-  действия disabled с tooltip; PDF/Print зависят от Task 008.
+  formatting действия disabled с tooltip; PDF/Print реализованы в Task 008 и
+  включены.
 - Убраны лишние относительно sketch пункты: Close, Select All, Status bar,
   About; Task/Paragraph остаются доступны через context menu, чтобы не терять
   возможности Tasks 026–027 при точном menu bar.

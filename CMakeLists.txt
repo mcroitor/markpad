@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets PrintSupport)
 include(cmake/md4c.cmake)
 configure_file(lang/en.ini "${CMAKE_BINARY_DIR}/lang/en.ini" COPYONLY)
 
@@ -33,11 +33,14 @@ target_link_libraries(markpad_files PUBLIC markpad_document PRIVATE Qt6::Core)
 add_library(markpad_export
     src/html_export.cc
     src/html_export.h
+    src/pdf_export.cc
+    src/pdf_export.h
     src/qt_html_export_service.cc
     src/qt_html_export_service.h
 )
 target_include_directories(markpad_export PUBLIC src)
-target_link_libraries(markpad_export PUBLIC markpad_markdown Qt6::Core)
+target_link_libraries(markpad_export PUBLIC markpad_markdown markpad_layout
+    Qt6::Core Qt6::PrintSupport)
 target_compile_features(markpad_export PUBLIC cxx_std_20)
 
 add_library(markpad_settings
@@ -124,6 +127,18 @@ if(BUILD_TESTING)
         target_compile_options(markpad_export_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
     add_test(NAME markpad_html_export COMMAND markpad_export_tests)
+
+    add_executable(markpad_pdf_export_tests tests/pdf_export_test.cc)
+    target_link_libraries(markpad_pdf_export_tests PRIVATE markpad_export
+        Qt6::Test)
+    target_compile_features(markpad_pdf_export_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(markpad_pdf_export_tests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME markpad_pdf_export COMMAND markpad_pdf_export_tests)
+    set_tests_properties(markpad_pdf_export PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
 
     add_executable(markpad_settings_tests tests/settings_test.cc)
     target_link_libraries(markpad_settings_tests PRIVATE markpad_settings

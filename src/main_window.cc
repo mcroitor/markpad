@@ -13,8 +13,11 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPageLayout>
 #include <QPalette>
 #include <QPlainTextEdit>
+#include <QPrintDialog>
+#include <QPrinter>
 #include <QSignalBlocker>
 #include <QStackedWidget>
 #include <QStatusBar>
@@ -29,6 +32,7 @@
 #include "continuous_editor.h"
 #include "html_export.h"
 #include "markdown_highlighter.h"
+#include "pdf_export.h"
 #include "qt_html_export_service.h"
 #include "settings_dialog.h"
 
@@ -139,11 +143,11 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
       text(QStringLiteral("menu.export"), QStringLiteral("&Export")));
   exportMenu->setObjectName(QStringLiteral("exportMenu"));
   exportMenu->menuAction()->setObjectName(QStringLiteral("exportAction"));
-  auto* exportPdf = exportMenu->addAction(
+  auto* exportPdfAction = exportMenu->addAction(
       text(QStringLiteral("action.exportPdf"), QStringLiteral("PDF")));
-  exportPdf->setObjectName(QStringLiteral("exportPdfAction"));
-  exportPdf->setEnabled(false);
-  exportPdf->setToolTip(QStringLiteral("PDF export is not implemented yet"));
+  exportPdfAction->setObjectName(QStringLiteral("exportPdfAction"));
+  connect(exportPdfAction, &QAction::triggered, this,
+          [this] { exportPdf(); });
   auto* exportHtmlAction = exportMenu->addAction(
       text(QStringLiteral("action.exportHtml"), QStringLiteral("HTML")));
   exportHtmlAction->setObjectName(QStringLiteral("exportHtmlAction"));
@@ -152,8 +156,7 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   auto* print = file->addAction(
       text(QStringLiteral("action.print"), QStringLiteral("&Print")));
   print->setObjectName(QStringLiteral("printAction"));
-  print->setEnabled(false);
-  print->setToolTip(QStringLiteral("Printing is not implemented yet"));
+  connect(print, &QAction::triggered, this, [this] { printDocument(); });
   file->addSeparator();
   action(text(QStringLiteral("action.exit"), QStringLiteral("E&xit")),
          QStringLiteral("exitAction"), QKeySequence::Quit,
@@ -512,6 +515,85 @@ bool MainWindow::saveDocumentAs() {
     return false;
   }
   refreshState();
+  return true;
+}
+
+bool MainWindow::exportPdf() {
+  const auto snapshot = session_.snapshot();
+  auto parsed = markdown::parse(
+      QByteArray(snapshot.source.data(), qsizetype(snapshot.source.size())));
+  if (!parsed.document) {
+    dialogs_.showError(this, parsed.error);
+    return false;
+  }
+  QString suggested = displayPath(session_.path());
+  if (suggested.isEmpty()) {
+    suggested = QStringLiteral("document");
+  }
+  const QFileInfo info(suggested);
+  suggested =
+      QDir(info.path()).filePath(info.completeBaseName() + QStringLiteral(".pdf"));
+  const auto selected = QFileDialog::getSaveFileName(
+      this, QStringLiteral("Export PDF"), suggested,
+      QStringLiteral("PDF (*.pdf);;All files (*)"));
+  if (selected.isEmpty()) {
+    return false;
+  }
+  PdfExportOptions options;
+  options.page = settings_.page;
+  options.fontFamily = settings_.editorFontFamily;
+  options.fontSize = settings_.editorFontSize;
+  const auto result =
+      markpad::exportPdf(*parsed.document, filePath(selected), options);
+  if (!result.success()) {
+    dialogs_.showError(this, *result.error);
+    return false;
+  }
+  if (!result.warning.isEmpty()) {
+    statusBar()->showMessage(result.warning, 10000);
+  } else {
+    statusBar()->showMessage(
+        QStringLiteral("PDF exported (%1 pages)").arg(result.pageCount), 3000);
+  }
+  return true;
+}
+
+bool MainWindow::printDocument() {
+  const auto snapshot = session_.snapshot();
+  auto parsed = markdown::parse(
+      QByteArray(snapshot.source.data(), qsizetype(snapshot.source.size())));
+  if (!parsed.document) {
+    dialogs_.showError(this, parsed.error);
+    return false;
+  }
+  QPrinter printer(QPrinter::HighResolution);
+  const auto margins = QMarginsF(
+      settings_.page.marginLeftMm, settings_.page.marginTopMm,
+      settings_.page.marginRightMm, settings_.page.marginBottomMm);
+  printer.setPageLayout(QPageLayout(
+      settings_.page.size == PageSize::kLetter
+          ? QPageSize(QPageSize::Letter)
+          : settings_.page.size == PageSize::kLegal
+                ? QPageSize(QPageSize::Legal)
+                : QPageSize(QPageSize::A4),
+      settings_.page.orientation == PageOrientation::kLandscape
+          ? QPageLayout::Landscape
+          : QPageLayout::Portrait,
+      margins, QPageLayout::Millimeter));
+  QPrintDialog dialog(&printer, this);
+  dialog.setWindowTitle(QStringLiteral("Print"));
+  if (dialog.exec() != QDialog::Accepted) {
+    return false;
+  }
+  PdfExportOptions options;
+  options.page = settings_.page;
+  options.fontFamily = settings_.editorFontFamily;
+  options.fontSize = settings_.editorFontSize;
+  if (const auto error =
+          markpad::printDocument(*parsed.document, printer, options)) {
+    dialogs_.showError(this, *error);
+    return false;
+  }
   return true;
 }
 

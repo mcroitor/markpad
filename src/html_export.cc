@@ -94,6 +94,14 @@ class HtmlWriter {
     return {output_, {}};
   }
 
+  HtmlRenderResult renderFragment() {
+    if (document_.nodes.empty()) {
+      return {std::nullopt, QStringLiteral("Document has no root node")};
+    }
+    renderBlock(0);
+    return {output_, {}};
+  }
+
  private:
   QByteArray plainText(size_t index) const {
     const auto& node = document_.nodes[index];
@@ -359,6 +367,10 @@ class HtmlWriter {
 
 HtmlRenderResult renderHtml(const Document& document) {
   return HtmlWriter(document).render();
+}
+
+HtmlRenderResult renderHtmlFragment(const Document& document) {
+  return HtmlWriter(document).renderFragment();
 }
 
 }  // namespace markpad::markdown

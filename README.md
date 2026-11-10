@@ -221,13 +221,17 @@ WYSIWYG mode with a deterministic page-layout engine: A4/Letter/Legal,
 portrait/landscape, configurable margins, block-based page placement, page
 count/navigation in the status bar and an overflow warning for blocks taller than
 the page. The page view is a guided editable rich-text surface rather than
-separate page widgets; PDF/print export remains future work.
+separate page widgets. Task 008 adds PDF export and printing through Qt
+PrintSupport using the same page geometry and safe HTML rendering policy; PDF
+output is written atomically and errors are reported. Native visual PDF QA and
+real printer hardware remain manual checks.
 The MD4C tests pass locally on Windows and Ubuntu, including Linux ASan/UBSan.
 See [Task 002](docs/tasks/task_002.md) for limits, licensing and reproduction.
 See [Task 012](docs/tasks/task_012.md) for structural edits and snapshot guarantees.
 See [Task 013](docs/tasks/task_013.md) for the unified command contract and nested
-mapping limits. Task 015 (tables) is accepted; the remaining product work is the
-WYSIWYG paged mode, settings and PDF export tasks.
+mapping limits. Task 015 (tables) is accepted. The remaining release work is
+cross-platform acceptance, manual visual QA and any follow-up defects rather
+than missing export/settings/paged-mode slices.
 The agreed [reference-definition policy](docs/tasks/task_025.md) uses document-wide
 scope: future structural edits reject normalized label collisions or changes to
 surviving reference bindings, and reject removal of a definition still in use.

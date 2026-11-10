@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Draft`
+- Статус: `Done` (Qt PrintSupport PDF/print slice; native printer QA не выполнялся)
 - Владелец: C++ разработчик; архитектор утверждает layout и печать
 - Приоритет: P2
 
@@ -50,6 +50,46 @@ README требует PDF export; sketch добавляет Print. Архите�
 
 ## Итог выполнения
 
-- Не начато.
-- Проверки: не запускались.
-- Блокеры: Task 006 и решения о page setup/defaults.
+### Реализация
+
+- Добавлены `src/pdf_export.{h,cc}` в `markpad_export`: PDF export через
+  Qt PrintSupport/QPrinter и print helper, использующий тот же safe HTML
+  fragment renderer, что HTML export.
+- `PdfExportOptions` передаёт PageSetup (A4/Letter/Legal, orientation, четыре
+  margins), font family/size. Page geometry задаётся QPageLayout из тех же
+  значений, что `PageLayoutEngine` Task 006.
+- PDF пишется во временный файл, проверяется non-empty output и только затем
+  копируется в выбранный путь; open/print/replace ошибки возвращаются явно.
+  Existing target заменяется только после успешной генерации.
+- `SafePrintDocument` блокирует `loadResource`, поэтому raw HTML не исполняется
+  и внешние/local resources не загружаются при печати/PDF.
+- `PageLayoutEngine::layout` используется для page count/overflow warning;
+  PDF result сообщает количество страниц и overflow. Qt text layout выполняет
+  фактическую постраничную печать в той же page geometry.
+- `MainWindow`: File → Export → PDF и File → Print включены; QPrintDialog
+  использует те же page settings; отмена dialog/print не считается успехом.
+- Добавлен CTest `markpad_pdf_export` с PDF fixtures, page-size/margin
+  вариантами, write errors и print helper.
+
+### Проверки
+
+- Windows UCRT64 Debug: build, **CTest 7/7 passed**; `markpad_pdf_export`
+  **6 passed**; GUI smoke **75 passed**; MD4C suite **232 passed**.
+- Ubuntu WSL GCC 15.2 / Qt 6.10.2: clean configure/build, CTest **7/7 passed**.
+- Ubuntu sanitized Debug: ASan/UBSan/leaks, CTest **7/7 passed**.
+- `git diff --check --ignore-space-at-eol` прошёл; сборка без warnings.
+  Google clang-format в среде отсутствует; dry-run не выполнялся.
+- Native PDF visual comparison, real printer hardware и remote CI не
+  запускались.
+
+### Ограничения
+
+- PDF pagination выполняет Qt text layout в заданной page geometry; page count
+  и overflow warning берутся из общего PageLayoutEngine, но pixel-perfect
+  совпадение с page-guide WYSIWYG не гарантируется.
+- Внешние/local resources не загружаются; images экспортируются как безопасные
+  HTML image references без загрузки ресурса.
+- Raw HTML экранируется. Реальный printer dialog cancel/manual print hardware
+  проверялись только кодом, без физического принтера.
+- PDF import/annotations/forms не реализованы. Auto Save остаётся отложенным.
+- Коммит/push не создавались.
