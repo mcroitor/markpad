@@ -4688,6 +4688,94 @@ EditResult insertTableCellTextSource(const Document& document,
   return apply(document, expected, {segmentOffset, segmentSize}, replacement);
 }
 
+std::optional<qsizetype> topLevelBlockStart(const Document& document,
+                                            size_t node) {
+  QString error;
+  const auto range = mapTopLevelBlockRange(document, node, error);
+  if (range) {
+    return range->offset;
+  }
+  for (const auto& envelope : evidenceEnvelopes(document)) {
+    if (envelope.node == node) {
+      return lineStartAt(document.source, envelope.range.offset);
+    }
+  }
+  return std::nullopt;
+}
+
+EditResult insertTableSource(const Document& document, const InsertTable& edit) {
+  if (document.nodes.empty() ||
+      document.nodes[0].kind != NodeKind::kBlock ||
+      document.nodes[0].type != MD_BLOCK_DOC) {
+    return {std::nullopt, QStringLiteral("Invalid table insertion")};
+  }
+  if (edit.columns == 0 || edit.columns > 1000 || edit.bodyRows > 10000) {
+    return {std::nullopt, QStringLiteral("Invalid table dimensions")};
+  }
+  const auto& root = document.nodes[0];
+  if (edit.position > root.children.size()) {
+    return {std::nullopt, QStringLiteral("Invalid table insertion position")};
+  }
+  qsizetype offset = document.source.size();
+  if (edit.position < root.children.size()) {
+    const auto start = topLevelBlockStart(document, root.children[edit.position]);
+    if (!start) {
+      return {std::nullopt,
+              QStringLiteral("Cannot find table insertion boundary")};
+    }
+    offset = *start;
+  }
+  if (offset < 0 || offset > document.source.size()) {
+    return {std::nullopt, QStringLiteral("Invalid table insertion boundary")};
+  }
+  const auto eol = documentEol(document.source);
+  const auto row = [&](bool delimiter) {
+    QByteArray value;
+    for (size_t column = 0; column < edit.columns; ++column) {
+      value += delimiter ? QByteArray("| --- ") : QByteArray("|  ");
+    }
+    value += '|';
+    value += eol;
+    return value;
+  };
+  QByteArray table;
+  for (size_t column = 0; column < edit.columns; ++column) {
+    table += "| Column " + QByteArray::number(qulonglong(column + 1)) + ' ';
+  }
+  table += '|';
+  table += eol;
+  table += row(true);
+  for (size_t body = 0; body < edit.bodyRows; ++body) {
+    table += row(false);
+  }
+  QByteArray prefix;
+  if (offset > 0) {
+    const auto before = document.source.left(offset);
+    const bool blank = before.endsWith("\n\n") ||
+                       before.endsWith("\r\n\r\n") || before.endsWith("\r\r");
+    const bool one = before.endsWith('\n') || before.endsWith('\r');
+    if (!blank) {
+      prefix = one ? eol : eol + eol;
+    }
+  }
+  const QByteArray suffix = offset < document.source.size() ? eol : QByteArray{};
+  const auto insertion = prefix + table + suffix;
+  auto parsed = parse(table);
+  if (!parsed.document || parsed.document->nodes[0].children.size() != 1) {
+    return {std::nullopt, QStringLiteral("Structural table creation failed")};
+  }
+  const auto tableChild = parsed.document->nodes[0].children.front();
+  if (parsed.document->nodes[tableChild].type != MD_BLOCK_TABLE) {
+    return {std::nullopt, QStringLiteral("Structural table creation failed")};
+  }
+  auto expected = document;
+  const auto newIndex =
+      copySubtree(expected, *parsed.document, tableChild, 0);
+  expected.nodes[0].children.insert(
+      expected.nodes[0].children.begin() + qsizetype(edit.position), newIndex);
+  return apply(document, expected, {offset, 0}, insertion);
+}
+
 EditResult outdentListItemSource(const Document& document,
                                  const OutdentListItem& edit) {
   QString error;
@@ -5022,6 +5110,8 @@ ParseResult applyEdit(const Document& document, const SnapshotToken& token,
           return removeTableSource(document, edit);
         } else if constexpr (std::is_same_v<Command, InsertTableCellText>) {
           return insertTableCellTextSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, InsertTable>) {
+          return insertTableSource(document, edit);
         } else {
           return toggleInlineSource(document, edit);
         }

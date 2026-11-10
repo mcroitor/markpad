@@ -1628,6 +1628,106 @@ class Md4cSourceTest : public QObject {
     QVERIFY(!rejected.error.isEmpty());
   }
 
+  void createdTableSourceMap() {
+    const QByteArray source =
+        "| Column 1 | Column 2 |\n| --- | --- |\n|  |  |\n";
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto table = find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+    QVERIFY(table < parsed.document->nodes.size());
+    const auto mapped = mapTable(*parsed.document, table);
+    QVERIFY2(mapped.table, qPrintable(mapped.error));
+    QCOMPARE(mapped.table->columns, size_t(2));
+    QCOMPARE(mapped.table->body.size(), size_t(1));
+  }
+
+  void insertTable_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<size_t>("position");
+    QTest::addColumn<size_t>("columns");
+    QTest::addColumn<size_t>("bodyRows");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("empty") << QByteArray{} << size_t(0) << size_t(2)
+                           << size_t(1)
+                           << QByteArray("| Column 1 | Column 2 |\n"
+                                         "| --- | --- |\n|  |  |\n");
+    QTest::newRow("after") << QByteArray("alpha\n") << size_t(1) << size_t(2)
+                           << size_t(1)
+                           << QByteArray("alpha\n\n| Column 1 | Column 2 |\n"
+                                         "| --- | --- |\n|  |  |\n");
+    QTest::newRow("before") << QByteArray("beta\n") << size_t(0) << size_t(2)
+                            << size_t(1)
+                            << QByteArray("| Column 1 | Column 2 |\n"
+                                          "| --- | --- |\n|  |  |\n\nbeta\n");
+    QTest::newRow("middle") << QByteArray("a\n\nb\n") << size_t(1)
+                            << size_t(2) << size_t(1)
+                            << QByteArray("a\n\n| Column 1 | Column 2 |\n"
+                                          "| --- | --- |\n|  |  |\n\nb\n");
+    QTest::newRow("crlf") << QByteArray("alpha\r\n") << size_t(1)
+                          << size_t(2) << size_t(1)
+                          << QByteArray("alpha\r\n\r\n| Column 1 | Column 2 |"
+                                        "\r\n| --- | --- |\r\n|  |  |\r\n");
+    QTest::newRow("header-only") << QByteArray{} << size_t(0) << size_t(3)
+                                 << size_t(0)
+                                 << QByteArray("| Column 1 | Column 2 | "
+                                               "Column 3 |\n| --- | --- | --- |\n");
+  }
+
+  void insertTable() {
+    QFETCH(QByteArray, source);
+    QFETCH(size_t, position);
+    QFETCH(size_t, columns);
+    QFETCH(size_t, bodyRows);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto result =
+        editBytes(*parsed.document,
+                  InsertTable{position, columns, bodyRows});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+  }
+
+  void insertTableRejected_data() {
+    QTest::addColumn<size_t>("position");
+    QTest::addColumn<size_t>("columns");
+    QTest::addColumn<size_t>("bodyRows");
+    QTest::addColumn<QString>("error");
+    QTest::newRow("position") << size_t(2) << size_t(2) << size_t(1)
+                              << QStringLiteral("position");
+    QTest::newRow("columns") << size_t(0) << size_t(0) << size_t(1)
+                             << QStringLiteral("dimensions");
+    QTest::newRow("rows") << size_t(0) << size_t(2) << size_t(10001)
+                          << QStringLiteral("dimensions");
+  }
+
+  void insertTableRejected() {
+    QFETCH(size_t, position);
+    QFETCH(size_t, columns);
+    QFETCH(size_t, bodyRows);
+    QFETCH(QString, error);
+    const auto parsed = parse("alpha\n");
+    QVERIFY(parsed.document);
+    const auto result = editBytes(
+        *parsed.document, InsertTable{position, columns, bodyRows});
+    QVERIFY(!result.source);
+    QVERIFY2(result.error.contains(error), qPrintable(result.error));
+    QCOMPARE(parsed.document->source, QByteArray("alpha\n"));
+    QCOMPARE(parsed.document->revision, quint64(0));
+  }
+
+  void insertTableStale() {
+    const auto parsed = parse("alpha\n");
+    QVERIFY(parsed.document);
+    const auto foreign = parse("beta\n");
+    QVERIFY(foreign.document);
+    const auto result = applyEdit(*parsed.document,
+                                  snapshotToken(*foreign.document),
+                                  InsertTable{1, 2, 1});
+    QVERIFY(!result.document);
+    QVERIFY(!result.error.isEmpty());
+  }
+
   void insertTableCellText_data() {
     QTest::addColumn<QByteArray>("source");
     QTest::addColumn<bool>("header");

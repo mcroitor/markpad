@@ -236,6 +236,11 @@ struct InsertTableCellText {
   size_t cell;
   QByteArray text;  // Nonempty single-line UTF-8 plain text.
 };
+struct InsertTable {
+  size_t position;  // Root child position, 0..children.size().
+  size_t columns;
+  size_t bodyRows;
+};
 
 using EditCommand =
     std::variant<ReplaceText, SetTaskChecked, SetHeadingLevel, ToggleInlineStyle,
@@ -244,7 +249,7 @@ using EditCommand =
                  IndentListItem, OutdentListItem, InsertTableRow,
                  RemoveTableRow, SetTableAlignment,
                  InsertTableColumn, RemoveTableColumn, RemoveTable,
-                 InsertTableCellText>;
+                 InsertTableCellText, InsertTable>;
 
 // Edits return a reparsed snapshot; no-op preserves identity, revision and
 // bytes.

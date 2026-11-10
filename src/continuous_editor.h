@@ -65,6 +65,8 @@ class ContinuousEditor final : public QWidget {
   };
   bool tableActionEnabled(TableAction action) const;
   void applyTableAction(TableAction action);
+  bool tableCreationEnabled() const;
+  void insertTable();
   void explainCursorMapping(bool exact);
   void setPaged(bool paged);
   bool paged() const { return paged_; }

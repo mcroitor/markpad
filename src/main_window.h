@@ -105,6 +105,7 @@ class MainWindow final : public QMainWindow {
   QAction* blockquoteAction_;
   QAction* orderedListAction_;
   QAction* unorderedListAction_;
+  QAction* tableAction_;
   QMenu* tableMenu_;
   QStackedWidget* workspace_;
   ContinuousEditor* continuous_;

@@ -968,6 +968,38 @@ void ContinuousEditor::applyTableAction(TableAction action) {
   emit commandRequested(token_, *command, editor_->textCursor().position());
 }
 
+bool ContinuousEditor::tableCreationEnabled() const {
+  return document_ && !document_->nodes.empty();
+}
+
+void ContinuousEditor::insertTable() {
+  if (!document_ || document_->nodes.empty()) {
+    emit errorOccurred(QStringLiteral("No document is available."));
+    return;
+  }
+  const auto& root = document_->nodes[0];
+  size_t position = root.children.size();
+  std::optional<size_t> top;
+  if (const auto table = tableContext()) {
+    top = table->node;
+  } else if (const auto* value = context()) {
+    top = value->block;
+    while (top && document_->nodes[*top].parent &&
+           *document_->nodes[*top].parent != 0) {
+      top = document_->nodes[*top].parent;
+    }
+  }
+  if (top) {
+    const auto found =
+        std::find(root.children.begin(), root.children.end(), *top);
+    if (found != root.children.end()) {
+      position = size_t(found - root.children.begin()) + 1;
+    }
+  }
+  const auto command = markdown::InsertTable{position, 2, 1};
+  emit commandRequested(token_, command, editor_->textCursor().position());
+}
+
 void ContinuousEditor::explainCursorMapping(bool exact) {
   notice_->setText(
       kNotice + (exact

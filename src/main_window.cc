@@ -334,9 +334,12 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   auto* image =
       unavailable(text(QStringLiteral("action.image"), QStringLiteral("Image")),
                   QStringLiteral("imageAction"));
-  auto* table =
-      unavailable(text(QStringLiteral("action.table"), QStringLiteral("Table")),
-                  QStringLiteral("tableAction"));
+  tableAction_ = format->addAction(
+      text(QStringLiteral("action.table"), QStringLiteral("Table")));
+  tableAction_->setObjectName(QStringLiteral("tableAction"));
+  connect(tableAction_, &QAction::triggered, this,
+          [this] { continuous_->insertTable(); });
+  auto* table = tableAction_;
   auto* listMenu = format->addMenu(
       text(QStringLiteral("action.list"), QStringLiteral("List")));
   listMenu->setObjectName(QStringLiteral("listMenu"));
@@ -918,6 +921,12 @@ void MainWindow::refreshState() {
   unorderedListAction_->setEnabled(continuousMode_ &&
                                    unorderedState.command.has_value());
   unorderedListAction_->setToolTip(unorderedState.reason);
+  tableAction_->setEnabled(continuousMode_ &&
+                           continuous_->tableCreationEnabled());
+  tableAction_->setToolTip(
+      continuousMode_
+          ? QStringLiteral("Insert a 2-column table after the current block")
+          : QStringLiteral("Table creation requires continuous WYSIWYG mode"));
   if (tableMenu_) {
     tableMenu_->menuAction()->setEnabled(continuousMode_);
     for (auto* tableAction : tableMenu_->actions()) {

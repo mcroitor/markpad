@@ -1614,6 +1614,55 @@ class MainWindowSmokeTest : public QObject {
              std::string("| h |\n| --- |\n| a |\n"));
   }
 
+  void continuousTableCreation() {
+    const QByteArray source = "alpha\n\nbeta\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    auto* table = action(window, "tableAction");
+    QVERIFY(table);
+    QVERIFY(!table->isEnabled());
+    QVERIFY(window->setContinuousMode(true));
+    QVERIFY(table->isEnabled());
+    auto* rich = window->continuousEditor()->editor();
+    auto cursor = rich->document()->find(QStringLiteral("alpha"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    table->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\n| Column 1 | Column 2 |\n"
+                         "| --- | --- |\n|  |  |\n\nbeta\n"));
+    QTextTable* value = nullptr;
+    for (auto* frame : rich->document()->rootFrame()->childFrames()) {
+      if ((value = dynamic_cast<QTextTable*>(frame))) {
+        break;
+      }
+    }
+    QVERIFY(value);
+    rich->setTextCursor(value->cellAt(1, 0).firstCursorPosition());
+    rich->insertPlainText(QStringLiteral("x"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\n| Column 1 | Column 2 |\n"
+                         "| --- | --- |\n| x |  |\n\nbeta\n"));
+    window->undo();
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(window->setContinuousMode(false));
+    QVERIFY(!table->isEnabled());
+    QVERIFY(dialogs.errors.empty());
+
+    auto* empty = controller.newDocument();
+    QVERIFY(empty->setContinuousMode(true));
+    table = action(empty, "tableAction");
+    QVERIFY(table->isEnabled());
+    table->trigger();
+    QCOMPARE(empty->session().snapshot().source,
+             std::string("| Column 1 | Column 2 |\n"
+                         "| --- | --- |\n|  |  |\n"));
+  }
+
   void continuousUnsupportedTableFallback() {
     const QByteArray source = "> | h |\n> | --- |\n> | a |\n";
     TestDialogs dialogs;
