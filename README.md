@@ -117,12 +117,15 @@ requests report an error. Delimiter collisions that would change the surrounding
 Markdown semantics are rejected rather than normalized globally.
 Other edits, including Enter, cross-run replacements and deleting an entire text
 run, explicitly return you to Markdown for the change. Empty documents start in
-Markdown. Images, code, HTML and tables are currently read-only placeholders,
-not fully rendered/editable features. No external resources are loaded.
+Markdown. Code, HTML and tables remain read-only placeholders, not fully
+rendered/editable features. No external resources are loaded.
 
 Links show their labels as inert text, never as clickable Qt anchors. You can
 edit a mapped label run in inline/full-reference links while keeping the address,
-title and reference definitions unchanged. Label formatting commands and
+title and reference definitions unchanged. Images are rendered as inert styled
+alt labels: alt text is locally editable, while source, title and reference
+definitions stay unchanged and resources are never loaded. Label/alt formatting
+commands and
 address edits still require Markdown. Autolink text is visible but read-only;
 shortcut/collapsed reference edits that change the binding are explicitly
 rejected. Click, Ctrl+click and keyboard do not open links, for any URL scheme.

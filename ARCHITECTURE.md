@@ -94,7 +94,7 @@ flowchart TB
 - Проверенное MD4C API 013 перенесено без копирования в `markpad_markdown` (`src/markdown_document.{h,cc}`, namespace `markpad::markdown`). Старые experiment fixtures тестируют тот же target. Зависимость MD4C теперь обязательна; pinned commit/hash прежние, сборка сохраняет MIT notice.
 - `ContinuousEditor` строит QTextDocument вручную через QTextCursor, не через HTML/Markdown importer/exporter. Это projection, не canonical source. Текстовые runs привязаны к callback node/source range. Маппинг UTF-16/UTF-8 учитывает Unicode/EOL; edit ограничен одним source-backed normal text run.
 - ReplaceText/heading/task вызывают единое `applyEdit`, повторный parse и проверку ожидаемой сигнатуры. MainWindow сверяет Session token projection с текущей Session перед записью результата в общую source history.
-- Необеспеченные операции явно отклоняются, projection восстанавливается; неподдержанные элементы/границы защищены и помечены. Links/images/code/ HTML/tables пока placeholders. Enter, пустой результат run и cross-run edits выполняются в Markdown. Native rich undo/HTML paste/resources отключены.
+- Необеспеченные операции явно отклоняются, projection восстанавливается; неподдержанные элементы/границы защищены и помечены. Code/HTML/tables пока placeholders; image alt labels редактируются как inert текст (Task 029). Enter, пустой результат run и cross-run edits выполняются в Markdown. Native rich undo/HTML paste/resources отключены.
 - Переключение режима не меняет source/revision/dirty/history. Selection переносится для mapped текста; немаппируемые позиции сопровождаются пояснением. При switch-back без правок/перемещения выделение восстанавливается точно.
 - Heading/task commands контекстные; создание inline formatting и сложные структурные операции не включены в Task 026. Полная Task 005 остаётся In Progress.
 
@@ -111,6 +111,13 @@ flowchart TB
 - Inline/full-reference mapped label text редактируется прежним ReplaceText. Ожидаемые href/title/autolink/всё окружающее дерево неизменны; потеря binding у shortcut/collapsed labels отвергается общей semantic verification.
 - Autolink text read-only, поскольку он задаёт адрес; nested image/code/HTML fragments остаются protected. Link inline formatting и адрес/definition edits не добавлены. Навигация click/Ctrl+click/keyboard отсутствует для любых схем.
 - Session/history/cursor mapping прежние; нет отдельного link serializer.
+
+### Инертные изображения и alt-подписи (Task 029)
+
+- Image children рендерятся вручную QTextCursor как styled inert label; image/anchor formats, href и resource loading не создаются. Src/title остаются source-backed attributes и не меняются.
+- Normal mapped alt runs редактируются прежним ReplaceText/Session. Inline/full-reference image alt сохраняет spelling/definition binding; unsafe schemes остаются инертными.
+- Formatting spans внутри alt отображаются, но новые format commands внутри image alt не открыты; code/HTML/entity fragments protected. Cross-run/empty/newline/stale edits отклоняются, projection восстанавливается.
+- Создание/удаление images и изменение src/title не входят в срез; полная Task 005 остаётся In Progress.
 
 ### Исследовательский GFM слой
 

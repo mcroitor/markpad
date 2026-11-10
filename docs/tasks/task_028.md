@@ -145,6 +145,8 @@ Qt anchors могут открыть URL — anchors не создаются, cl
 - Autolinks protected; collapsed/shortcut label edit может быть отвергнут
   semantic guard. Это намеренно не обходится превращением в inline-link.
 - Entities не декодируются в новый editable run; остаются защищёнными literal
-  fragments. Code/images/HTML/tables остаются ограниченными представлениями.
+  fragments. Code/HTML/tables остаются ограниченными представлениями; позднее
+  [Task 029](task_029.md) открывает alt-подписи существующих images, сохраняя
+  src/title и отключая resource loading.
 - Native visual QA, clang-tidy и remote CI этапа не выполнялись. Коммит/push
   не создавались. Полная Task 005 остаётся In Progress.

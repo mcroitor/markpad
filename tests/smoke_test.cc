@@ -477,9 +477,6 @@ class MainWindowSmokeTest : public QObject {
     QTest::newRow("autolink")
         << QByteArray("<https://invalid.test>\n")
         << QStringLiteral("https://invalid.test") << QStringLiteral("x");
-    QTest::newRow("image") << QByteArray("![alt](file:///private)\n")
-                           << QStringLiteral("Read-only")
-                           << QStringLiteral("x");
     QTest::newRow("html") << QByteArray("<script>bad()</script>\n")
                           << QStringLiteral("Read-only") << QStringLiteral("x");
     QTest::newRow("table") << QByteArray("| A |\n| - |\n| x |\n")
@@ -838,7 +835,8 @@ class MainWindowSmokeTest : public QObject {
     TestDialogs dialogs;
     ApplicationController controller(dialogs);
     auto* window = controller.newDocument();
-    window->editor()->insertPlainText("a **word** z\n\n[link](/keep)\n");
+    window->editor()->insertPlainText(
+        "a **word** z\n\n[link](/keep)\n\n![alt](/image)\n");
     window->setContinuousMode(true);
     auto* rich = window->continuousEditor()->editor();
     auto* bold = action(window, "boldAction");
@@ -861,6 +859,13 @@ class MainWindowSmokeTest : public QObject {
     cursor = rich->document()->find("link");
     rich->setTextCursor(cursor);
     QVERIFY(!bold->isEnabled());
+    cursor = rich->document()->find("alt");
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    QVERIFY(!bold->isEnabled());
+    window->continuousEditor()->toggleInlineStyle(markdown::InlineStyle::kBold);
+    QCOMPARE(window->session().snapshot().source, before.source);
+    QCOMPARE(window->session().snapshot().token, before.token);
     cursor = rich->document()->find(" z");
     rich->setTextCursor(cursor);
     QVERIFY(!bold->isEnabled());
@@ -996,9 +1001,6 @@ class MainWindowSmokeTest : public QObject {
     QTest::newRow("cross-runs")
         << QByteArray("[one **two**](/keep)\n") << QStringLiteral("one two")
         << QStringLiteral("after");
-    QTest::newRow("image-child")
-        << QByteArray("[![alt](file:///private)](/keep)\n")
-        << QStringLiteral("Read-only: image") << QStringLiteral("after");
     QTest::newRow("code-child")
         << QByteArray("[`code`](/keep)\n") << QStringLiteral("Read-only: code")
         << QStringLiteral("after");
@@ -1303,6 +1305,49 @@ class MainWindowSmokeTest : public QObject {
         QStringLiteral("Words")));
     QVERIFY(window->statusBar()->currentMessage().contains(
         QStringLiteral("Lines")));
+  }
+
+  void continuousImageAltLabels() {
+    const QByteArray source =
+        "![before](/image \"T\")\n\n"
+        "![ref][id]\n\n"
+        "[id]: /img \"I\"\n\n"
+        "[![logo](file:///private)](/keep)\n\n"
+        "![unsafe](javascript:ignored)\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    const bool originalDirty = window->session().dirty();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    const auto replace = [&](const QString& label, const QString& replacement) {
+      auto cursor = rich->document()->find(label);
+      QVERIFY(!cursor.isNull());
+      QVERIFY(!cursor.charFormat().isImageFormat());
+      QVERIFY(cursor.charFormat().anchorHref().isEmpty());
+      rich->setTextCursor(cursor);
+      rich->insertPlainText(replacement);
+    };
+    replace(QStringLiteral("before"), QStringLiteral("after"));
+    replace(QStringLiteral("ref"), QStringLiteral("ref2"));
+    replace(QStringLiteral("logo"), QStringLiteral("brand"));
+    replace(QStringLiteral("unsafe"), QStringLiteral("safe"));
+    const QByteArray expected =
+        "![after](/image \"T\")\n\n"
+        "![ref2][id]\n\n"
+        "[id]: /img \"I\"\n\n"
+        "[![brand](file:///private)](/keep)\n\n"
+        "![safe](javascript:ignored)\n";
+    QCOMPARE(window->session().snapshot().source, expected.toStdString());
+    QVERIFY(window->session().dirty());
+    for (int i = 0; i < 4; ++i) {
+      window->undo();
+    }
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QCOMPARE(window->session().dirty(), originalDirty);
+    QVERIFY(dialogs.errors.empty());
   }
 
   void settingsAppliedToExistingWindow() {

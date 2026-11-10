@@ -22,7 +22,8 @@ namespace {
 const QString kNotice = QStringLiteral(
     "Limited WYSIWYG: edit within a highlighted text run. Grey fragments and "
     "run/block boundaries are protected; use Markdown for other changes. "
-    "Links are inert: edit their labels only; use Markdown for addresses.");
+    "Links and images are inert: edit their labels/alt text only; use Markdown "
+    "for addresses, sources and titles.");
 
 class PlainTextOnlyEdit final : public PageTextEdit {
  public:
@@ -251,6 +252,12 @@ void ContinuousEditor::renderInline(size_t index, QTextCursor& cursor,
             QStringLiteral("Read-only autolink - text determines the address. "
                            "Navigation disabled; edit in Markdown."));
       }
+    } else if (node.type == MD_SPAN_IMG) {
+      format.setForeground(QColor(40, 90, 140));
+      format.setBackground(QColor(225, 235, 245));
+      format.setToolTip(QStringLiteral(
+          "Image - resource loading disabled. Edit alt text only; use "
+          "Markdown for source, title and reference definitions."));
     } else {
       QTextCharFormat protectedFormat;
       protectedFormat.setForeground(QColor(100, 100, 100));

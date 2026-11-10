@@ -3502,6 +3502,80 @@ class Md4cSourceTest : public QObject {
     }
   }
 
+  void imageAltEdits() {
+    const QByteArray inlineImage = "![before](/image \"T\")\n";
+    auto parsed = parse(inlineImage);
+    QVERIFY(parsed.document);
+    const auto before =
+        find(*parsed.document, NodeKind::kText, MD_TEXT_NORMAL, "before");
+    QVERIFY(before < parsed.document->nodes.size());
+    QVERIFY(!parsed.document->nodes[before].parent ||
+            parsed.document->nodes[*parsed.document->nodes[before].parent]
+                    .type == MD_SPAN_IMG);
+    auto edited = editBytes(*parsed.document, ReplaceText{before, "after"});
+    QVERIFY2(edited.source, qPrintable(edited.error));
+    QCOMPARE(*edited.source, QByteArray("![after](/image \"T\")\n"));
+    auto reparsed = parse(*edited.source);
+    QVERIFY(reparsed.document);
+    const auto image =
+        find(*reparsed.document, NodeKind::kSpan, MD_SPAN_IMG);
+    QVERIFY(image < reparsed.document->nodes.size());
+    QCOMPARE(reparsed.document->nodes[image].attributes["src"].toString(),
+             QStringLiteral("/image"));
+    QCOMPARE(reparsed.document->nodes[image].attributes["title"].toString(),
+             QStringLiteral("T"));
+
+    const QByteArray reference =
+        "![before][id]\n\n[id]: /img \"I\"\n";
+    auto referenceParsed = parse(reference);
+    QVERIFY(referenceParsed.document);
+    const auto referenceText =
+        find(*referenceParsed.document, NodeKind::kText, MD_TEXT_NORMAL,
+             "before");
+    QVERIFY(referenceText < referenceParsed.document->nodes.size());
+    auto referenceEdit =
+        editBytes(*referenceParsed.document, ReplaceText{referenceText, "after"});
+    QVERIFY2(referenceEdit.source, qPrintable(referenceEdit.error));
+    QCOMPARE(*referenceEdit.source,
+             QByteArray("![after][id]\n\n[id]: /img \"I\"\n"));
+    auto referenceReparsed = parse(*referenceEdit.source);
+    QVERIFY(referenceReparsed.document);
+    const auto referenceImage =
+        find(*referenceReparsed.document, NodeKind::kSpan, MD_SPAN_IMG);
+    QVERIFY(referenceImage < referenceReparsed.document->nodes.size());
+    QCOMPARE(referenceReparsed.document->nodes[referenceImage]
+                 .attributes["src"]
+                 .toString(),
+             QStringLiteral("/img"));
+    QCOMPARE(referenceReparsed.document->nodes[referenceImage]
+                 .attributes["title"]
+                 .toString(),
+             QStringLiteral("I"));
+
+    const QByteArray unsafe = "![alt](javascript:ignored)\n";
+    auto unsafeParsed = parse(unsafe);
+    QVERIFY(unsafeParsed.document);
+    const auto unsafeText =
+        find(*unsafeParsed.document, NodeKind::kText, MD_TEXT_NORMAL, "alt");
+    QVERIFY(unsafeText < unsafeParsed.document->nodes.size());
+    auto unsafeEdit = editBytes(*unsafeParsed.document,
+                                ReplaceText{unsafeText, "safe"});
+    QVERIFY2(unsafeEdit.source, qPrintable(unsafeEdit.error));
+    QCOMPARE(*unsafeEdit.source, QByteArray("![safe](javascript:ignored)\n"));
+
+    auto invalidImage = parse(inlineImage);
+    QVERIFY(invalidImage.document);
+    const auto invalidText = find(*invalidImage.document, NodeKind::kText,
+                                  MD_TEXT_NORMAL, "before");
+    for (const auto& value : {QByteArray{}, QByteArray("two\nlines"),
+                              QByteArray("two\rlines")}) {
+      const auto rejected = editBytes(*invalidImage.document,
+                                      ReplaceText{invalidText, value});
+      QVERIFY(!rejected.source);
+      QVERIFY(!rejected.error.isEmpty());
+    }
+  }
+
   void unifiedCommandContract() {
     auto parsed = parse("before\n\n- [x] task\n\n> quoted\n", 17);
     QVERIFY(parsed.document);
