@@ -3976,6 +3976,112 @@ EditResult setTableAlignmentSource(const Document& document,
   return apply(document, expected, table.range, newSource);
 }
 
+EditResult insertTableColumnSource(const Document& document,
+                                   const InsertTableColumn& edit) {
+  const auto mapped = mapTable(document, edit.table);
+  if (!mapped.table) {
+    return {std::nullopt, mapped.error};
+  }
+  const auto& table = *mapped.table;
+  if (edit.position > table.columns) {
+    return {std::nullopt, QStringLiteral("Invalid table column position")};
+  }
+  if (edit.bodyCells.size() != table.body.size()) {
+    return {std::nullopt, QStringLiteral("Invalid table column payload")};
+  }
+  QString error;
+  if (!validTableCellPayload(edit.header, error)) {
+    return {std::nullopt, error};
+  }
+  std::vector<QByteArray> newBodyCells;
+  newBodyCells.reserve(edit.bodyCells.size());
+  for (const auto& cell : edit.bodyCells) {
+    if (!validTableCellPayload(cell, error)) {
+      return {std::nullopt, error};
+    }
+    newBodyCells.push_back(escapeTableCell(cell));
+  }
+  auto header = tableHeaderFragments(document, table);
+  header.insert(header.begin() + qsizetype(edit.position),
+                escapeTableCell(edit.header));
+  auto body = tableBodyFragments(document, table);
+  for (size_t row = 0; row < body.size(); ++row) {
+    body[row].insert(body[row].begin() + qsizetype(edit.position),
+                     newBodyCells[row]);
+  }
+  auto alignments = table.alignments;
+  alignments.insert(alignments.begin() + qsizetype(edit.position),
+                    edit.alignment);
+  const auto eol = tableEol(document, table);
+  const auto newSource = serializeTable(header, body, alignments, eol,
+                                        tableTrailingEol(document, table));
+  const auto definitions = definitionInventory(document);
+  QString contextError;
+  auto parsed = parseTableContext(document, definitions, table.range.offset,
+                                 table.range.offset + table.range.size,
+                                 newSource, contextError);
+  if (!parsed) {
+    return {std::nullopt, contextError};
+  }
+  const auto& parsedTable = parsed->document.nodes[parsed->root];
+  if (parsedTable.attributes["columns"].toInt() != int(table.columns + 1) ||
+      parsedTable.attributes["body_rows"].toInt() != int(body.size())) {
+    return {std::nullopt, QStringLiteral("Structural table mismatch")};
+  }
+  auto expected = graftList(document, edit.table, *parsed);
+  return apply(document, expected, table.range, newSource);
+}
+
+EditResult removeTableColumnSource(const Document& document,
+                                   const RemoveTableColumn& edit) {
+  const auto mapped = mapTable(document, edit.table);
+  if (!mapped.table) {
+    return {std::nullopt, mapped.error};
+  }
+  const auto& table = *mapped.table;
+  if (table.columns <= 1) {
+    return {std::nullopt, QStringLiteral("Cannot remove the last table column")};
+  }
+  if (edit.index >= table.columns) {
+    return {std::nullopt, QStringLiteral("Invalid table column index")};
+  }
+  auto header = tableHeaderFragments(document, table);
+  header.erase(header.begin() + qsizetype(edit.index));
+  auto body = tableBodyFragments(document, table);
+  for (auto& row : body) {
+    row.erase(row.begin() + qsizetype(edit.index));
+  }
+  auto alignments = table.alignments;
+  alignments.erase(alignments.begin() + qsizetype(edit.index));
+  const auto eol = tableEol(document, table);
+  const auto newSource = serializeTable(header, body, alignments, eol,
+                                        tableTrailingEol(document, table));
+  const auto definitions = definitionInventory(document);
+  QString contextError;
+  auto parsed = parseTableContext(document, definitions, table.range.offset,
+                                 table.range.offset + table.range.size,
+                                 newSource, contextError);
+  if (!parsed) {
+    return {std::nullopt, contextError};
+  }
+  const auto& parsedTable = parsed->document.nodes[parsed->root];
+  if (parsedTable.attributes["columns"].toInt() != int(table.columns - 1) ||
+      parsedTable.attributes["body_rows"].toInt() != int(body.size())) {
+    return {std::nullopt, QStringLiteral("Structural table mismatch")};
+  }
+  auto expected = graftList(document, edit.table, *parsed);
+  return apply(document, expected, table.range, newSource);
+}
+
+EditResult removeTableSource(const Document& document, const RemoveTable& edit) {
+  const auto mapped = mapTable(document, edit.table);
+  if (!mapped.table) {
+    return {std::nullopt, mapped.error};
+  }
+  auto expected = removeListNode(document, edit.table);
+  return apply(document, expected, mapped.table->range, QByteArray{});
+}
+
 EditResult outdentListItemSource(const Document& document,
                                  const OutdentListItem& edit) {
   QString error;
@@ -4293,6 +4399,12 @@ ParseResult applyEdit(const Document& document, const SnapshotToken& token,
           return removeTableRowSource(document, edit);
         } else if constexpr (std::is_same_v<Command, SetTableAlignment>) {
           return setTableAlignmentSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, InsertTableColumn>) {
+          return insertTableColumnSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, RemoveTableColumn>) {
+          return removeTableColumnSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, RemoveTable>) {
+          return removeTableSource(document, edit);
         } else {
           return toggleInlineSource(document, edit);
         }

@@ -3063,6 +3063,140 @@ class Md4cSourceTest : public QObject {
     QVERIFY(overflow.error.contains("overflow"));
   }
 
+  void tableColumnCommands() {
+    {
+      const QByteArray source =
+          "| h | i |\n| --- | --- |\n| a | b |\n| c | d |\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const std::vector<QByteArray> expected{
+          "| x | h | i |\n| :---: | --- | --- |\n| p | a | b |\n"
+          "| q | c | d |\n",
+          "| h | x | i |\n| --- | :---: | --- |\n| a | p | b |\n"
+          "| c | q | d |\n",
+          "| h | i | x |\n| --- | --- | :---: |\n| a | b | p |\n"
+          "| c | d | q |\n"};
+      for (size_t position = 0; position < 3; ++position) {
+        const auto result = editBytes(
+            *parsed.document,
+            InsertTableColumn{table, position, QByteArray("x"),
+                              {QByteArray("p"), QByteArray("q")},
+                              TableAlignment::kCenter});
+        QVERIFY2(result.source, qPrintable(result.error));
+        QCOMPARE(*result.source, expected[position]);
+      }
+    }
+    {
+      auto parsed = parse("| h |\n| --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(
+          *parsed.document,
+          InsertTableColumn{table, 1, QByteArray("x"), {},
+                            TableAlignment::kNone});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("| h | x |\n| --- | --- |\n"));
+    }
+    {
+      auto parsed =
+          parse("| h | i |\n| --- | --- |\n| a | b |\n| c | d |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(
+          *parsed.document,
+          InsertTableColumn{table, 0, QByteArray("x"), {QByteArray("p")},
+                            TableAlignment::kNone});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("Invalid table column payload"),
+               qPrintable(result.error));
+    }
+    {
+      const QByteArray source = "| h | i |\n| --- | --- |\n| a | b |\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      QCOMPARE(*editBytes(*parsed.document,
+                          RemoveTableColumn{table, 0}).source,
+               QByteArray("| i |\n| --- |\n| b |\n"));
+      QCOMPARE(*editBytes(*parsed.document,
+                          RemoveTableColumn{table, 1}).source,
+               QByteArray("| h |\n| --- |\n| a |\n"));
+    }
+    {
+      auto parsed = parse("| h |\n| --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(*parsed.document,
+                                    RemoveTableColumn{table, 0});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("last table column"),
+               qPrintable(result.error));
+    }
+    {
+      auto parsed = parse("| h |\n| --- |\n| a |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(*parsed.document, RemoveTable{table});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QVERIFY(result.source->isEmpty());
+    }
+    {
+      const QByteArray source = "pre\n\n| h |\n| --- |\n\npost\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(*parsed.document, RemoveTable{table});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("pre\n\n\npost\n"));
+    }
+    {
+      const QByteArray source = "- a\n\n| h |\n| --- |\n\n- b\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(*parsed.document, RemoveTable{table});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("semantics"), qPrintable(result.error));
+    }
+    {
+      const QByteArray source =
+          "| h | i |\n| --- | --- |\n| `a\\|b` | *x* |\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(
+          *parsed.document,
+          InsertTableColumn{table, 1, QByteArray("new"),
+                            {QByteArray("r")}, TableAlignment::kNone});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("| h | new | i |\n| --- | --- | --- |\n"
+                          "| `a\\|b` | r | *x* |\n"));
+    }
+    {
+      auto parsed = parse("| h |\r\n| --- |\r\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(
+          *parsed.document,
+          InsertTableColumn{table, 1, QByteArray("x"), {},
+                            TableAlignment::kNone});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("| h | x |\r\n| --- | --- |\r\n"));
+    }
+  }
+
   void unifiedCommandContract() {
     auto parsed = parse("before\n\n- [x] task\n\n> quoted\n", 17);
     QVERIFY(parsed.document);

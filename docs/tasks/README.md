@@ -28,7 +28,7 @@
 | 020 | Indent/outdent списков | Done | 019 |
 | 021 | Source-map top-level таблиц | Done | 014 |
 | 022 | Строки таблиц и alignment | Done | 021 |
-| 023 | Колонки и удаление таблицы | Ready | 022 |
+| 023 | Колонки и удаление таблицы | Done | 022 |
 | 024 | Вложенные таблицы | Ready | 019, 023 |
 | 025 | Проектирование scope link definitions | Done | 013 |
 | 026 | Безопасный редактируемый WYSIWYG-срез | Done | 004, 013 |
@@ -143,7 +143,9 @@ rendering; 020 Done добавляет атомарные IndentListItem/Outdent
 tightness/task-state; 021 Done добавляет exact top-level table/row/raw-cell
 mapping и context-aware reference validation; 022 Done добавляет InsertTableRow/
 RemoveTableRow/SetTableAlignment с plain-text payload, нормализованной table
-serialization и alignment no-op. Следующий этап — columns/RemoveTable 023.
+serialization и alignment no-op; 023 Done добавляет InsertTableColumn/
+RemoveTableColumn/RemoveTable с last-column защитой и atomic удалением только
+table range. Следующий этап — nested tables 024.
 Подтверждены сохранение start с последовательной нумерацией, удаление списка
 при удалении последнего LI, header-only после удаления последней body row и
 запрет удаления последней колонки (для таблицы есть отдельная RemoveTable).

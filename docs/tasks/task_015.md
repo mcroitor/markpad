@@ -215,5 +215,7 @@ incremental оптимизации. Отказы должны быть явны�
   Windows/Linux CTest и Linux ASan/UBSan/leaks — 3/3.
 - [Task 022](task_022.md) Done: InsertTableRow/RemoveTableRow/
   SetTableAlignment, normalized table serializer и plain-text cell policy.
-  Windows/Linux CTest и Linux ASan/UBSan/leaks — 3/3. Columns/RemoveTable 023
-  и nested tables 024 ещё не реализованы; родитель 015 In Progress.
+  Windows/Linux CTest и Linux ASan/UBSan/leaks — 3/3.
+- [Task 023](task_023.md) Done: InsertTableColumn/RemoveTableColumn/RemoveTable,
+  last-column и cascade guards. Windows/Linux CTest и Linux ASan/UBSan/leaks —
+  3/3. Nested tables 024 остаются; родитель 015 In Progress.

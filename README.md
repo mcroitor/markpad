@@ -196,8 +196,10 @@ inline spelling, dimensions and alignment; bound references are validated in
 document context. Task 022 adds `InsertTableRow`, `RemoveTableRow` and
 `SetTableAlignment` with bounded normalization, plain-text escaping for new
 cells, raw preservation of existing cells and byte-exact alignment no-ops.
-Table column/removal commands (023–024) and nested-table mapping are not
-implemented yet.
+Task 023 adds `InsertTableColumn`, `RemoveTableColumn` and explicit
+`RemoveTable`; last-column removal and cascading container deletion are rejected,
+and table removal leaves neighbouring bytes untouched. Nested-table mapping
+(024) is not implemented yet.
 See [Task 016](docs/tasks/task_016.md), [Task 017](docs/tasks/task_017.md),
 [Task 018](docs/tasks/task_018.md), [Task 019](docs/tasks/task_019.md),
 [Task 020](docs/tasks/task_020.md) and [Task 021](docs/tasks/task_021.md).

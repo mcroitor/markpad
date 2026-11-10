@@ -241,9 +241,9 @@ list удаляется без переноса siblings. [Task 021](docs/tasks/
 raw cell fragments с escaped pipes и inline spelling, dimensions/alignment и
 context-aware reference validation. [Task 022](docs/tasks/task_022.md) добавляет
 InsertTableRow/RemoveTableRow/SetTableAlignment с нормализованной table
-serialization, plain-text payload и alignment no-op. Column/RemoveTable
-команды 023–024 и nested-table mapping пока не реализованы. UI-команд
-списков/цитат нет.
+serialization, plain-text payload и alignment no-op. [Task 023](docs/tasks/task_023.md)
+добавляет InsertTableColumn/RemoveTableColumn/RemoveTable с last-column и
+cascade guards. Nested-table mapping — Task 024; UI-команд списков/цитат нет.
 Последовательность продолжения: [Task 013](docs/tasks/task_013.md) →
 [Task 014: списки/цитаты](docs/tasks/task_014.md) →
 [Task 015: таблицы](docs/tasks/task_015.md). UI/production-интеграция не включены.

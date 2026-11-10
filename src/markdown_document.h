@@ -196,12 +196,27 @@ struct SetTableAlignment {
   size_t column;
   TableAlignment alignment;
 };
+struct InsertTableColumn {
+  size_t table;
+  size_t position;
+  QByteArray header;
+  std::vector<QByteArray> bodyCells;
+  TableAlignment alignment;
+};
+struct RemoveTableColumn {
+  size_t table;
+  size_t index;
+};
+struct RemoveTable {
+  size_t table;
+};
 
 using EditCommand =
     std::variant<ReplaceText, SetTaskChecked, SetHeadingLevel, ToggleInlineStyle,
                  InsertListItem, RemoveListItem, SetListKind, SetItemTask,
                  WrapInQuote, UnwrapQuote, IndentListItem, OutdentListItem,
-                 InsertTableRow, RemoveTableRow, SetTableAlignment>;
+                 InsertTableRow, RemoveTableRow, SetTableAlignment,
+                 InsertTableColumn, RemoveTableColumn, RemoveTable>;
 
 // Edits return a reparsed snapshot; no-op preserves identity, revision and
 // bytes.
