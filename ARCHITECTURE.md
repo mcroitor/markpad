@@ -2,8 +2,8 @@
 
 Статус: архитектурное направление на основе [README.md](./README.md) и
 [AGENTS.md](./AGENTS.md). Каркас/CI, отдельные MD4C experiments и headless
-Document Session и SDI source editor реализованы; WYSIWYG, layout и export пока
-проектируются.
+Document Session и SDI source editor реализованы; начат ограниченный continuous
+WYSIWYG. Полный WYSIWYG, layout и export ещё не реализованы.
 
 ## Цели и принципы
 
@@ -87,9 +87,9 @@ flowchart TB
   heuristic для файлов без BOM. EOL сохраняется, NUL/invalid Unicode отклоняются.
   Heuristic uncertainty — явная ошибка, не обещание универсального autodetect.
   Save сохраняет исходную encoding/BOM; Save As может выбрать другие.
-- UI связан с Session через source projection, но source не разбирается MD4C автоматически.
-  Production Session token и experiment UUID token — разные контракты; будущий
-  адаптер pipeline обязан связывать parser output с session snapshot, а не
+- Markdown UI связан с Session через source projection; continuous UI разбирает
+  её snapshot через MD4C. Session token и MD4C UUID token — разные контракты;
+  адаптер связывает parser output с session snapshot, не позволяя
   передавать индексы узлов между снимками. Source-map/UTF-16 cursor mapping —
   не часть Task 003.
 
@@ -117,9 +117,62 @@ flowchart TB
 
 Проверки и ограничения — [Task 004](docs/tasks/task_004.md).
 
+### Первый continuous WYSIWYG-срез (Task 026)
+
+- Проверенное MD4C API 013 перенесено без копирования в `markpad_markdown`
+  (`src/markdown_document.{h,cc}`, namespace `markpad::markdown`).
+  Старые experiment fixtures тестируют тот же target. Зависимость MD4C теперь
+  обязательна; pinned commit/hash прежние, сборка сохраняет MIT notice.
+- `ContinuousEditor` строит QTextDocument вручную через QTextCursor, не через
+  HTML/Markdown importer/exporter. Это projection, не canonical source.
+  Текстовые runs привязаны к callback node/source range. Маппинг UTF-16/UTF-8
+  учитывает Unicode/EOL; edit ограничен одним source-backed normal text run.
+- ReplaceText/heading/task вызывают единое `applyEdit`, повторный parse и
+  проверку ожидаемой сигнатуры. MainWindow сверяет Session token projection
+  с текущей Session перед записью результата в общую source history.
+- Необеспеченные операции явно отклоняются, projection восстанавливается;
+  неподдержанные элементы/границы защищены и помечены. Links/images/code/
+  HTML/tables пока placeholders. Enter, пустой результат run и cross-run edits
+  выполняются в Markdown. Native rich undo/HTML paste/resources отключены.
+- Переключение режима не меняет source/revision/dirty/history. Selection
+  переносится для mapped текста; немаппируемые позиции сопровождаются пояснением.
+  При switch-back без правок/перемещения выделение восстанавливается точно.
+- Heading/task commands контекстные; создание inline formatting и сложные
+  структурные операции не включены в Task 026. Полная Task 005 остаётся In Progress.
+
+### Inline-форматирование выделения (Task 027)
+
+- `ToggleInlineStyle` использует node id и UTF-8 range внутри source-backed
+  normal text. Bold/Italic/Strikethrough добавляют delimiters только вокруг
+  выделенных bytes. Новый expected AST строится split/wrap из входного дерева;
+  повторный parse обязан совпасть с полной expected signature.
+- Снятие стиля разрешено только для целиком выделенного простого span с одним
+  text child. Проверяются прилегающие delimiters, expected AST unwrap и
+  окружающая семантика. Частичное/сложное снятие, protected nodes и неверные
+  Unicode boundaries отклоняются. Соседние исходные bytes не пересериализуются.
+- Menu state и Bold/Italic shortcuts используют ту же проверяемую команду.
+  Нативное rich formatting не включается; checked state зависит от AST,
+  а не от жирного heading font. После команды выделение/направление сохранены,
+  command записывается в общую историю через Session snapshot guard.
+- Нет форматирования будущего ввода и межузловых selection edits. Конфликт
+  delimiters может делать команду недоступной с объяснением; нет guessed fallback.
+
+### Инертные ссылки и подписи (Task 028)
+
+- MD4C `is_autolink` сохраняется в attributes/signature; UI не угадывает
+  автоссылку по URL. Link children отображаются через QTextCursor без anchors,
+  href в QTextCharFormat, HTML import или resource loading.
+- Inline/full-reference mapped label text редактируется прежним ReplaceText.
+  Ожидаемые href/title/autolink/всё окружающее дерево неизменны; потеря binding
+  у shortcut/collapsed labels отвергается общей semantic verification.
+- Autolink text read-only, поскольку он задаёт адрес; nested image/code/HTML
+  fragments остаются protected. Link inline formatting и адрес/definition edits
+  не добавлены. Навигация click/Ctrl+click/keyboard отсутствует для любых схем.
+- Session/history/cursor mapping прежние; нет отдельного link serializer.
+
 ### Исследовательский GFM слой
 
-Результаты [Task 002](docs/tasks/task_002.md#итог-выполнения) не подтверждают готовый lossless pipeline: обнаружены ограничения task lists/сериализации `cmark-gfm` и потери при Qt Markdown round-trip. Прототип изолирован от приложения. По решению владельца дальнейшее исследование направлено на **MD4C с собственной моделью/сериализатором**; production-интеграция требует отдельного подтверждения. Следующие контракты остаются логическими требованиями, а не подтверждённым API выбранной библиотеки.
+Результаты [Task 002](docs/tasks/task_002.md#итог-выполнения) не подтверждают полный lossless pipeline: обнаружены ограничения task lists/сериализации `cmark-gfm` и потери при Qt Markdown round-trip. По решению владельца используется **MD4C с собственной моделью/частичным сериализатором**. Task 026 интегрирует только проверенное подмножество API 013; дальнейшие структурные операции требуют отдельных source-map контрактов.
 
 **Сохранение исходника:** при WYSIWYG-правках неизменённые участки Markdown должны сохраняться в исходном виде; нормализация разрешена только для изменённых блоков. Pipeline должен хранить исходные фрагменты и соответствие редактируемой структуры диапазонам исходника. Raw HTML и неизвестные фрагменты нельзя восстанавливать из rich-text представления с потерей данных. Конкретный механизм source mapping требуется подтвердить следующим прототипом; глобальная пересериализация после локальной правки не подходит.
 
@@ -149,7 +202,41 @@ source-backed bytes узла и потомков. Такие envelopes могу�
 пустые строки/контейнерные префиксы и не являются границами пересериализации.
 `mapBlocks` отдельно доказывает точный диапазон однострочного P/ATX под цепочкой
 явных quote prefixes; правка оставляет prefixes вне заменяемого диапазона.
-Lazy/multiline quotes, списки и таблицы не получают полных ownership ranges.
+Lazy/multiline quotes и таблицы не получают полных ownership ranges.
+Для canonical top-level списков [Task 016](docs/tasks/task_016.md) добавляет
+отдельный read-only `mapList`: exact ranges списка/LI и content lines без
+marker/continuation prefixes. Лексические границы подтверждаются изолированным
+parse с теми же attributes, деревом и абсолютными callback offsets. Это
+отличает одинаковые по тексту списки и не подменяет ownership evidence envelope.
+Trailing separator blanks исключены; внутренние separators принадлежат списку,
+но не соседним LI. Закрытый fenced code и inline HTML сохраняют literal bytes.
+Lazy continuations, structural TAB, nesting, indented code и внешние definition
+contexts вне поддержанной canonical формы дают explicit unsupported без range.
+Source-only definitions внутри canonical top-level list получают inventory и
+участвуют в reference checks, не становясь rendered children.
+Новых edit-команд этот read-only API сам по себе не добавляет.
+[Task 017](docs/tasks/task_017.md) реализует на его основе source-preserving
+InsertListItem/RemoveListItem/SetListKind/SetItemTask. Ordered start сохраняется,
+номера пересчитываются последовательно; task conversion не перенумеровывает;
+удаление последнего LI удаляет список. Definition labels сравниваются по pinned
+MD4C/GFM equivalence, collisions и binding changes отклоняются атомарно,
+used definition удалить нельзя, unused definition удаляется вместе с owner.
+UI-интеграция list-команд не входит в этот этап.
+[Task 018](docs/tasks/task_018.md) добавляет `mapQuote` с exact range для
+top-level цитат (explicit `>` на непустых строках, quoted blanks, multiline
+paragraphs, закрытый fenced code, inline HTML) и source-preserving
+WrapInQuote/UnwrapQuote для document parent. Lazy continuation отклоняется;
+unquoted blank line завершает quote. Wrap добавляет ровно один уровень, unwrap
+поднимает children без изменения остальных bytes. Nested quote/list parents —
+[Task 019](docs/tasks/task_019.md): mapping и те же команды работают для LI/QUOTE
+parents depth 1–3. Контент parent извлекается в prefix-free virtual source,
+парсится в document-global definition context, а patch переводится обратно в
+real offsets с восстановлением parent prefixes. Ancestor list tightness
+пересчитывается; каскадное удаление quote запрещено. [Task 020](docs/tasks/task_020.md)
+добавляет атомарные IndentListItem/OutdentListItem: один LI с поддеревом
+переносится в child list предыдущего LI или после enclosing LI; start
+сохраняется, перенумеровываются только затронутые ordered lists, пустой nested
+list удаляется без переноса siblings. UI-команд списков/цитат нет.
 Последовательность продолжения: [Task 013](docs/tasks/task_013.md) →
 [Task 014: списки/цитаты](docs/tasks/task_014.md) →
 [Task 015: таблицы](docs/tasks/task_015.md). UI/production-интеграция не включены.
@@ -164,9 +251,15 @@ kind/task conversion, indent/outdent и quote wrap/unwrap. Ordered start сох�
 Полные ownership ranges ещё предстоит реализовать и проверить; общий критерий —
 точные bytes вне patch range и ожидаемое дерево после parse одновременно.
 014/015 стали родительскими контрактами с дочерними этапами 016–020/021–024.
-Они Draft до согласования [025](docs/tasks/task_025.md): владелец выбрал поддержку
-definitions во fragment с отдельным проектированием области действия/conflicts.
-Следующий Ready этап — [016](docs/tasks/task_016.md); 025 доступна независимо.
+Они Ready после согласования [025](docs/tasks/task_025.md): владелец выбрал
+document-global definitions с atomic reject conflicts и запретом удаления
+used definition. Метки сравниваются по pinned MD4C/GFM equivalence, включая
+Unicode case folding и whitespace. Новые definitions уникальны; сохранённые
+references/images и unresolved literal references не меняют binding/semantics.
+Никаких auto-rename/hoist/inline-link fallback. Source-only definition inventory
+и context-aware expected model для top-level list-команд реализованы в
+[Task 017](docs/tasks/task_017.md); nested формы остаются в [Task 019](docs/tasks/task_019.md).
+016/017 Done, следующий этап — 018.
 Новые table cells с краевыми ASCII spaces/любым TAB отклоняются (не trim),
 пустой literal разрешён. Tightness ожидается из input model и правил команды,
 не из output parse; каждая обязательная форма имеет один исход.

@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Draft`
+- Статус: `Done` (родительский контракт принят после Done 016–020)
 - Владелец: архитектор + C++ разработчик
 - Приоритет: P0
 
@@ -13,8 +13,9 @@
 [016](task_016.md) → [017](task_017.md) → [018](task_018.md) →
 [019](task_019.md) → [020](task_020.md). Дополнительная зависимость 017 —
 [025: область действия definitions](task_025.md).
-Статус Draft: владелец выбрал поддержку definitions во входном fragment;
-политика scope/conflicts должна быть спроектирована и согласована в 025.
+Policy 025 согласована: document-global definitions, atomic reject conflicts,
+отказ удаления used definition. Реализация разделена по дочерним карточкам;
+Ready родителя не означает Done зависимостей или реализованную поддержку.
 
 ## Цель
 
@@ -35,8 +36,8 @@ envelope известных дочерних bytes.
 ## Контракт v2
 
 v2 заменяет v1: обязательные success/rejection fixtures разделены, добавлены
-правила tightness/ownership/перенумерации и дочерние этапы. Definitions — единственный
-открытый продуктовый блокер, вынесенный в Task 025; не разрешать его по умолчанию.
+правила tightness/ownership/перенумерации и дочерние этапы. Дополнение 025 policy v1
+ниже снимает продуктовый блокер definitions, не меняя остальные правила v2.
 
 Это спецификация следующей реализации, **не существующий C++ API**. Имена команд
 ниже логические; при реализации использовать существующий `EditCommand` /
@@ -71,7 +72,7 @@ v2 заменяет v1: обязательные success/rejection fixtures ра
 
 | Команда / вход | Результат и ограничения |
 |---|---|
-| `InsertListItem(list, position, blocks)` | Вставляет один LI. `blocks` — UTF-8 Markdown fragment без NUL, содержащий хотя бы один отображаемый block. Пустой, whitespace-only и definition-only fragment — invalid fragment. Владелец выбрал поддержку definitions; scope/conflicts/reference bindings определяет Task 025 до реализации команды. Новый LI не task: начальное `[ ]`/`[x]`/`[X]` первого paragraph экранировать как буквальный текст без изменения отображаемого содержания. Обязательные multiline/nested формы заданы дочерними fixtures |
+| `InsertListItem(list, position, blocks)` | Вставляет один LI. `blocks` — UTF-8 Markdown fragment без NUL, содержащий хотя бы один отображаемый block. Пустой, whitespace-only и definition-only fragment — invalid fragment. Definitions — по согласованной policy 025 v1: unique new keys, сохранение прежних bindings, atomic reject conflicts. Новый LI не task: начальное `[ ]`/`[x]`/`[X]` первого paragraph экранировать как буквальный текст без изменения отображаемого содержания. Обязательные multiline/nested формы заданы дочерними fixtures |
 | `RemoveListItem(item)` | Удаляет LI вместе с его поддеревом. Пользователь подтвердил: последний LI удаляет весь список; соседние блоки остаются. Не превращать удаляемое содержимое в абзац |
 | `SetListKind(list, unordered/ordered, start)` | Меняет вид всего списка, сохраняя порядок/поддеревья LI и task-state. Для ordered обязателен start, для unordered start не передаётся. Уже совпадающие kind/start — no-op без перенумерации исходного написания |
 | `SetItemTask(item, none/unchecked/checked)` | Добавляет/удаляет task marker или задаёт состояние. Включение task разрешено, только если первый блок LI — непустой paragraph с обычным текстом, в том числе при tight list без P callback. Code/heading/quote в начале — явный unsupported. `none` удаляет checkbox, а не текст пункта. Уже совпадающее состояние — no-op |
@@ -154,12 +155,24 @@ list/quote nesting входят в область реализации, а не 
   потребовало бы каскадного удаления родителей, команда отклоняется с диагностикой.
   Контракт удаления списка не разрешает удалять его внешние контейнеры молча.
 - Для v2 mutations с lazy continuations, structural tabs, indented code,
-  незакрытыми fences или definitions внутри изменяемого контейнера
-  отклоняются как unsupported, кроме форм definitions, которые утвердит 025.
+  незакрытыми fences отклоняются как unsupported. Definitions и bound references
+  поддерживаются по утверждённой policy 025 v1 и mandatory fixtures 017/019.
   Внешние definitions, не используемые изменяемым поддеревом, не мешают операции
   и сохраняются побайтно. Bound reference links в изменяемом поддереве получают
-  обязательную success-матрицу после 025. За пределами patch source допускает
+  обязательную success-матрицу 017/019. За пределами patch source допускает
   перечисленные конструкции без их редактирования.
+
+### Definitions — дополнение policy 025 v1
+
+Новые definitions уникальны по GFM/MD4C-normalized label среди всех definitions
+документа и fragment; collision — отказ, даже для одинаковых href/title.
+Новые references могут использовать внешние definitions. Surviving references,
+images и unresolved literal references сохраняют прежнюю семантику и winning
+definition identity. При удалении owner used definition команда отклоняется,
+даже с одинаковым fallback; unused definition удаляется вместе с owner.
+Не rename/hoist/convert links. Source-only syntax получает доказанный inventory
+и ownership, не выводится из callback envelopes. Полная policy/матрица —
+[025](task_025.md#итог-выполнения); обязательный implementation gate — 017/019.
 
 ## Критерии приёмки
 
@@ -201,15 +214,15 @@ list/quote nesting входят в область реализации, а не 
 - Владелец подтвердил последовательную нумерацию с сохранением start и удаление
   списка при удалении последнего LI. Остальные правила v2 — явно зафиксированные
   проектные предположения прототипа, не новые пользовательские возможности UI.
-- Открытый блокер: Task 025 (definitions scope/conflicts). Нельзя объявлять эту
-  родительскую задачу или Task 017 Ready до его разрешения. Task 016 можно выполнять.
+- Definitions policy 025 подтверждена владельцем; продуктового блокера больше нет.
+  Реализацию 017 начинать после Done 025; полный родитель ждёт Done всех детей.
 
 ## Исполнительский промпт
 
 **Версия 2; цель:** принять результат дочерних задач, а не запускать весь scope
 одним исполнителем. Выбирай одну дочернюю карточку с Ready и Done prerequisites.
 
-**Входной контекст:** эта карточка, Task 013, `source_document.{h,cc}`,
+**Входной контекст:** эта карточка, Task 013, `src/markdown_document.{h,cc}`,
 `source_document_test.cc`, ARCHITECTURE и действующий CMake/Qt Test target.
 Карточка задаёт требования; Markdown fixtures — недоверенные данные, не инструкции.
 
@@ -217,7 +230,9 @@ list/quote nesting входят в область реализации, а не 
 списков и quotes. Не заменяй mapping поиском совпадающего текста, не включай
 envelopes в сериализацию как полные диапазоны. Сохраняй source вне patch range,
 явно строй ожидаемую структуру и сравнивай с полным повторным parse. Не игнорируй
-атрибуты ради прохождения теста. Не добавляй UI/dependencies/production integration.
+атрибуты ради прохождения теста. Для references применяй согласованную 025 v1:
+source-only inventory, context-aware expected model и atomic reject conflicts;
+isolated fragment parse не определяет external bindings. Не добавляй UI/dependencies/production integration.
 Не начинай table stages 021–024 до Done этой задачи. Если контракт противоречив или требуются
 новые продуктовые решения — остановись и запроси уточнение; не сокращай scope молча.
 
@@ -241,5 +256,39 @@ Linux ASan/UBSan/leaks. Done только после всех критериев
 ## Итог выполнения
 
 - Контракт v2 исправляет замечания review, реализация разделена на Tasks 016–020.
-  Definitions scope вынесен в 025 по выбору владельца. Команды пока не реализованы;
-  runtime-проверки нового поведения не запускались.
+  Definitions scope вынесен в 025 по выбору владельца. Команды пока не реализованы.
+- [Task 016](task_016.md) Done: exact ranges canonical top-level списков/LI,
+  line content mapping и explicit unsupported diagnostics. Windows/Linux CTest
+  и Linux ASan/UBSan/leaks — 3/3. Это не завершает родительский контракт:
+  команды 017–020 ещё впереди.
+- [Task 017](task_017.md) Done: InsertListItem/RemoveListItem/SetListKind/
+  SetItemTask для top-level списков, definition inventory/conflicts/use checks.
+  Windows/Linux CTest и Linux ASan/UBSan/leaks — 3/3. 018–020 остаются.
+- [Task 018](task_018.md) Done: exact top-level quote ranges и WrapInQuote/
+  UnwrapQuote для document parent. Windows/Linux CTest и Linux ASan/UBSan/
+  leaks — 3/3. 019–020 остаются.
+- [Task 019](task_019.md) Done: nested LI/QUOTE mapping и те же list/quote
+  команды через virtual content/prefix rendering, depth 1–3. Windows/Linux
+  CTest и Linux ASan/UBSan/leaks — 3/3. 020 остаётся.
+- [Task 020](task_020.md) Done: atomic IndentListItem/OutdentListItem с
+  сохранением start/order/tightness/task-state. Windows/Linux CTest и Linux
+  ASan/UBSan/leaks — 3/3. Родительский контракт 014 может перейти к приёмке
+  после проверки оставшихся пунктов.
+- Policy 025 v1 согласована владельцем: atomic reject collisions и deletion
+  used definition; Ready контракта не означает реализованный reference mapper.
+
+### Приёмка родительского контракта
+
+- 016–020 Done; mandatory fixtures 014/017/018/019/020 покрыты Qt Test.
+- Списки: insert/remove/kind/task, nested parents, indent/outdent; ordered start,
+  sequential numbering, tightness/task-state и definition bindings проверены.
+- Цитаты: exact top-level/nested ranges, wrap/unwrap, lazy/TAB/open-fence
+  rejection и cascade protection проверены.
+- Snapshot/no-op/stale/ABA/overflow и bytes вне patch range проверены общими
+  engine/GUI suites; definitions policy 025 v1 применена атомарно.
+- Windows UCRT64 CTest 3/3, MD4C 226 passed; Ubuntu CTest 3/3; Linux
+  ASan/UBSan/leak CTest 3/3. `git diff --check --ignore-space-at-eol` pass.
+  clang-format в среде отсутствует; native visual QA/clang-tidy/remote CI не
+  запускались.
+- Родительский контракт 014 принят. Оставшиеся ограничения перечислены в
+  дочерних карточках; табличные контракты относятся к Task 015.

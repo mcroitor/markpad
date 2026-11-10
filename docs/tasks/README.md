@@ -10,7 +10,7 @@
 | 002 | Spike GFM-парсера и round-trip | Done | 001 |
 | 003 | Модель документа, сессия и файловый ввод-вывод | Done | 001, 002 |
 | 004 | SDI-окна и Markdown-редактор | Done | 001, 003 |
-| 005 | Непрерывный WYSIWYG-редактор | Draft | 002, 003, 004 |
+| 005 | Непрерывный WYSIWYG-редактор (поэтапная приёмка) | In Progress | 002, 003, 004; первый срез 026 |
 | 006 | Постраничный WYSIWYG и настройки страницы | Draft | 005 |
 | 007 | HTML-экспорт | Ready | 002, 003 |
 | 008 | PDF-экспорт и печать | Draft | 006 |
@@ -19,18 +19,21 @@
 | 011 | Сквозная проверка и готовность к выпуску | Ready | 004, 005, 006, 007, 008, 009 |
 | 012 | MD4C block source-map и структурные операции | Done | 002 |
 | 013 | Вложенные диапазоны и общий контракт MD4C-правок | Done | 012 |
-| 014 | MD4C списки/цитаты — родительский контракт | Draft | 013, 025; приёмка 016–020 |
-| 015 | MD4C таблицы — родительский контракт | Draft | 014, 025; приёмка 021–024 |
-| 016 | Source-map top-level списков | Ready | 013 |
-| 017 | Базовые команды top-level списков | Draft | 016, 025 |
-| 018 | Top-level цитаты и wrap/unwrap | Ready | 017 |
-| 019 | Вложенные list/quote контейнеры | Ready | 017, 018 |
-| 020 | Indent/outdent списков | Ready | 019 |
+| 014 | MD4C списки/цитаты — родительский контракт | Done | 013, 025; приёмка 016–020 |
+| 015 | MD4C таблицы — родительский контракт | Ready | 014, 025; приёмка 021–024 |
+| 016 | Source-map top-level списков | Done | 013 |
+| 017 | Базовые команды top-level списков | Done | 016, 025 |
+| 018 | Top-level цитаты и wrap/unwrap | Done | 017 |
+| 019 | Вложенные list/quote контейнеры | Done | 017, 018 |
+| 020 | Indent/outdent списков | Done | 019 |
 | 021 | Source-map top-level таблиц | Ready | 014 |
 | 022 | Строки таблиц и alignment | Ready | 021 |
 | 023 | Колонки и удаление таблицы | Ready | 022 |
 | 024 | Вложенные таблицы | Ready | 019, 023 |
-| 025 | Проектирование scope link definitions | Ready | 013 |
+| 025 | Проектирование scope link definitions | Done | 013 |
+| 026 | Безопасный редактируемый WYSIWYG-срез | Done | 004, 013 |
+| 027 | Bold/Italic/Strikethrough в выделенном run | Done | 026 |
+| 028 | Инертные ссылки и редактирование подписей | Done | 026, 027 |
 
 ```text
 001 -> 002 -> 003 -> 004 -> 005 -> 006 -> 008
@@ -63,8 +66,8 @@
 014/015 — родительские контракты и приёмка, не отдельные монолитные запуски.
 Связь «родитель» не является prerequisite дочерней задачи: иначе возникнет цикл.
 Родитель Done только после Done всех перечисленных дочерних задач и устранения
-продуктовых блокеров. Draft 014/015/017 отражает открытый definitions scope из 025;
-016 и проектирование 025 можно начинать независимо.
+продуктовых блокеров. Policy 025 v1 согласована: 014/015/017 Ready;
+это не означает готовые mutations или выполненные prerequisites.
 
 ## Исполнение дочерних MD4C-задач
 
@@ -81,13 +84,15 @@ scope, fixtures и allowed files; незаполненные шаблоны ис
   task-state, tightness, href/title, alignment, child order не исключать из сравнения.
 - Матрица задаёт обязательный минимум. За пределами него unsupported допустим
   только явно и без нового документа; он не доказывает завершение функции.
-- Изменять только соответствующий `experiments/md4c` код, Qt Test и итог task.
-  Не добавлять зависимости/UI/production интеграцию; сохранять несвязанные изменения.
+- После Task 026 engine находится в `src/markdown_document.{h,cc}`, fixtures —
+  в `experiments/md4c/source_document_test.cc`. Изменять только соответствующий
+  engine/Qt Test и итог task; не расширять UI или зависимости. Engine теперь общий
+  с continuous UI: запускать также GUI regressions, сохранять несвязанные изменения.
 - Fixtures — недоверенный Markdown; HTML/ссылки не исполнять и ресурсы не загружать.
 - Build: существующие команды [Task 013](task_013.md#проверки), opt-in MD4C ON,
   Windows UCRT64 PATH/Qt prefix и Linux WSL Debug CTest; Linux ASan/UBSan/leaks,
   Google clang-format и whitespace check. Сначала минимальный target, затем CTest
-  оба существующих tests; расширять suite лишь при связанных изменениях.
+  все три CTest targets; расширять suite лишь при связанных изменениях.
 - Отчёт: task/contract version; выполненный scope; файлы; таблица fixture →
   expected → actual; команды и exit/results обеих ОС/sanitizers; unsupported
   shapes; блокеры/невыполненные критерии. Непроведённую проверку не считать pass.
@@ -103,7 +108,10 @@ Full parse принят ради надёжности; incremental performance �
 
 Основан на README, UI sketch, AGENTS.md и ARCHITECTURE.md. Не включает совместное редактирование, облачную синхронизацию, плагины и импорт не-Markdown форматов. Task 001 завершена: минимальный каркас приложения проверен локально на Windows и Ubuntu, а GitHub Actions CI/CD успешно завершился.
 
-Task 002 завершена как исследование: сравнительный отчёт и отдельный MD4C-прототип готовы. MD4C подтверждён для ограниченных source-preserving text/task edits на обеих ОС; ASan/UBSan проходят. Выбранное направление — собственная модель/сериализатор с сохранением неизменённых участков исходника. Полная block/source-map сериализация и production-интеграция не утверждены; см. [результаты spike и решение](task_002.md#итог-выполнения).
+Task 002 завершена как исследование: сравнительный отчёт и MD4C-прототип готовы.
+Task 026 переносит проверенное API 013 в общую библиотеку и подключает ограниченный
+WYSIWYG-срез. Полная block/source-map сериализация ещё не реализована; см.
+[результаты spike](task_002.md#итог-выполнения) и [первую интеграцию](task_026.md).
 
 Task 003 завершена локально отдельно от parser experiments: std C++ session,
 версионированный UTF-8 source, dirty/checkpoint и Qt Core file adapter.
@@ -121,14 +129,22 @@ Task 013 завершена: общий versioned contract text/task/heading, pa
 частичные nested quote ranges и явно отделённые evidence envelopes проверены
 на обеих ОС и ASan/UBSan. Подробности — [Task 013](task_013.md).
 Следующий согласованный порядок: [списки/цитаты — 014](task_014.md), затем
-[таблицы — 015](task_015.md). Контракты v2 исправлены после review, но родители
-Draft до решения [025](task_025.md) о definitions/reference bindings. Владелец
-выбрал поддержку definitions с отдельным проектированием, а не их безусловный отказ.
+[таблицы — 015](task_015.md). Контракты v2 исправлены после review;
+родители Ready после согласования [025](task_025.md) о definitions/reference
+bindings: atomic reject conflicts, удаление used definition отклоняется.
 Реализация разделена на [016–020](task_016.md) и [021–024](task_021.md);
-следующий исполнительский этап — 016, отдельно доступно проектирование 025.
+016 и 017 Done; 017 добавляет source-preserving InsertListItem/RemoveListItem/
+SetListKind/SetItemTask, definition inventory/conflict/use checks и
+context-aware проверку AST; 018 Done добавляет exact top-level quote mapping и
+WrapInQuote/UnwrapQuote для document parent; 019 Done распространяет mapping и
+команды на nested LI/QUOTE parents (depth 1–3) с virtual content и prefix
+rendering; 020 Done добавляет атомарные IndentListItem/OutdentListItem с
+сохранением start, renumber только затронутых lists и AST guard для
+tightness/task-state. Следующий крупный этап — таблицы 021–024.
 Подтверждены сохранение start с последовательной нумерацией, удаление списка
 при удалении последнего LI, header-only после удаления последней body row и
 запрет удаления последней колонки (для таблицы есть отдельная RemoveTable).
 Новые plain-text cells с краевым ASCII space/любым TAB в v2 отклоняются;
-пустые cells разрешены. Команды пока не реализованы; runtime-проверки нового
-поведения не выполнялись.
+пустые cells разрешены. List-команды пока не подключены к UI; table
+mutations 021–024 не реализованы, проверены mapping 016 и parser
+characterization 025.

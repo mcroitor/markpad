@@ -8,6 +8,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
+include(cmake/md4c.cmake)
+
+add_library(markpad_markdown src/markdown_document.cc src/markdown_document.h)
+target_include_directories(markpad_markdown PUBLIC src)
+target_link_libraries(markpad_markdown PUBLIC Qt6::Core md4c)
+set_target_properties(markpad_markdown PROPERTIES AUTOMOC OFF)
 
 add_library(markpad_document
     src/document_session.cc
@@ -32,9 +38,11 @@ add_library(markpad_ui
     src/markdown_highlighter.h
     src/main_window.cc
     src/main_window.h
+    src/continuous_editor.cc
+    src/continuous_editor.h
 )
 target_include_directories(markpad_ui PUBLIC src)
-target_link_libraries(markpad_ui PUBLIC Qt6::Widgets markpad_files)
+target_link_libraries(markpad_ui PUBLIC Qt6::Widgets markpad_files markpad_markdown)
 target_compile_features(markpad_ui PUBLIC cxx_std_20)
 
 add_executable(markpad
@@ -43,6 +51,7 @@ add_executable(markpad
 target_link_libraries(markpad PRIVATE markpad_ui)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(markpad_markdown PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(markpad_document PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(markpad_files PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(markpad_ui PRIVATE -Wall -Wextra -Wpedantic)
@@ -78,6 +87,9 @@ if(BUILD_TESTING)
     )
     target_link_libraries(markpad_tests PRIVATE markpad_ui Qt6::Test)
     target_compile_features(markpad_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(markpad_tests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
 
     add_test(NAME markpad_smoke COMMAND markpad_tests)
     set_tests_properties(markpad_smoke PROPERTIES
