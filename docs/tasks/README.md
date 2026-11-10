@@ -20,7 +20,7 @@
 | 012 | MD4C block source-map и структурные операции | Done | 002 |
 | 013 | Вложенные диапазоны и общий контракт MD4C-правок | Done | 012 |
 | 014 | MD4C списки/цитаты — родительский контракт | Done | 013, 025; приёмка 016–020 |
-| 015 | MD4C таблицы — родительский контракт | Ready | 014, 025; приёмка 021–024 |
+| 015 | MD4C таблицы — родительский контракт | Done | 014, 025; приёмка 021–024 |
 | 016 | Source-map top-level списков | Done | 013 |
 | 017 | Базовые команды top-level списков | Done | 016, 025 |
 | 018 | Top-level цитаты и wrap/unwrap | Done | 017 |
@@ -29,7 +29,7 @@
 | 021 | Source-map top-level таблиц | Done | 014 |
 | 022 | Строки таблиц и alignment | Done | 021 |
 | 023 | Колонки и удаление таблицы | Done | 022 |
-| 024 | Вложенные таблицы | Ready | 019, 023 |
+| 024 | Вложенные таблицы | Done | 019, 023 |
 | 025 | Проектирование scope link definitions | Done | 013 |
 | 026 | Безопасный редактируемый WYSIWYG-срез | Done | 004, 013 |
 | 027 | Bold/Italic/Strikethrough в выделенном run | Done | 026 |
@@ -145,11 +145,11 @@ mapping и context-aware reference validation; 022 Done добавляет Inser
 RemoveTableRow/SetTableAlignment с plain-text payload, нормализованной table
 serialization и alignment no-op; 023 Done добавляет InsertTableColumn/
 RemoveTableColumn/RemoveTable с last-column защитой и atomic удалением только
-table range. Следующий этап — nested tables 024.
+table range; 024 Done распространяет mapping и все шесть table commands на
+nested LI/QUOTE tables depth 1–3 с required RemoveTable refusals.
 Подтверждены сохранение start с последовательной нумерацией, удаление списка
 при удалении последнего LI, header-only после удаления последней body row и
 запрет удаления последней колонки (для таблицы есть отдельная RemoveTable).
 Новые plain-text cells с краевым ASCII space/любым TAB в v2 отклоняются;
-пустые cells разрешены. List-команды пока не подключены к UI; table
-mutations 021–024 не реализованы, проверены mapping 016 и parser
-characterization 025.
+пустые cells разрешены. List/quote/table-команды пока не подключены к UI;
+016–025 выполнены на engine/test уровне.

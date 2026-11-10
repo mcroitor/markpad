@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Ready` (родительский контракт)
+- Статус: `Done` (родительский контракт принят после Done 021–024)
 - Владелец: архитектор + C++ разработчик
 - Приоритет: P0
 
@@ -218,4 +218,21 @@ incremental оптимизации. Отказы должны быть явны�
   Windows/Linux CTest и Linux ASan/UBSan/leaks — 3/3.
 - [Task 023](task_023.md) Done: InsertTableColumn/RemoveTableColumn/RemoveTable,
   last-column и cascade guards. Windows/Linux CTest и Linux ASan/UBSan/leaks —
-  3/3. Nested tables 024 остаются; родитель 015 In Progress.
+  3/3.
+- [Task 024](task_024.md) Done: nested table mapping и все шесть table commands
+  в LI/QUOTE depth 1–3, required RemoveTable refusals и reference preservation.
+  Windows/Linux CTest и Linux ASan/UBSan/leaks — 3/3.
+
+### Приёмка родительского контракта
+
+- 021–024 Done; mandatory fixtures 015/021/022/023/024 покрыты Qt Test.
+- Table source-map, row/alignment, column/RemoveTable и nested forms проверены;
+  header-only, single-column, ragged rejections, CRLF/EOF/Unicode и depth 3
+  входят в fixtures.
+- Existing raw inline fragments/references сохраняются, новые plain-text cells
+  экранируются; last-column/cascade/structural-mismatch отказы атомарны.
+- Windows UCRT64 CTest 3/3, MD4C 232 passed; Ubuntu CTest 3/3; Linux
+  ASan/UBSan/leak CTest 3/3. `git diff --check --ignore-space-at-eol` pass.
+  clang-format в среде отсутствует; native visual QA/clang-tidy/remote CI не
+  запускались.
+- Родительский контракт 015 принят.

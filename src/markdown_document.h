@@ -121,6 +121,8 @@ struct TableSource {
   SourceRange delimiterRange;
   std::vector<SourceRange> delimiterCells;
   std::vector<TableRowSource> body;
+  QByteArray continuationPrefix;
+  QByteArray blankLinePrefix;
 };
 struct TableMapResult {
   std::optional<TableSource> table;

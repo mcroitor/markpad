@@ -243,7 +243,11 @@ context-aware reference validation. [Task 022](docs/tasks/task_022.md) доба�
 InsertTableRow/RemoveTableRow/SetTableAlignment с нормализованной table
 serialization, plain-text payload и alignment no-op. [Task 023](docs/tasks/task_023.md)
 добавляет InsertTableColumn/RemoveTableColumn/RemoveTable с last-column и
-cascade guards. Nested-table mapping — Task 024; UI-команд списков/цитат нет.
+cascade guards. [Task 024](docs/tasks/task_024.md) распространяет эти шесть
+команд и mapping на nested LI/QUOTE tables depth 1–3 с required RemoveTable
+refusals и сохранением parent prefixes/references. Table-контракт 015 принят.
+UI-команд списков/цитат/таблиц нет; следующие крупные направления — paged
+WYSIWYG, настройки и экспорт.
 Последовательность продолжения: [Task 013](docs/tasks/task_013.md) →
 [Task 014: списки/цитаты](docs/tasks/task_014.md) →
 [Task 015: таблицы](docs/tasks/task_015.md). UI/production-интеграция не включены.

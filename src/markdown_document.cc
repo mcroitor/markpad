@@ -805,6 +805,9 @@ bool supportedListChildren(const Document& document, size_t index) {
   const auto& node = document.nodes[index];
   for (auto child : node.children) {
     const auto& value = document.nodes[child];
+    if (value.kind == NodeKind::kBlock && value.type == MD_BLOCK_TABLE) {
+      continue;
+    }
     if (value.kind == NodeKind::kBlock && value.type != MD_BLOCK_LI &&
         value.type != MD_BLOCK_P && value.type != MD_BLOCK_CODE &&
         value.type != MD_BLOCK_UL && value.type != MD_BLOCK_OL &&
@@ -1298,6 +1301,11 @@ ListMapResult mapTopLevelList(const Document& document, size_t index) {
                          "with matching callback offsets are required")};
 }
 
+std::vector<DefinitionCandidate> definitionInventory(const Document& document);
+QByteArray definitionContext(const Document& document,
+                             const std::vector<DefinitionCandidate>& definitions,
+                             qsizetype first, qsizetype last, qsizetype& offset);
+
 QuoteMapResult mapTopLevelQuote(const Document& document, size_t index) {
   if (index >= document.nodes.size() ||
       document.nodes[index].kind != NodeKind::kBlock ||
@@ -1311,23 +1319,51 @@ QuoteMapResult mapTopLevelQuote(const Document& document, size_t index) {
     if (!range) {
       continue;
     }
-    const auto isolated =
-        parse(document.source.mid(range->offset, range->size));
-    if (!isolated.document ||
-        isolated.document->nodes[0].children.size() != 1) {
-      continue;
+    const auto quoteSource =
+        document.source.mid(range->offset, range->size);
+    bool matched = false;
+    auto isolated = parse(quoteSource);
+    if (isolated.document &&
+        isolated.document->nodes[0].children.size() == 1) {
+      const auto child = isolated.document->nodes[0].children.front();
+      if (isolated.document->nodes[child].type == MD_BLOCK_QUOTE) {
+        bool anchored = false;
+        matched = sameListSources(document, index, *isolated.document, child,
+                                  range->offset, anchored) &&
+                  anchored;
+      }
     }
-    const auto child = isolated.document->nodes[0].children.front();
-    if (isolated.document->nodes[child].type != MD_BLOCK_QUOTE) {
-      continue;
+    if (!matched) {
+      const auto definitions = definitionInventory(document);
+      qsizetype contextOffset = 0;
+      const auto context = definitionContext(
+          document, definitions, range->offset, range->offset + range->size,
+          contextOffset);
+      const auto header = context.left(contextOffset);
+      QByteArray suffix;
+      if (context.size() > contextOffset + range->size) {
+        suffix = context.mid(contextOffset + range->size);
+      }
+      auto parsed = parse(header + quoteSource + suffix);
+      if (parsed.document) {
+        size_t child = parsed.document->nodes.size();
+        for (auto candidate : parsed.document->nodes[0].children) {
+          if (parsed.document->nodes[candidate].type == MD_BLOCK_QUOTE) {
+            child = candidate;
+            break;
+          }
+        }
+        if (child < parsed.document->nodes.size()) {
+          bool anchored = false;
+          matched = sameListSources(document, index, *parsed.document, child,
+                                    range->offset - contextOffset, anchored) &&
+                    anchored;
+        }
+      }
     }
-    bool anchored = false;
-    if (!sameListSources(document, index, *isolated.document, child,
-                         range->offset, anchored) ||
-        !anchored) {
-      continue;
+    if (matched) {
+      return {QuoteSource{index, *range, {}, {}}, {}};
     }
-    return {QuoteSource{index, *range, {}, {}}, {}};
   }
   return {std::nullopt,
           QStringLiteral("Unsupported quote source map: explicit prefixes on "
@@ -2224,11 +2260,26 @@ bool buildVirtualContent(const Document& document, size_t container,
     qsizetype virtualStart = 0;
     bool first = true;
     for (const auto& line : listLines(document.source)) {
-      if (line.start < range.offset ||
-          line.end > range.offset + range.size) {
+      if (line.end <= range.offset) {
         continue;
       }
-      const auto contentStart = quotePrefixEnd(document.source, line);
+      if (line.start >= range.offset + range.size) {
+        break;
+      }
+      auto scanStart = line.start;
+      if (first) {
+        scanStart = range.offset;
+      } else {
+        const auto body =
+            document.source.mid(line.start, line.bodyEnd - line.start);
+        if (body.startsWith(mapped.quote->continuationPrefix)) {
+          scanStart += mapped.quote->continuationPrefix.size();
+        } else if (body.startsWith(mapped.quote->blankLinePrefix)) {
+          scanStart += mapped.quote->blankLinePrefix.size();
+        }
+      }
+      const ListLine view{scanStart, line.bodyEnd, line.end};
+      const auto contentStart = quotePrefixEnd(document.source, view);
       if (!contentStart) {
         error = QStringLiteral("Unsupported quoted content line");
         return false;
@@ -2473,11 +2524,125 @@ QuoteMapResult mapNestedQuote(const Document& document, size_t index) {
           {}};
 }
 
+TableSource convertTableSource(const Document& document, size_t realNode,
+                               const VirtualContent& content,
+                               const VirtualParse& parsed,
+                               const TableSource& virtualSource) {
+  TableSource result;
+  result.node = realNode;
+  result.columns = virtualSource.columns;
+  result.continuationPrefix = content.continuationPrefix;
+  result.blankLinePrefix = content.blankLinePrefix;
+  const auto convert = [&content, &parsed](SourceRange range) {
+    const auto start =
+        virtualToReal(content, range.offset - parsed.contentOffset);
+    const auto end = virtualToRealEnd(
+        content, range.offset + range.size - parsed.contentOffset);
+    return SourceRange{start, end - start};
+  };
+  const auto convertCell = [&convert](const TableCellSource& cell) {
+    return TableCellSource{cell.node, convert(cell.range)};
+  };
+  result.range = convert(virtualSource.range);
+  result.header.range = convert(virtualSource.header.range);
+  result.delimiterRange = convert(virtualSource.delimiterRange);
+  for (const auto& cell : virtualSource.header.cells) {
+    result.header.cells.push_back(convertCell(cell));
+  }
+  for (const auto& cell : virtualSource.delimiterCells) {
+    result.delimiterCells.push_back(convert(cell));
+  }
+  for (const auto& row : virtualSource.body) {
+    TableRowSource converted;
+    converted.range = convert(row.range);
+    for (const auto& cell : row.cells) {
+      converted.cells.push_back(convertCell(cell));
+    }
+    result.body.push_back(std::move(converted));
+  }
+
+  size_t head = document.nodes.size();
+  for (auto child : document.nodes[realNode].children) {
+    if (document.nodes[child].type == MD_BLOCK_THEAD) {
+      head = child;
+      break;
+    }
+  }
+  if (head < document.nodes.size() && !document.nodes[head].children.empty()) {
+    const auto headerRow = document.nodes[head].children.front();
+    result.header.node = headerRow;
+    const auto& headerCells = document.nodes[headerRow].children;
+    for (size_t i = 0; i < headerCells.size() && i < result.header.cells.size();
+         ++i) {
+      result.header.cells[i].node = headerCells[i];
+      result.alignments.push_back(static_cast<TableAlignment>(
+          document.nodes[headerCells[i]].attributes["align"].toInt()));
+    }
+  }
+  size_t bodyContainer = document.nodes.size();
+  for (auto child : document.nodes[realNode].children) {
+    if (document.nodes[child].type == MD_BLOCK_TBODY) {
+      bodyContainer = child;
+      break;
+    }
+  }
+  if (bodyContainer < document.nodes.size()) {
+    const auto& rows = document.nodes[bodyContainer].children;
+    for (size_t row = 0; row < rows.size() && row < result.body.size(); ++row) {
+      result.body[row].node = rows[row];
+      const auto& cells = document.nodes[rows[row]].children;
+      for (size_t column = 0;
+           column < cells.size() && column < result.body[row].cells.size();
+           ++column) {
+        result.body[row].cells[column].node = cells[column];
+      }
+    }
+  }
+  return result;
+}
+
 TableMapResult mapNestedTable(const Document& document, size_t index) {
-  Q_UNUSED(document);
-  Q_UNUSED(index);
-  return {std::nullopt,
-          QStringLiteral("Unsupported nested table source map: Task 024")};
+  if (index >= document.nodes.size() || !document.nodes[index].parent) {
+    return {std::nullopt, QStringLiteral("Invalid table target")};
+  }
+  const auto parent = *document.nodes[index].parent;
+  if (parent >= document.nodes.size()) {
+    return {std::nullopt, QStringLiteral("Invalid table target")};
+  }
+  const auto type = document.nodes[parent].type;
+  if (document.nodes[parent].kind != NodeKind::kBlock ||
+      (type != MD_BLOCK_LI && type != MD_BLOCK_QUOTE)) {
+    return {std::nullopt,
+            QStringLiteral("Unsupported nested table parent: LI or QUOTE is "
+                           "required")};
+  }
+  QString error;
+  VirtualContent content;
+  if (!buildVirtualContent(document, parent, content, error)) {
+    return {std::nullopt, error};
+  }
+  auto parsed = parseVirtual(document, content, error);
+  if (!parsed) {
+    return {std::nullopt, error};
+  }
+  const auto position = childPosition(document, parent, index);
+  if (!position ||
+      *position >= parsed->document.nodes[0].children.size()) {
+    return {std::nullopt, QStringLiteral("Nested table context mismatch")};
+  }
+  const auto virtualNode =
+      parsed->document.nodes[0].children[*position];
+  if (parsed->document.nodes[virtualNode].type != MD_BLOCK_TABLE) {
+    return {std::nullopt, QStringLiteral("Nested table context mismatch")};
+  }
+  const auto virtualTable =
+      mapTopLevelTable(parsed->document, virtualNode);
+  if (!virtualTable.table) {
+    return {std::nullopt, virtualTable.error};
+  }
+  return {convertTableSource(document, index, content, *parsed,
+                             *virtualTable.table),
+          {}};
 }
 
 size_t copySubtree(Document& destination, const Document& source, size_t index,
@@ -2549,6 +2714,22 @@ void updateLiTightness(Document& document, size_t li) {
     }
   }
   node.attributes["tight"] = tight;
+  if (!tight || li >= document.nodes.size()) {
+    return;
+  }
+  auto& children = document.nodes[li].children;
+  if (children.size() != 1) {
+    return;
+  }
+  const auto only = children.front();
+  if (document.nodes[only].kind == NodeKind::kBlock &&
+      document.nodes[only].type == MD_BLOCK_P) {
+    auto inner = document.nodes[only].children;
+    for (auto child : inner) {
+      document.nodes[child].parent = li;
+    }
+    children = std::move(inner);
+  }
 }
 
 std::vector<QByteArray> referenceLabels(
@@ -3771,10 +3952,16 @@ QByteArray serializeTable(
     const std::vector<QByteArray>& header,
     const std::vector<std::vector<QByteArray>>& body,
     const std::vector<TableAlignment>& alignments, const QByteArray& eol,
-    bool trailingEol) {
+    bool trailingEol, const QByteArray& continuationPrefix = {}) {
   QByteArray result;
-  const auto row = [&eol](const std::vector<QByteArray>& cells) {
-    QByteArray line = "|";
+  bool firstRow = true;
+  const auto row = [&](const std::vector<QByteArray>& cells) {
+    QByteArray line;
+    if (!firstRow) {
+      line += continuationPrefix;
+    }
+    firstRow = false;
+    line += "|";
     for (const auto& cell : cells) {
       line += " ";
       line += cell;
@@ -3890,12 +4077,14 @@ EditResult insertTableRowSource(const Document& document,
   const auto header = tableHeaderFragments(document, table);
   const auto eol = tableEol(document, table);
   const auto newSource = serializeTable(header, body, table.alignments, eol,
-                                        tableTrailingEol(document, table));
+                                        tableTrailingEol(document, table), table.continuationPrefix);
+  const auto canonicalSource = stripContainerPrefix(
+      newSource, table.continuationPrefix, table.blankLinePrefix);
   const auto definitions = definitionInventory(document);
   QString contextError;
   auto parsed = parseTableContext(document, definitions, table.range.offset,
                                  table.range.offset + table.range.size,
-                                 newSource, contextError);
+                                 canonicalSource, contextError);
   if (!parsed) {
     return {std::nullopt, contextError};
   }
@@ -3923,12 +4112,14 @@ EditResult removeTableRowSource(const Document& document,
   const auto header = tableHeaderFragments(document, table);
   const auto eol = tableEol(document, table);
   const auto newSource = serializeTable(header, body, table.alignments, eol,
-                                        tableTrailingEol(document, table));
+                                        tableTrailingEol(document, table), table.continuationPrefix);
+  const auto canonicalSource = stripContainerPrefix(
+      newSource, table.continuationPrefix, table.blankLinePrefix);
   const auto definitions = definitionInventory(document);
   QString contextError;
   auto parsed = parseTableContext(document, definitions, table.range.offset,
                                  table.range.offset + table.range.size,
-                                 newSource, contextError);
+                                 canonicalSource, contextError);
   if (!parsed) {
     return {std::nullopt, contextError};
   }
@@ -3959,12 +4150,14 @@ EditResult setTableAlignmentSource(const Document& document,
   const auto body = tableBodyFragments(document, table);
   const auto eol = tableEol(document, table);
   const auto newSource = serializeTable(header, body, alignments, eol,
-                                        tableTrailingEol(document, table));
+                                        tableTrailingEol(document, table), table.continuationPrefix);
+  const auto canonicalSource = stripContainerPrefix(
+      newSource, table.continuationPrefix, table.blankLinePrefix);
   const auto definitions = definitionInventory(document);
   QString contextError;
   auto parsed = parseTableContext(document, definitions, table.range.offset,
                                  table.range.offset + table.range.size,
-                                 newSource, contextError);
+                                 canonicalSource, contextError);
   if (!parsed) {
     return {std::nullopt, contextError};
   }
@@ -4014,12 +4207,14 @@ EditResult insertTableColumnSource(const Document& document,
                     edit.alignment);
   const auto eol = tableEol(document, table);
   const auto newSource = serializeTable(header, body, alignments, eol,
-                                        tableTrailingEol(document, table));
+                                        tableTrailingEol(document, table), table.continuationPrefix);
+  const auto canonicalSource = stripContainerPrefix(
+      newSource, table.continuationPrefix, table.blankLinePrefix);
   const auto definitions = definitionInventory(document);
   QString contextError;
   auto parsed = parseTableContext(document, definitions, table.range.offset,
                                  table.range.offset + table.range.size,
-                                 newSource, contextError);
+                                 canonicalSource, contextError);
   if (!parsed) {
     return {std::nullopt, contextError};
   }
@@ -4055,12 +4250,14 @@ EditResult removeTableColumnSource(const Document& document,
   alignments.erase(alignments.begin() + qsizetype(edit.index));
   const auto eol = tableEol(document, table);
   const auto newSource = serializeTable(header, body, alignments, eol,
-                                        tableTrailingEol(document, table));
+                                        tableTrailingEol(document, table), table.continuationPrefix);
+  const auto canonicalSource = stripContainerPrefix(
+      newSource, table.continuationPrefix, table.blankLinePrefix);
   const auto definitions = definitionInventory(document);
   QString contextError;
   auto parsed = parseTableContext(document, definitions, table.range.offset,
                                  table.range.offset + table.range.size,
-                                 newSource, contextError);
+                                 canonicalSource, contextError);
   if (!parsed) {
     return {std::nullopt, contextError};
   }
@@ -4078,8 +4275,57 @@ EditResult removeTableSource(const Document& document, const RemoveTable& edit) 
   if (!mapped.table) {
     return {std::nullopt, mapped.error};
   }
+  const auto parent = document.nodes[edit.table].parent;
+  SourceRange removal = mapped.table->range;
+  if (parent && document.nodes[*parent].type == MD_BLOCK_LI) {
+    size_t firstBlock = document.nodes[*parent].children.size();
+    for (auto child : document.nodes[*parent].children) {
+      if (document.nodes[child].kind == NodeKind::kBlock) {
+        firstBlock = child;
+        break;
+      }
+    }
+    size_t blocks = 0;
+    for (auto child : document.nodes[*parent].children) {
+      if (document.nodes[child].kind == NodeKind::kBlock) {
+        ++blocks;
+      }
+    }
+    if (firstBlock == edit.table) {
+      const auto lineStart = lineStartAt(document.source, mapped.table->range.offset);
+      bool onlySpaces = true;
+      for (auto i = lineStart; i < mapped.table->range.offset; ++i) {
+        if (document.source[i] != ' ') {
+          onlySpaces = false;
+          break;
+        }
+      }
+      if (!onlySpaces) {
+        return {std::nullopt,
+                QStringLiteral("Unsupported RemoveTable on an LI marker line")};
+      }
+    }
+    if (blocks <= 1) {
+      return {std::nullopt,
+              QStringLiteral("Unsupported cascade: table is the only LI block")};
+    }
+    removal = {lineStartAt(document.source, mapped.table->range.offset),
+               mapped.table->range.offset + mapped.table->range.size -
+                   lineStartAt(document.source, mapped.table->range.offset)};
+  } else if (parent && document.nodes[*parent].type == MD_BLOCK_QUOTE) {
+    if (document.nodes[*parent].children.size() <= 1) {
+      return {std::nullopt,
+              QStringLiteral("Unsupported cascade: table is the only quote block")};
+    }
+    const auto lineStart = lineStartAt(document.source, mapped.table->range.offset);
+    removal = {lineStart, mapped.table->range.offset +
+                              mapped.table->range.size - lineStart};
+  }
   auto expected = removeListNode(document, edit.table);
-  return apply(document, expected, mapped.table->range, QByteArray{});
+  if (parent && document.nodes[*parent].type == MD_BLOCK_LI) {
+    updateLiTightness(expected, *parent);
+  }
+  return apply(document, expected, removal, QByteArray{});
 }
 
 EditResult outdentListItemSource(const Document& document,

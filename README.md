@@ -198,17 +198,21 @@ document context. Task 022 adds `InsertTableRow`, `RemoveTableRow` and
 cells, raw preservation of existing cells and byte-exact alignment no-ops.
 Task 023 adds `InsertTableColumn`, `RemoveTableColumn` and explicit
 `RemoveTable`; last-column removal and cascading container deletion are rejected,
-and table removal leaves neighbouring bytes untouched. Nested-table mapping
-(024) is not implemented yet.
+and table removal leaves neighbouring bytes untouched. Task 024 extends table
+mapping and all six table commands to tables nested in LI/QUOTE containers,
+including depth 1–3, while enforcing the required RemoveTable refusals for LI
+marker-line and sole-block tables.
 See [Task 016](docs/tasks/task_016.md), [Task 017](docs/tasks/task_017.md),
 [Task 018](docs/tasks/task_018.md), [Task 019](docs/tasks/task_019.md),
-[Task 020](docs/tasks/task_020.md) and [Task 021](docs/tasks/task_021.md).
+[Task 020](docs/tasks/task_020.md), [Task 021](docs/tasks/task_021.md),
+[Task 022](docs/tasks/task_022.md), [Task 023](docs/tasks/task_023.md) and
+[Task 024](docs/tasks/task_024.md).
 The MD4C tests pass locally on Windows and Ubuntu, including Linux ASan/UBSan.
 See [Task 002](docs/tasks/task_002.md) for limits, licensing and reproduction.
 See [Task 012](docs/tasks/task_012.md) for structural edits and snapshot guarantees.
 See [Task 013](docs/tasks/task_013.md) for the unified command contract and nested
-mapping limits. Next: table row commands in [Task 022](docs/tasks/task_022.md),
-then columns/tables in 023–024; their structural operations are not implemented.
+mapping limits. Task 015 (tables) is accepted; the remaining product work is the
+WYSIWYG paged mode, settings and export tasks.
 The agreed [reference-definition policy](docs/tasks/task_025.md) uses document-wide
 scope: future structural edits reject normalized label collisions or changes to
 surviving reference bindings, and reject removal of a definition still in use.
