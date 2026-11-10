@@ -29,6 +29,16 @@ add_library(markpad_files
 )
 target_link_libraries(markpad_files PUBLIC markpad_document PRIVATE Qt6::Core)
 
+add_library(markpad_export
+    src/html_export.cc
+    src/html_export.h
+    src/qt_html_export_service.cc
+    src/qt_html_export_service.h
+)
+target_include_directories(markpad_export PUBLIC src)
+target_link_libraries(markpad_export PUBLIC markpad_markdown Qt6::Core)
+target_compile_features(markpad_export PUBLIC cxx_std_20)
+
 add_library(markpad_ui
     src/application_controller.cc
     src/application_controller.h
@@ -42,7 +52,8 @@ add_library(markpad_ui
     src/continuous_editor.h
 )
 target_include_directories(markpad_ui PUBLIC src)
-target_link_libraries(markpad_ui PUBLIC Qt6::Widgets markpad_files markpad_markdown)
+target_link_libraries(markpad_ui PUBLIC Qt6::Widgets markpad_files markpad_markdown
+    markpad_export)
 target_compile_features(markpad_ui PUBLIC cxx_std_20)
 
 add_executable(markpad
@@ -54,6 +65,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(markpad_markdown PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(markpad_document PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(markpad_files PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(markpad_export PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(markpad_ui PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(markpad PRIVATE -Wall -Wextra -Wpedantic)
 endif()
@@ -81,6 +93,14 @@ if(BUILD_TESTING)
         target_compile_options(markpad_document_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
     add_test(NAME markpad_document COMMAND markpad_document_tests)
+
+    add_executable(markpad_export_tests tests/html_export_test.cc)
+    target_link_libraries(markpad_export_tests PRIVATE markpad_export Qt6::Test)
+    target_compile_features(markpad_export_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(markpad_export_tests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME markpad_html_export COMMAND markpad_export_tests)
 
     add_executable(markpad_tests
         tests/smoke_test.cc

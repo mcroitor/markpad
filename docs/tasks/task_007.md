@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Ready`
+- Статус: `Done`
 - Владелец: C++ разработчик; архитектор проверяет безопасность
 - Приоритет: P2
 
@@ -51,6 +51,45 @@ README требует HTML export. Документный диалект — GFM
 
 ## Итог выполнения
 
-- Не начато.
-- Проверки: не запускались.
-- Отклонения/риски: нет.
+### Реализация
+
+- Добавлены `src/html_export.{h,cc}`: безопасный HTML serializer по общему
+  GFM `Document` AST. Поддержаны headings, paragraphs, blockquotes, UL/OL/task
+  lists, code blocks/inline code, tables с alignment, emphasis/strong/del,
+  links/images, autolinks, entities и soft/hard breaks.
+- Raw HTML block и inline HTML не исполняются: весь raw fragment
+  HTML-экранируется. Entities выводятся только при соответствии безопасному
+  entity-pattern, иначе экранируются.
+- URI policy: links разрешают `http`, `https`, `mailto` и безопасные relative
+  URLs; images — `http`, `https`, relative без protocol-relative `//`;
+  `javascript:`, `data:`, `file:`, `vbscript:`, прочие неизвестные схемы и
+  control characters отклоняются. Небезопасная ссылка деградирует до текста,
+  небезопасное изображение — до alt-текста. Внешние ресурсы не загружаются.
+- Добавлен `src/qt_html_export_service.{h,cc}`: запись self-contained HTML в
+  UTF-8 через `QSaveFile`, ошибки open/write/commit возвращаются явно.
+- `MainWindow`: File → Export HTML… с выбором пути, парсингом текущего snapshot,
+  безопасным rendering и сообщением об ошибке; успешная запись показывается в
+  status bar.
+- Новый target `markpad_export` и CTest `markpad_html_export` с GFM/XSS/URI/
+  Unicode/table/file-error fixtures. Новых внешних зависимостей нет.
+
+### Проверки
+
+- Windows UCRT64 Debug: build, **CTest 4/4 passed**; `markpad_html_export`
+  **7 passed**; MD4C suite **232 passed**, 0 failed/skipped.
+- Ubuntu WSL GCC 15.2 / Qt 6.10.2: clean configure/build, CTest **4/4 passed**.
+- Ubuntu sanitized Debug: ASan/UBSan/leaks, CTest **4/4 passed**.
+- `git diff --check --ignore-space-at-eol` прошёл; сборка без warnings.
+  Google clang-format в среде отсутствует; dry-run не выполнялся.
+- Native visual QA, clang-tidy и remote CI не запускались.
+
+### Ограничения
+
+- Raw HTML намеренно экранируется, а не sanitize-ится до безопасного HTML;
+  это консервативный default Task 007.
+- Внешние images допускаются по безопасным URI, но экспорт сам их не
+  скачивает; browser может запросить их при просмотре.
+- PDF и paged export не входят в этот этап. UI export не проверялся native
+  modal-dialog test; engine/file writer покрыты Qt Test.
+- Использован общий full parse; performance не оптимизировалась.
+- Коммит/push не создавались в рамках отчёта.

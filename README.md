@@ -207,12 +207,17 @@ See [Task 016](docs/tasks/task_016.md), [Task 017](docs/tasks/task_017.md),
 [Task 020](docs/tasks/task_020.md), [Task 021](docs/tasks/task_021.md),
 [Task 022](docs/tasks/task_022.md), [Task 023](docs/tasks/task_023.md) and
 [Task 024](docs/tasks/task_024.md).
+Task 007 adds safe HTML export through File → Export HTML. The renderer walks the
+shared GFM AST, supports headings, paragraphs, lists/tasks, tables, code,
+emphasis, links and images, escapes raw HTML, and omits unsafe URI schemes
+(`javascript:`, `data:`, `file:`, etc.). Export writes UTF-8 through `QSaveFile`
+and reports open/write/commit failures. PDF/paged export remains future work.
 The MD4C tests pass locally on Windows and Ubuntu, including Linux ASan/UBSan.
 See [Task 002](docs/tasks/task_002.md) for limits, licensing and reproduction.
 See [Task 012](docs/tasks/task_012.md) for structural edits and snapshot guarantees.
 See [Task 013](docs/tasks/task_013.md) for the unified command contract and nested
 mapping limits. Task 015 (tables) is accepted; the remaining product work is the
-WYSIWYG paged mode, settings and export tasks.
+WYSIWYG paged mode, settings and PDF export tasks.
 The agreed [reference-definition policy](docs/tasks/task_025.md) uses document-wide
 scope: future structural edits reject normalized label collisions or changes to
 surviving reference bindings, and reject removal of a definition still in use.

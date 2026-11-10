@@ -30,6 +30,7 @@ class MainWindow final : public QMainWindow {
   bool openFile(const QString& path);
   bool saveDocument();
   bool saveDocumentAs();
+  bool exportHtml();
   void undo();
   void redo();
   ContinuousEditor* continuousEditor() const { return continuous_; }

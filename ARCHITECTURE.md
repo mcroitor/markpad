@@ -246,8 +246,13 @@ serialization, plain-text payload и alignment no-op. [Task 023](docs/tasks/task
 cascade guards. [Task 024](docs/tasks/task_024.md) распространяет эти шесть
 команд и mapping на nested LI/QUOTE tables depth 1–3 с required RemoveTable
 refusals и сохранением parent prefixes/references. Table-контракт 015 принят.
-UI-команд списков/цитат/таблиц нет; следующие крупные направления — paged
-WYSIWYG, настройки и экспорт.
+[Task 007](docs/tasks/task_007.md) реализует безопасный HTML-экспорт из общего
+GFM AST: headings, paragraphs, lists/tasks, tables, code, emphasis, links/images;
+raw HTML экранируется, небезопасные URI схемы отклоняются, внешние ресурсы не
+загружаются. Запись UTF-8 идёт через `QSaveFile` с explicit error. PDF/paged
+export остаются будущей работой; UI-команд списков/цитат/таблиц нет.
+Следующие крупные направления — paged WYSIWYG, настройки и PDF/export
+completion.
 Последовательность продолжения: [Task 013](docs/tasks/task_013.md) →
 [Task 014: списки/цитаты](docs/tasks/task_014.md) →
 [Task 015: таблицы](docs/tasks/task_015.md). UI/production-интеграция не включены.

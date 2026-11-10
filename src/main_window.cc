@@ -2,6 +2,7 @@
 
 #include <QAction>
 #include <QCloseEvent>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QKeyEvent>
@@ -18,7 +19,9 @@
 #include <algorithm>
 
 #include "continuous_editor.h"
+#include "html_export.h"
 #include "markdown_highlighter.h"
+#include "qt_html_export_service.h"
 
 namespace markpad {
 namespace {
@@ -116,6 +119,9 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
                             [this] { saveDocument(); }));
   action(QStringLiteral("Save &As..."), QStringLiteral("saveAsAction"),
          QKeySequence::SaveAs, [this] { saveDocumentAs(); });
+  action(QStringLiteral("Export &HTML..."),
+         QStringLiteral("exportHtmlAction"), QKeySequence(),
+         [this] { exportHtml(); });
   file->addSeparator();
   action(QStringLiteral("&Close"), QStringLiteral("closeAction"),
          QKeySequence::Close, [this] { close(); });
@@ -305,6 +311,40 @@ bool MainWindow::saveDocumentAs() {
     return false;
   }
   refreshState();
+  return true;
+}
+
+bool MainWindow::exportHtml() {
+  const auto snapshot = session_.snapshot();
+  auto parsed = markdown::parse(
+      QByteArray(snapshot.source.data(), qsizetype(snapshot.source.size())));
+  if (!parsed.document) {
+    dialogs_.showError(this, parsed.error);
+    return false;
+  }
+  const auto rendered = markdown::renderHtml(*parsed.document);
+  if (!rendered.html) {
+    dialogs_.showError(this, rendered.error);
+    return false;
+  }
+  QString suggested = displayPath(session_.path());
+  if (suggested.isEmpty()) {
+    suggested = QStringLiteral("document");
+  }
+  const QFileInfo info(suggested);
+  suggested =
+      QDir(info.path()).filePath(info.completeBaseName() + QStringLiteral(".html"));
+  const auto selected = QFileDialog::getSaveFileName(
+      this, QStringLiteral("Export HTML"), suggested,
+      QStringLiteral("HTML (*.html *.htm);;All files (*)"));
+  if (selected.isEmpty()) {
+    return false;
+  }
+  if (const auto error = writeHtmlFile(filePath(selected), *rendered.html)) {
+    dialogs_.showError(this, *error);
+    return false;
+  }
+  statusBar()->showMessage(QStringLiteral("HTML exported"), 3000);
   return true;
 }
 
