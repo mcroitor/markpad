@@ -3932,6 +3932,42 @@ EditResult wrapInListSource(const Document& document, const WrapInList& edit) {
   return apply(document, expected, range, replacement);
 }
 
+EditResult replaceInlineCodeSource(const Document& document,
+                                   const ReplaceInlineCode& edit) {
+  if (edit.node >= document.nodes.size()) {
+    return {std::nullopt, QStringLiteral("Invalid inline code target")};
+  }
+  const auto& node = document.nodes[edit.node];
+  if (node.kind != NodeKind::kText || node.type != MD_TEXT_CODE ||
+      !node.source || !node.parent ||
+      *node.parent >= document.nodes.size()) {
+    return {std::nullopt, QStringLiteral("Invalid inline code target")};
+  }
+  const auto& parent = document.nodes[*node.parent];
+  if (parent.kind != NodeKind::kSpan || parent.type != MD_SPAN_CODE ||
+      parent.children.size() != 1 || parent.children.front() != edit.node ||
+      node.source->offset < 0 ||
+      node.source->offset > document.source.size() ||
+      node.source->size != node.text.size() ||
+      node.source->size > document.source.size() - node.source->offset ||
+      document.source.mid(node.source->offset, node.source->size) !=
+          node.text) {
+    return {std::nullopt, QStringLiteral("Invalid inline code context")};
+  }
+  if (edit.text.isEmpty() || !validUtf8(edit.text) ||
+      edit.text.contains('\0') || edit.text.contains('\r') ||
+      edit.text.contains('\n')) {
+    return {std::nullopt,
+            QStringLiteral("Inline code text must be nonempty single-line UTF-8")};
+  }
+  if (edit.text == node.text) {
+    return {document.source, {}};
+  }
+  auto expected = document;
+  expected.nodes[edit.node].text = edit.text;
+  return apply(document, expected, *node.source, edit.text);
+}
+
 EditResult replaceCodeBodySource(const Document& document,
                                  const ReplaceCodeBody& edit) {
   if (edit.node >= document.nodes.size() ||
@@ -5359,6 +5395,8 @@ ParseResult applyEdit(const Document& document, const SnapshotToken& token,
           return wrapInLinkSource(document, edit);
         } else if constexpr (std::is_same_v<Command, InsertImage>) {
           return insertImageSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, ReplaceInlineCode>) {
+          return replaceInlineCodeSource(document, edit);
         } else {
           return toggleInlineSource(document, edit);
         }

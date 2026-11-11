@@ -208,6 +208,10 @@ struct ReplaceCodeBody {
   size_t node;
   QByteArray body;  // UTF-8; line endings are normalized to the block EOL.
 };
+struct ReplaceInlineCode {
+  size_t node;  // MD_TEXT_CODE child of MD_SPAN_CODE.
+  QByteArray text;
+};
 struct IndentListItem {
   size_t item;
 };
@@ -262,7 +266,7 @@ using EditCommand =
     std::variant<ReplaceText, SetTaskChecked, SetHeadingLevel, ToggleInlineStyle,
                  InsertListItem, RemoveListItem, SetListKind, SetItemTask,
                  WrapInLink, InsertImage, WrapInQuote, UnwrapQuote,
-                 WrapInList, ReplaceCodeBody,
+                 WrapInList, ReplaceCodeBody, ReplaceInlineCode,
                  IndentListItem, OutdentListItem, InsertTableRow,
                  RemoveTableRow, SetTableAlignment,
                  InsertTableColumn, RemoveTableColumn, RemoveTable,

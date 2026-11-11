@@ -130,6 +130,7 @@ QString ContinuousEditor::render(const DocumentSnapshot& snapshot) {
   document_ = std::move(parsed.document);
   runs_.clear();
   codeRuns_.clear();
+  codeSpanRuns_.clear();
   tableRuns_.clear();
   emptyCellRuns_.clear();
   contexts_.clear();
@@ -405,6 +406,57 @@ void ContinuousEditor::renderInline(size_t index, QTextCursor& cursor,
                                     QTextCharFormat format, bool allowEditing) {
   const auto& node = document_->nodes[index];
   if (node.kind == markdown::NodeKind::kSpan) {
+    if (node.type == MD_SPAN_CODE) {
+      bool editable = allowEditing && node.children.size() == 1;
+      if (editable) {
+        auto ancestor = node.parent;
+        while (ancestor) {
+          const auto& parent = document_->nodes[*ancestor];
+          if (parent.kind == markdown::NodeKind::kSpan &&
+              (parent.type == MD_SPAN_A || parent.type == MD_SPAN_IMG)) {
+            editable = false;
+            break;
+          }
+          ancestor = parent.parent;
+        }
+      }
+      if (editable) {
+        const auto child = node.children.front();
+        const auto& text = document_->nodes[child];
+        if (text.kind == markdown::NodeKind::kText &&
+            text.type == MD_TEXT_CODE && text.source &&
+            text.source->offset >= 0 &&
+            text.source->offset <= document_->source.size() &&
+            text.source->size == text.text.size() &&
+            text.source->size <= document_->source.size() - text.source->offset &&
+            document_->source.mid(text.source->offset, text.source->size) ==
+                text.text &&
+            !text.text.contains('\n') && !text.text.contains('\r')) {
+          const auto value = literal(text.text);
+          if (!value.isEmpty() && !value.contains('\n') &&
+              !value.contains('\r') &&
+              !value.contains(QChar::ParagraphSeparator) &&
+              !value.contains(QChar::LineSeparator)) {
+            auto codeFormat = format;
+            auto font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            font.setStyleHint(QFont::Monospace);
+            codeFormat.setFont(font);
+            codeFormat.setForeground(QColor(70, 70, 70));
+            codeFormat.setBackground(QColor(235, 235, 235));
+            codeFormat.setToolTip(QStringLiteral("Editable inline code"));
+            const int start = cursor.position();
+            cursor.insertText(value, codeFormat);
+            codeSpanRuns_.push_back({child, start, int(value.size())});
+            return;
+          }
+        }
+      }
+      QTextCharFormat protectedFormat;
+      protectedFormat.setForeground(QColor(100, 100, 100));
+      protectedFormat.setBackground(QColor(235, 235, 235));
+      cursor.insertText(QStringLiteral("[Read-only: code]"), protectedFormat);
+      return;
+    }
     if (node.type == MD_SPAN_EM) {
       format.setFontItalic(true);
     } else if (node.type == MD_SPAN_STRONG) {
@@ -514,6 +566,7 @@ void ContinuousEditor::changed() {
   }
   const Run* target = nullptr;
   const CodeRun* codeTarget = nullptr;
+  const CodeSpanRun* codeSpanTarget = nullptr;
   const EmptyCellRun* emptyCellTarget = nullptr;
   for (const auto& run : codeRuns_) {
     const int offset = change->position - run.start;
@@ -548,13 +601,48 @@ void ContinuousEditor::changed() {
         change->added <= 0) {
       continue;
     }
-    if (target || codeTarget || emptyCellTarget) {
+    if (target || codeTarget || codeSpanTarget || emptyCellTarget) {
       restore(
           QStringLiteral("This insertion is between editable targets. Move "
                          "inside one cell or use Markdown."));
       return;
     }
     emptyCellTarget = &run;
+  }
+  for (const auto& run : codeSpanRuns_) {
+    const int offset = change->position - run.start;
+    if (offset < 0 || offset > run.length ||
+        change->removed > run.length - offset) {
+      continue;
+    }
+    if (target || codeTarget || codeSpanTarget || emptyCellTarget) {
+      restore(
+          QStringLiteral("This insertion is between editable targets. Move "
+                         "inside one cell or use Markdown."));
+      return;
+    }
+    codeSpanTarget = &run;
+  }
+  if (codeSpanTarget) {
+    auto replacement =
+        renderedText_.mid(codeSpanTarget->start, codeSpanTarget->length);
+    replacement.replace(change->position - codeSpanTarget->start,
+                        change->removed,
+                        text.mid(change->position, change->added));
+    if (replacement.isEmpty() || !replacement.isValidUtf16() ||
+        replacement.contains('\n') || replacement.contains('\r') ||
+        replacement.contains(QChar::ParagraphSeparator) ||
+        replacement.contains(QChar::LineSeparator) ||
+        replacement.contains(QChar(0))) {
+      restore(QStringLiteral(
+          "Inline code accepts nonempty single-line text. Use Markdown."));
+      return;
+    }
+    const auto command =
+        markdown::ReplaceInlineCode{codeSpanTarget->node,
+                                    replacement.toUtf8()};
+    emit commandRequested(token_, command, editor_->textCursor().position());
+    return;
   }
   if (emptyCellTarget) {
     const auto replacement = text.mid(change->position, change->added);

@@ -1826,6 +1826,29 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(dialogs.errors.empty());
   }
 
+  void continuousInlineCodeEditing() {
+    const QByteArray source = "`old`\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    QVERIFY(!rich->document()->toRawText().contains(
+        QStringLiteral("Read-only: code")));
+    auto cursor = rich->document()->find(QStringLiteral("old"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    rich->insertPlainText(QStringLiteral("new"));
+    QCOMPARE(window->session().snapshot().source, std::string("`new`\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(window->setContinuousMode(false));
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(dialogs.errors.empty());
+  }
+
   void continuousUnsupportedTableFallback() {
     const QByteArray source = "> | h |\n> | --- |\n> | a |\n";
     TestDialogs dialogs;

@@ -133,7 +133,8 @@ continuous-editor context menu. Empty cells in top-level outer-piped tables
 accept plain single-line text, including newly inserted rows/columns. Format >
 Table/toolbar Table prompts for a table size (columns and body rows) and
 inserts it with editable body cells. Format > Code inserts an empty fenced code
-block, and Horizontal Line inserts and renders `---`. Multiline/rich cell
+block, and Horizontal Line inserts and renders `---`. Inline code spans are
+shown in monospace and their content is locally editable. Multiline/rich cell
 content, drag-grid size selection, indented/nested code, code language pickers
 and syntax highlighting are not supported yet. No external resources are
 loaded.
@@ -215,9 +216,10 @@ Table to insert a default 2-column table in continuous mode. Task 037 adds
 Format > Code and Horizontal Line insertion for empty fenced code blocks and
 `---`. Task 038 adds inline-link creation from a single editable selection via
 URL prompt; Task 039 adds inline-image creation from a selected alt label via
-source prompt; Task 040 adds a table size prompt. Multiline/rich cell content,
-drag-grid size selection, code language pickers, link/image titles and
-reference-style links remain planned.
+source prompt; Task 040 adds a table size prompt; Task 041 adds inline code
+rendering and editing. Multiline/rich cell content, drag-grid size selection,
+code language pickers, link/image titles and reference-style links remain
+planned.
 Definitions before the first rendered paragraph cannot be combined with task
 toggling. Task 018 adds exact top-level quote
 ranges and

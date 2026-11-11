@@ -1509,6 +1509,74 @@ class Md4cSourceTest : public QObject {
     QVERIFY(!rejected.error.isEmpty());
   }
 
+  void replaceInlineCode_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<QByteArray>("text");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("basic") << QByteArray("`old`\n") << QByteArray("new")
+                           << QByteArray("`new`\n");
+    QTest::newRow("outside")
+        << QByteArray("pre `old` post\n") << QByteArray("new")
+        << QByteArray("pre `new` post\n");
+    QTest::newRow("unicode")
+        << QStringLiteral("`\u0430`\n").toUtf8()
+        << QStringLiteral("\U0001f600").toUtf8()
+        << QStringLiteral("`\U0001f600`\n").toUtf8();
+    QTest::newRow("crlf") << QByteArray("`old`\r\n") << QByteArray("new")
+                          << QByteArray("`new`\r\n");
+  }
+
+  void replaceInlineCode() {
+    QFETCH(QByteArray, source);
+    QFETCH(QByteArray, text);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto node =
+        find(*parsed.document, NodeKind::kText, MD_TEXT_CODE);
+    QVERIFY(node < parsed.document->nodes.size());
+    const auto result =
+        editBytes(*parsed.document, ReplaceInlineCode{node, text});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+  }
+
+  void replaceInlineCodeRejected() {
+    const auto parsed = parse("`old`\n");
+    QVERIFY(parsed.document);
+    const auto node =
+        find(*parsed.document, NodeKind::kText, MD_TEXT_CODE);
+    QVERIFY(node < parsed.document->nodes.size());
+    for (const auto& command :
+         std::vector<EditCommand>{
+             ReplaceInlineCode{node, ""},
+             ReplaceInlineCode{node, "two\nlines"},
+             ReplaceInlineCode{node, QByteArray("a\0b", 3)},
+             ReplaceInlineCode{node, QByteArray("\xFF", 1)},
+             ReplaceInlineCode{node, "a`b"}}) {
+      QVERIFY(!editBytes(*parsed.document, command).source);
+    }
+    const auto normal = find(*parsed.document, NodeKind::kText, MD_TEXT_NORMAL);
+    QVERIFY(!editBytes(*parsed.document, ReplaceInlineCode{normal, "new"}).source);
+  }
+
+  void replaceInlineCodeNoopAndStale() {
+    const auto parsed = parse("`old`\n");
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    const auto node = find(doc, NodeKind::kText, MD_TEXT_CODE);
+    const auto noop =
+        applyEdit(doc, snapshotToken(doc), ReplaceInlineCode{node, "old"});
+    QVERIFY(noop.document);
+    QCOMPARE(noop.document->source, doc.source);
+    QCOMPARE(noop.document->revision, doc.revision);
+    const auto foreign = parse("`other`\n");
+    QVERIFY(foreign.document);
+    QVERIFY(!applyEdit(doc, snapshotToken(*foreign.document),
+                       ReplaceInlineCode{node, "new"})
+                 .document);
+  }
+
   void replaceCodeBody_data() {
     QTest::addColumn<QByteArray>("source");
     QTest::addColumn<QByteArray>("body");

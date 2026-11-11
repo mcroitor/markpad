@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026–040)
+- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026–041)
 - Владелец: архитектор + C++ разработчик
 - Приоритет: P1
 
@@ -106,6 +106,9 @@ WYSIWYG continuous — полноценный редактируемый реж�
   включены.
 - Реализована [Task 040](task_040.md): Table action запрашивает columns/body
   rows перед вставкой; cancel не меняет Session.
+- Реализована [Task 041](task_041.md): inline code spans рендерятся и
+  редактируются в continuous; link/image/autolink code spans остаются
+  protected.
 - Выполнена зависимая подготовка структурных команд:
   [Task 016](task_016.md) — exact source-map top-level списков/пунктов.
 - Реализована [Task 017](task_017.md): source-preserving InsertListItem,
