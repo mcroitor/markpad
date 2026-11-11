@@ -38,6 +38,18 @@ $env:PATH = "C:\msys64\ucrt64\bin;C:\msys64\usr\bin;$env:PATH"
 
 Keep `C:\msys64\ucrt64\bin` on `PATH` when running the application or tests so Windows can find Qt runtime DLLs.
 
+For a redistributable Release directory, build with `-DCMAKE_BUILD_TYPE=Release`
+and then run the packaging script from an MSYS2 UCRT64 shell:
+
+```sh
+bash scripts/package_windows.sh build-release package-windows 0.1.0
+```
+
+The script deploys the Qt/GCC runtime DLLs, copies `LICENSE`,
+`MD4C-LICENSE.md`, README and third-party license texts, and writes
+`markpad.exe.sha256`. CI uploads the same directory as the
+`markpad-0.1.0-windows-ucrt64` artifact.
+
 ### Linux (Ubuntu)
 
 Install the build dependencies:
