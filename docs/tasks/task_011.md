@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Ready`
+- Статус: `Blocked` (Task 005 Done; остаются native visual/PDF/printer QA, remote CI и ручной release checklist)
 - Владелец: архитектор/координатор; тестировщик и DevOps по необходимости
 - Приоритет: P2
 
@@ -57,6 +57,10 @@ Markpad должен работать на Windows и Linux, открывать/
 
 ## Итог выполнения
 
-- Не начато.
-- Проверки: не запускались.
-- Решение о готовности: ожидает выполнения зависимостей.
+- Dependency Task 005 снята: continuous scoped объём принят Task 042.
+- Полный CTest 7/7 стабильно проходит на Windows и Ubuntu WSL, включая Linux
+  ASan/UBSan/leaks; MD4C и GUI acceptance suites проходят.
+- Остаются native visual QA, printer hardware, ручной UI/PDF checklist и
+  remote CI. Автоматические offscreen-тесты их не заменяют.
+- Решение о готовности: заблокировано этими release/manual проверками, а не
+  функциональным dependency 005.

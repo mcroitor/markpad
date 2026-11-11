@@ -805,6 +805,9 @@ bool supportedListChildren(const Document& document, size_t index) {
   const auto& node = document.nodes[index];
   for (auto child : node.children) {
     const auto& value = document.nodes[child];
+    if (value.kind == NodeKind::kBlock && value.type == MD_BLOCK_TABLE) {
+      continue;
+    }
     if (value.kind == NodeKind::kBlock && value.type != MD_BLOCK_LI &&
         value.type != MD_BLOCK_P && value.type != MD_BLOCK_CODE &&
         value.type != MD_BLOCK_UL && value.type != MD_BLOCK_OL &&
@@ -1298,6 +1301,11 @@ ListMapResult mapTopLevelList(const Document& document, size_t index) {
                          "with matching callback offsets are required")};
 }
 
+std::vector<DefinitionCandidate> definitionInventory(const Document& document);
+QByteArray definitionContext(const Document& document,
+                             const std::vector<DefinitionCandidate>& definitions,
+                             qsizetype first, qsizetype last, qsizetype& offset);
+
 QuoteMapResult mapTopLevelQuote(const Document& document, size_t index) {
   if (index >= document.nodes.size() ||
       document.nodes[index].kind != NodeKind::kBlock ||
@@ -1311,23 +1319,51 @@ QuoteMapResult mapTopLevelQuote(const Document& document, size_t index) {
     if (!range) {
       continue;
     }
-    const auto isolated =
-        parse(document.source.mid(range->offset, range->size));
-    if (!isolated.document ||
-        isolated.document->nodes[0].children.size() != 1) {
-      continue;
+    const auto quoteSource =
+        document.source.mid(range->offset, range->size);
+    bool matched = false;
+    auto isolated = parse(quoteSource);
+    if (isolated.document &&
+        isolated.document->nodes[0].children.size() == 1) {
+      const auto child = isolated.document->nodes[0].children.front();
+      if (isolated.document->nodes[child].type == MD_BLOCK_QUOTE) {
+        bool anchored = false;
+        matched = sameListSources(document, index, *isolated.document, child,
+                                  range->offset, anchored) &&
+                  anchored;
+      }
     }
-    const auto child = isolated.document->nodes[0].children.front();
-    if (isolated.document->nodes[child].type != MD_BLOCK_QUOTE) {
-      continue;
+    if (!matched) {
+      const auto definitions = definitionInventory(document);
+      qsizetype contextOffset = 0;
+      const auto context = definitionContext(
+          document, definitions, range->offset, range->offset + range->size,
+          contextOffset);
+      const auto header = context.left(contextOffset);
+      QByteArray suffix;
+      if (context.size() > contextOffset + range->size) {
+        suffix = context.mid(contextOffset + range->size);
+      }
+      auto parsed = parse(header + quoteSource + suffix);
+      if (parsed.document) {
+        size_t child = parsed.document->nodes.size();
+        for (auto candidate : parsed.document->nodes[0].children) {
+          if (parsed.document->nodes[candidate].type == MD_BLOCK_QUOTE) {
+            child = candidate;
+            break;
+          }
+        }
+        if (child < parsed.document->nodes.size()) {
+          bool anchored = false;
+          matched = sameListSources(document, index, *parsed.document, child,
+                                    range->offset - contextOffset, anchored) &&
+                    anchored;
+        }
+      }
     }
-    bool anchored = false;
-    if (!sameListSources(document, index, *isolated.document, child,
-                         range->offset, anchored) ||
-        !anchored) {
-      continue;
+    if (matched) {
+      return {QuoteSource{index, *range, {}, {}}, {}};
     }
-    return {QuoteSource{index, *range, {}, {}}, {}};
   }
   return {std::nullopt,
           QStringLiteral("Unsupported quote source map: explicit prefixes on "
@@ -1340,6 +1376,8 @@ QuoteMapResult mapTopLevelQuote(const Document& document, size_t index) {
 namespace {
 ListMapResult mapNestedList(const Document& document, size_t index);
 QuoteMapResult mapNestedQuote(const Document& document, size_t index);
+TableMapResult mapTopLevelTable(const Document& document, size_t index);
+TableMapResult mapNestedTable(const Document& document, size_t index);
 }  // namespace
 
 ListMapResult mapList(const Document& document, size_t index) {
@@ -1365,6 +1403,18 @@ QuoteMapResult mapQuote(const Document& document, size_t index) {
     return mapTopLevelQuote(document, index);
   }
   return mapNestedQuote(document, index);
+}
+
+TableMapResult mapTable(const Document& document, size_t index) {
+  if (index >= document.nodes.size() ||
+      document.nodes[index].kind != NodeKind::kBlock ||
+      document.nodes[index].type != MD_BLOCK_TABLE) {
+    return {std::nullopt, QStringLiteral("Invalid table target")};
+  }
+  if (document.nodes[index].parent == std::optional<size_t>(0)) {
+    return mapTopLevelTable(document, index);
+  }
+  return mapNestedTable(document, index);
 }
 
 SnapshotToken snapshotToken(const Document& document) {
@@ -1863,12 +1913,270 @@ std::optional<ContextList> parseListContext(
   return ContextList{std::move(*parsed.document), root};
 }
 
+bool escapedAt(const QByteArray& source, qsizetype lineStart, qsizetype position) {
+  qsizetype backslashes = 0;
+  for (auto i = position; i > lineStart && source[i - 1] == '\\'; --i) {
+    ++backslashes;
+  }
+  return backslashes % 2 == 1;
+}
+
+struct ScannedTableRow {
+  bool valid = false;
+  bool hasPipe = false;
+  SourceRange row;
+  std::vector<SourceRange> cells;
+};
+
+ScannedTableRow scanTableRow(const QByteArray& source, const ListLine& line) {
+  ScannedTableRow result;
+  result.row = {line.start, line.end - line.start};
+  auto position = line.start;
+  while (position < line.bodyEnd && source[position] == ' ') {
+    ++position;
+  }
+  if (position - line.start > 3) {
+    return result;
+  }
+  if (position < line.bodyEnd && source[position] == '|') {
+    result.hasPipe = true;
+    ++position;
+  }
+  auto end = line.bodyEnd;
+  while (end > position && (source[end - 1] == ' ' || source[end - 1] == '\t')) {
+    --end;
+  }
+  if (end > position && source[end - 1] == '|' &&
+      !escapedAt(source, line.start, end - 1)) {
+    result.hasPipe = true;
+    --end;
+  }
+  auto cellStart = position;
+  for (auto i = position; i < end; ++i) {
+    if (source[i] == '\\' && i + 1 < end) {
+      ++i;
+      continue;
+    }
+    if (source[i] != '|') {
+      continue;
+    }
+    result.hasPipe = true;
+    auto cellEnd = i;
+    while (cellStart < cellEnd &&
+           (source[cellStart] == ' ' || source[cellStart] == '\t')) {
+      ++cellStart;
+    }
+    while (cellEnd > cellStart &&
+           (source[cellEnd - 1] == ' ' || source[cellEnd - 1] == '\t')) {
+      --cellEnd;
+    }
+    result.cells.push_back({cellStart, cellEnd - cellStart});
+    cellStart = i + 1;
+  }
+  auto cellEnd = end;
+  while (cellStart < cellEnd &&
+         (source[cellStart] == ' ' || source[cellStart] == '\t')) {
+    ++cellStart;
+  }
+  while (cellEnd > cellStart &&
+         (source[cellEnd - 1] == ' ' || source[cellEnd - 1] == '\t')) {
+    --cellEnd;
+  }
+  result.cells.push_back({cellStart, cellEnd - cellStart});
+  result.valid = true;
+  return result;
+}
+
+bool delimiterCell(const QByteArray& source, SourceRange range) {
+  auto position = range.offset;
+  const auto end = range.offset + range.size;
+  if (position < end && source[position] == ':') {
+    ++position;
+  }
+  const auto hyphens = position;
+  while (position < end && source[position] == '-') {
+    ++position;
+  }
+  if (position == hyphens) {
+    return false;
+  }
+  if (position < end && source[position] == ':') {
+    ++position;
+  }
+  return position == end;
+}
+
+TableMapResult mapTopLevelTable(const Document& document, size_t index) {
+  if (index >= document.nodes.size() ||
+      document.nodes[index].kind != NodeKind::kBlock ||
+      document.nodes[index].type != MD_BLOCK_TABLE ||
+      document.nodes[index].parent != std::optional<size_t>(0)) {
+    return {std::nullopt, QStringLiteral("Invalid table target")};
+  }
+  const auto& node = document.nodes[index];
+  const auto columns = node.attributes["columns"].toInt();
+  if (columns <= 0) {
+    return {std::nullopt, QStringLiteral("Unsupported table dimensions")};
+  }
+  const auto lines = listLines(document.source);
+  const auto definitions = definitionInventory(document);
+  for (size_t first = 0; first + 1 < lines.size(); ++first) {
+    const auto header = scanTableRow(document.source, lines[first]);
+    if (!header.valid || !header.hasPipe ||
+        header.cells.size() != size_t(columns)) {
+      continue;
+    }
+    const auto delimiter = scanTableRow(document.source, lines[first + 1]);
+    if (!delimiter.valid || !delimiter.hasPipe ||
+        delimiter.cells.size() != size_t(columns)) {
+      continue;
+    }
+    if (!std::all_of(delimiter.cells.begin(), delimiter.cells.end(),
+                     [&document](SourceRange range) {
+                       return delimiterCell(document.source, range);
+                     })) {
+      continue;
+    }
+    std::vector<std::vector<SourceRange>> bodyCells;
+    std::vector<SourceRange> bodyRows;
+    bool ragged = false;
+    size_t last = first + 1;
+    for (size_t i = first + 2; i < lines.size(); ++i) {
+      if (blankListLine(document.source, lines[i])) {
+        break;
+      }
+      const auto row = scanTableRow(document.source, lines[i]);
+      if (!row.valid || !row.hasPipe) {
+        break;
+      }
+      if (row.cells.size() != size_t(columns)) {
+        ragged = true;
+      }
+      bodyCells.push_back(row.cells);
+      bodyRows.push_back(row.row);
+      last = i;
+    }
+    const auto end = lines[last].end;
+    const SourceRange range{lines[first].start, end - lines[first].start};
+    const auto tableSource = document.source.mid(range.offset, range.size);
+
+    qsizetype contextOffset = 0;
+    const auto context = definitionContext(document, definitions, range.offset,
+                                           range.offset + range.size,
+                                           contextOffset);
+    const auto headerSource = context.left(contextOffset);
+    QByteArray suffix;
+    if (context.size() > contextOffset + range.size) {
+      suffix = context.mid(contextOffset + range.size);
+    }
+    auto parsed = parse(headerSource + tableSource + suffix);
+    if (!parsed.document) {
+      continue;
+    }
+    size_t contextTable = parsed.document->nodes.size();
+    for (auto child : parsed.document->nodes[0].children) {
+      if (parsed.document->nodes[child].type == MD_BLOCK_TABLE) {
+        contextTable = child;
+        break;
+      }
+    }
+    if (contextTable >= parsed.document->nodes.size()) {
+      continue;
+    }
+    bool anchored = false;
+    if (!sameListSources(document, index, *parsed.document, contextTable,
+                         range.offset - contextOffset, anchored) ||
+        !anchored) {
+      continue;
+    }
+    if (ragged) {
+      return {std::nullopt,
+              QStringLiteral("Unsupported ragged table source")};
+    }
+    if (node.children.empty()) {
+      continue;
+    }
+    size_t head = document.nodes.size();
+    for (auto child : node.children) {
+      if (document.nodes[child].type == MD_BLOCK_THEAD) {
+        head = child;
+        break;
+      }
+    }
+    if (head >= document.nodes.size() || document.nodes[head].children.empty()) {
+      continue;
+    }
+    const auto headerRow = document.nodes[head].children.front();
+    if (document.nodes[headerRow].children.size() != size_t(columns)) {
+      continue;
+    }
+    std::vector<TableRowSource> body;
+    size_t bodyContainer = document.nodes.size();
+    for (auto child : node.children) {
+      if (document.nodes[child].type == MD_BLOCK_TBODY) {
+        bodyContainer = child;
+        break;
+      }
+    }
+    if (bodyContainer < document.nodes.size()) {
+      for (auto rowNode : document.nodes[bodyContainer].children) {
+        if (document.nodes[rowNode].type != MD_BLOCK_TR) {
+          continue;
+        }
+        body.push_back({rowNode, {}, {}});
+      }
+    }
+    if (body.size() != bodyCells.size() ||
+        bodyCells.size() != size_t(node.attributes["body_rows"].toInt())) {
+      return {std::nullopt,
+              QStringLiteral("Unsupported table row source map")};
+    }
+
+    TableSource mapped;
+    mapped.node = index;
+    mapped.range = range;
+    mapped.columns = size_t(columns);
+    mapped.delimiterRange = delimiter.row;
+    mapped.delimiterCells = delimiter.cells;
+    mapped.header.node = headerRow;
+    mapped.header.range = header.row;
+    const auto& headerCellNodes = document.nodes[headerRow].children;
+    for (size_t i = 0; i < headerCellNodes.size(); ++i) {
+      mapped.header.cells.push_back({headerCellNodes[i], header.cells[i]});
+      mapped.alignments.push_back(static_cast<TableAlignment>(
+          document.nodes[headerCellNodes[i]].attributes["align"].toInt()));
+    }
+    for (size_t row = 0; row < body.size(); ++row) {
+      const auto& cellNodes = document.nodes[body[row].node].children;
+      if (cellNodes.size() != size_t(columns)) {
+        return {std::nullopt,
+                QStringLiteral("Unsupported table row source map")};
+      }
+      body[row].range = bodyRows[row];
+      for (size_t column = 0; column < cellNodes.size(); ++column) {
+        body[row].cells.push_back({cellNodes[column], bodyCells[row][column]});
+        if (static_cast<TableAlignment>(
+                document.nodes[cellNodes[column]].attributes["align"].toInt()) !=
+            mapped.alignments[column]) {
+          return {std::nullopt,
+                  QStringLiteral("Unsupported table alignment source map")};
+        }
+      }
+    }
+    mapped.body = std::move(body);
+    return {std::move(mapped), {}};
+  }
+  return {std::nullopt,
+          QStringLiteral("Unsupported table source map: canonical rows, "
+                         "escaped pipes and matching callback offsets are "
+                         "required")};
+}
+
 struct VirtualLine {
   qsizetype virtualStart;
   qsizetype realContentStart;
   qsizetype size;
 };
-
 struct VirtualContent {
   QByteArray source;
   std::vector<VirtualLine> lines;
@@ -1952,11 +2260,26 @@ bool buildVirtualContent(const Document& document, size_t container,
     qsizetype virtualStart = 0;
     bool first = true;
     for (const auto& line : listLines(document.source)) {
-      if (line.start < range.offset ||
-          line.end > range.offset + range.size) {
+      if (line.end <= range.offset) {
         continue;
       }
-      const auto contentStart = quotePrefixEnd(document.source, line);
+      if (line.start >= range.offset + range.size) {
+        break;
+      }
+      auto scanStart = line.start;
+      if (first) {
+        scanStart = range.offset;
+      } else {
+        const auto body =
+            document.source.mid(line.start, line.bodyEnd - line.start);
+        if (body.startsWith(mapped.quote->continuationPrefix)) {
+          scanStart += mapped.quote->continuationPrefix.size();
+        } else if (body.startsWith(mapped.quote->blankLinePrefix)) {
+          scanStart += mapped.quote->blankLinePrefix.size();
+        }
+      }
+      const ListLine view{scanStart, line.bodyEnd, line.end};
+      const auto contentStart = quotePrefixEnd(document.source, view);
       if (!contentStart) {
         error = QStringLiteral("Unsupported quoted content line");
         return false;
@@ -2201,6 +2524,127 @@ QuoteMapResult mapNestedQuote(const Document& document, size_t index) {
           {}};
 }
 
+TableSource convertTableSource(const Document& document, size_t realNode,
+                               const VirtualContent& content,
+                               const VirtualParse& parsed,
+                               const TableSource& virtualSource) {
+  TableSource result;
+  result.node = realNode;
+  result.columns = virtualSource.columns;
+  result.continuationPrefix = content.continuationPrefix;
+  result.blankLinePrefix = content.blankLinePrefix;
+  const auto convert = [&content, &parsed](SourceRange range) {
+    const auto start =
+        virtualToReal(content, range.offset - parsed.contentOffset);
+    const auto end = virtualToRealEnd(
+        content, range.offset + range.size - parsed.contentOffset);
+    return SourceRange{start, end - start};
+  };
+  const auto convertCell = [&convert](const TableCellSource& cell) {
+    return TableCellSource{cell.node, convert(cell.range)};
+  };
+  result.range = convert(virtualSource.range);
+  result.header.range = convert(virtualSource.header.range);
+  result.delimiterRange = convert(virtualSource.delimiterRange);
+  for (const auto& cell : virtualSource.header.cells) {
+    result.header.cells.push_back(convertCell(cell));
+  }
+  for (const auto& cell : virtualSource.delimiterCells) {
+    result.delimiterCells.push_back(convert(cell));
+  }
+  for (const auto& row : virtualSource.body) {
+    TableRowSource converted;
+    converted.range = convert(row.range);
+    for (const auto& cell : row.cells) {
+      converted.cells.push_back(convertCell(cell));
+    }
+    result.body.push_back(std::move(converted));
+  }
+
+  size_t head = document.nodes.size();
+  for (auto child : document.nodes[realNode].children) {
+    if (document.nodes[child].type == MD_BLOCK_THEAD) {
+      head = child;
+      break;
+    }
+  }
+  if (head < document.nodes.size() && !document.nodes[head].children.empty()) {
+    const auto headerRow = document.nodes[head].children.front();
+    result.header.node = headerRow;
+    const auto& headerCells = document.nodes[headerRow].children;
+    for (size_t i = 0; i < headerCells.size() && i < result.header.cells.size();
+         ++i) {
+      result.header.cells[i].node = headerCells[i];
+      result.alignments.push_back(static_cast<TableAlignment>(
+          document.nodes[headerCells[i]].attributes["align"].toInt()));
+    }
+  }
+  size_t bodyContainer = document.nodes.size();
+  for (auto child : document.nodes[realNode].children) {
+    if (document.nodes[child].type == MD_BLOCK_TBODY) {
+      bodyContainer = child;
+      break;
+    }
+  }
+  if (bodyContainer < document.nodes.size()) {
+    const auto& rows = document.nodes[bodyContainer].children;
+    for (size_t row = 0; row < rows.size() && row < result.body.size(); ++row) {
+      result.body[row].node = rows[row];
+      const auto& cells = document.nodes[rows[row]].children;
+      for (size_t column = 0;
+           column < cells.size() && column < result.body[row].cells.size();
+           ++column) {
+        result.body[row].cells[column].node = cells[column];
+      }
+    }
+  }
+  return result;
+}
+
+TableMapResult mapNestedTable(const Document& document, size_t index) {
+  if (index >= document.nodes.size() || !document.nodes[index].parent) {
+    return {std::nullopt, QStringLiteral("Invalid table target")};
+  }
+  const auto parent = *document.nodes[index].parent;
+  if (parent >= document.nodes.size()) {
+    return {std::nullopt, QStringLiteral("Invalid table target")};
+  }
+  const auto type = document.nodes[parent].type;
+  if (document.nodes[parent].kind != NodeKind::kBlock ||
+      (type != MD_BLOCK_LI && type != MD_BLOCK_QUOTE)) {
+    return {std::nullopt,
+            QStringLiteral("Unsupported nested table parent: LI or QUOTE is "
+                           "required")};
+  }
+  QString error;
+  VirtualContent content;
+  if (!buildVirtualContent(document, parent, content, error)) {
+    return {std::nullopt, error};
+  }
+  auto parsed = parseVirtual(document, content, error);
+  if (!parsed) {
+    return {std::nullopt, error};
+  }
+  const auto position = childPosition(document, parent, index);
+  if (!position ||
+      *position >= parsed->document.nodes[0].children.size()) {
+    return {std::nullopt, QStringLiteral("Nested table context mismatch")};
+  }
+  const auto virtualNode =
+      parsed->document.nodes[0].children[*position];
+  if (parsed->document.nodes[virtualNode].type != MD_BLOCK_TABLE) {
+    return {std::nullopt, QStringLiteral("Nested table context mismatch")};
+  }
+  const auto virtualTable =
+      mapTopLevelTable(parsed->document, virtualNode);
+  if (!virtualTable.table) {
+    return {std::nullopt, virtualTable.error};
+  }
+  return {convertTableSource(document, index, content, *parsed,
+                             *virtualTable.table),
+          {}};
+}
+
 size_t copySubtree(Document& destination, const Document& source, size_t index,
                    std::optional<size_t> parent) {
   const auto newIndex = destination.nodes.size();
@@ -2270,6 +2714,22 @@ void updateLiTightness(Document& document, size_t li) {
     }
   }
   node.attributes["tight"] = tight;
+  if (!tight || li >= document.nodes.size()) {
+    return;
+  }
+  auto& children = document.nodes[li].children;
+  if (children.size() != 1) {
+    return;
+  }
+  const auto only = children.front();
+  if (document.nodes[only].kind == NodeKind::kBlock &&
+      document.nodes[only].type == MD_BLOCK_P) {
+    auto inner = document.nodes[only].children;
+    for (auto child : inner) {
+      document.nodes[child].parent = li;
+    }
+    children = std::move(inner);
+  }
 }
 
 std::vector<QByteArray> referenceLabels(
@@ -2998,15 +3458,106 @@ std::optional<SourceRange> mapFencedCodeRange(const Document& document,
       continue;
     }
     bool anchored = false;
+    const bool empty =
+        isolated.document->nodes[child].children.empty();
     if (!sameListSources(document, node, *isolated.document, child,
                          range.offset, anchored) ||
-        !anchored) {
+        (!anchored && !empty)) {
       continue;
     }
     return range;
   }
   error = QStringLiteral("Unsupported fenced code source map");
   return std::nullopt;
+}
+
+std::optional<FencedCodeBodySource> mapFencedCodeBodyInternal(
+    const Document& document, size_t node, QString& error) {
+  if (node >= document.nodes.size() ||
+      document.nodes[node].kind != NodeKind::kBlock ||
+      document.nodes[node].type != MD_BLOCK_CODE ||
+      document.nodes[node].parent != std::optional<size_t>(0)) {
+    error = QStringLiteral(
+        "Fenced code body mapping supports only top-level code blocks");
+    return std::nullopt;
+  }
+  QString rangeError;
+  const auto blockRange = mapFencedCodeRange(document, node, rangeError);
+  if (!blockRange) {
+    error = rangeError;
+    return std::nullopt;
+  }
+  const auto original =
+      document.source.mid(blockRange->offset, blockRange->size);
+  const auto lines = listLines(original);
+  if (lines.empty()) {
+    error = QStringLiteral("Fenced code has no source lines");
+    return std::nullopt;
+  }
+  const auto& opening = lines.front();
+  auto position = opening.start;
+  while (position < opening.bodyEnd && original[position] == ' ') {
+    ++position;
+  }
+  if (position - opening.start > 3 || position >= opening.bodyEnd) {
+    error = QStringLiteral("Unsupported fenced code opening line");
+    return std::nullopt;
+  }
+  const auto marker = original[position];
+  if (marker != '`' && marker != '~') {
+    error = QStringLiteral("Unsupported fenced code marker");
+    return std::nullopt;
+  }
+  const auto markerStart = position;
+  while (position < opening.bodyEnd && original[position] == marker) {
+    ++position;
+  }
+  const auto markerCount = position - markerStart;
+  if (markerCount < 3) {
+    error = QStringLiteral("Unsupported fenced code marker");
+    return std::nullopt;
+  }
+  size_t closingLine = lines.size();
+  for (size_t i = 1; i < lines.size(); ++i) {
+    auto close = lines[i].start;
+    while (close < lines[i].bodyEnd && original[close] == ' ') {
+      ++close;
+    }
+    if (close - lines[i].start > 3 || close >= lines[i].bodyEnd ||
+        original[close] != marker) {
+      continue;
+    }
+    auto run = close;
+    while (run < lines[i].bodyEnd && original[run] == marker) {
+      ++run;
+    }
+    if (run - close < markerCount) {
+      continue;
+    }
+    while (run < lines[i].bodyEnd && space(original[run])) {
+      ++run;
+    }
+    if (run == lines[i].bodyEnd) {
+      closingLine = i;
+      break;
+    }
+  }
+  const auto bodyStart = opening.end;
+  const auto bodyEnd =
+      closingLine < lines.size() ? lines[closingLine].start : original.size();
+  if (bodyStart > bodyEnd) {
+    error = QStringLiteral("Invalid fenced code body range");
+    return std::nullopt;
+  }
+  auto eol = original.mid(opening.bodyEnd, opening.end - opening.bodyEnd);
+  if (eol.isEmpty()) {
+    eol = documentEol(document.source);
+  }
+  return FencedCodeBodySource{
+      *blockRange,
+      {blockRange->offset + bodyStart, bodyEnd - bodyStart},
+      eol,
+      closingLine < lines.size()};
 }
 
 std::optional<SourceRange> mapTextBlockRange(const Document& document,
@@ -3290,6 +3841,196 @@ EditResult unwrapQuoteSource(const Document& document,
   return apply(document, expected, mapped.quote->range, replacement);
 }
 
+EditResult wrapInListSource(const Document& document, const WrapInList& edit) {
+  if (document.nodes.empty() || edit.parent != 0 ||
+      document.nodes[0].kind != NodeKind::kBlock ||
+      document.nodes[0].type != MD_BLOCK_DOC) {
+    return {std::nullopt,
+            QStringLiteral("List creation requires the document root")};
+  }
+  const auto& root = document.nodes[0];
+  if (edit.first >= root.children.size()) {
+    return {std::nullopt, QStringLiteral("Invalid list selection")};
+  }
+  const auto block = root.children[edit.first];
+  if (block >= document.nodes.size() ||
+      document.nodes[block].kind != NodeKind::kBlock ||
+      document.nodes[block].type != MD_BLOCK_P) {
+    return {std::nullopt,
+            QStringLiteral("List creation requires a paragraph")};
+  }
+  if (edit.ordered && (edit.start < 1 || edit.start > 999999999)) {
+    return {std::nullopt, QStringLiteral("Invalid ordered list start")};
+  }
+  qsizetype first = document.source.size();
+  qsizetype end = 0;
+  if (!mappedTextBounds(document, block, first, end) || first >= end) {
+    return {std::nullopt,
+            QStringLiteral("Block has no supported source range")};
+  }
+  const auto start =
+      first == 0 ? 0 : document.source.lastIndexOf('\n', first - 1) + 1;
+  const auto newline = document.source.indexOf('\n', end - 1);
+  const auto fullEnd = newline < 0 ? document.source.size() : newline + 1;
+  const SourceRange range{start, fullEnd - start};
+  const auto original = document.source.mid(range.offset, range.size);
+  const auto lines = listLines(original);
+  if (lines.empty()) {
+    return {std::nullopt, QStringLiteral("Paragraph has no source lines")};
+  }
+  const auto marker = edit.ordered
+                          ? QByteArray::number(edit.start) + QByteArray(". ")
+                          : QByteArray("- ");
+  const QByteArray continuation(marker.size(), ' ');
+  QByteArray replacement;
+  for (size_t i = 0; i < lines.size(); ++i) {
+    const auto& line = lines[i];
+    const auto body = original.mid(line.start, line.bodyEnd - line.start);
+    const auto ending = original.mid(line.bodyEnd, line.end - line.bodyEnd);
+    if (body.isEmpty() || body.startsWith(' ') || body.startsWith('\t')) {
+      return {std::nullopt,
+              QStringLiteral("List creation requires an unindented paragraph")};
+    }
+    replacement += i == 0 ? marker : continuation;
+    replacement += body;
+    replacement += ending;
+  }
+  const auto definitions = definitionInventory(document);
+  QString contextError;
+  auto parsed = parseListContext(document, definitions, range.offset,
+                                 range.offset + range.size, replacement,
+                                 contextError);
+  if (!parsed) {
+    return {std::nullopt, contextError};
+  }
+  const auto& list = parsed->document.nodes[parsed->root];
+  const auto expectedType = edit.ordered ? MD_BLOCK_OL : MD_BLOCK_UL;
+  if (list.kind != NodeKind::kBlock || list.type != expectedType ||
+      list.children.size() != 1) {
+    return {std::nullopt, QStringLiteral("Structural list mismatch")};
+  }
+  const auto itemIndex = list.children.front();
+  if (itemIndex >= parsed->document.nodes.size() ||
+      parsed->document.nodes[itemIndex].kind != NodeKind::kBlock ||
+      parsed->document.nodes[itemIndex].type != MD_BLOCK_LI) {
+    return {std::nullopt, QStringLiteral("Structural list item mismatch")};
+  }
+  if (edit.ordered &&
+      list.attributes["start"].toInt() != edit.start) {
+    return {std::nullopt,
+            QStringLiteral("Structural ordered list start mismatch")};
+  }
+  auto expected = document;
+  auto& siblings = expected.nodes[0].children;
+  const auto position = std::find(siblings.begin(), siblings.end(), block);
+  if (position == siblings.end()) {
+    return {std::nullopt, QStringLiteral("Invalid list selection")};
+  }
+  const auto newIndex =
+      copySubtree(expected, parsed->document, parsed->root, 0);
+  *position = newIndex;
+  return apply(document, expected, range, replacement);
+}
+
+EditResult replaceInlineCodeSource(const Document& document,
+                                   const ReplaceInlineCode& edit) {
+  if (edit.node >= document.nodes.size()) {
+    return {std::nullopt, QStringLiteral("Invalid inline code target")};
+  }
+  const auto& node = document.nodes[edit.node];
+  if (node.kind != NodeKind::kText || node.type != MD_TEXT_CODE ||
+      !node.source || !node.parent ||
+      *node.parent >= document.nodes.size()) {
+    return {std::nullopt, QStringLiteral("Invalid inline code target")};
+  }
+  const auto& parent = document.nodes[*node.parent];
+  if (parent.kind != NodeKind::kSpan || parent.type != MD_SPAN_CODE ||
+      parent.children.size() != 1 || parent.children.front() != edit.node ||
+      node.source->offset < 0 ||
+      node.source->offset > document.source.size() ||
+      node.source->size != node.text.size() ||
+      node.source->size > document.source.size() - node.source->offset ||
+      document.source.mid(node.source->offset, node.source->size) !=
+          node.text) {
+    return {std::nullopt, QStringLiteral("Invalid inline code context")};
+  }
+  if (edit.text.isEmpty() || !validUtf8(edit.text) ||
+      edit.text.contains('\0') || edit.text.contains('\r') ||
+      edit.text.contains('\n')) {
+    return {std::nullopt,
+            QStringLiteral("Inline code text must be nonempty single-line UTF-8")};
+  }
+  if (edit.text == node.text) {
+    return {document.source, {}};
+  }
+  auto expected = document;
+  expected.nodes[edit.node].text = edit.text;
+  return apply(document, expected, *node.source, edit.text);
+}
+
+EditResult replaceCodeBodySource(const Document& document,
+                                 const ReplaceCodeBody& edit) {
+  if (edit.node >= document.nodes.size() ||
+      document.nodes[edit.node].kind != NodeKind::kBlock ||
+      document.nodes[edit.node].type != MD_BLOCK_CODE) {
+    return {std::nullopt, QStringLiteral("Invalid fenced code target")};
+  }
+  QString mapError;
+  const auto mapped = mapFencedCodeBodyInternal(document, edit.node, mapError);
+  if (!mapped) {
+    return {std::nullopt, mapError};
+  }
+  if (!validUtf8(edit.body) || edit.body.contains('\0')) {
+    return {std::nullopt, QStringLiteral("Invalid fenced code body")};
+  }
+  QByteArray normalized = edit.body;
+  normalized.replace("\r\n", "\n");
+  normalized.replace('\r', '\n');
+  if (!normalized.isEmpty()) {
+    if (!normalized.endsWith('\n')) {
+      normalized += '\n';
+    }
+    if (mapped->eol != "\n") {
+      normalized.replace('\n', mapped->eol);
+    }
+  }
+  const auto originalBody =
+      document.source.mid(mapped->body.offset, mapped->body.size);
+  if (normalized == originalBody) {
+    return {document.source, {}};
+  }
+  const auto blockEnd = mapped->block.offset + mapped->block.size;
+  const auto suffixStart = mapped->body.offset + mapped->body.size;
+  if (suffixStart < mapped->body.offset || suffixStart > blockEnd) {
+    return {std::nullopt, QStringLiteral("Invalid fenced code body range")};
+  }
+  const auto candidate =
+      document.source.mid(mapped->block.offset,
+                          mapped->body.offset - mapped->block.offset) +
+      normalized +
+      document.source.mid(suffixStart, blockEnd - suffixStart);
+  auto parsed = parse(candidate);
+  if (!parsed.document || parsed.document->nodes[0].children.size() != 1) {
+    return {std::nullopt, QStringLiteral("Structural fenced code mismatch")};
+  }
+  const auto child = parsed.document->nodes[0].children.front();
+  if (parsed.document->nodes[child].type != MD_BLOCK_CODE ||
+      parsed.document->nodes[child].attributes !=
+          document.nodes[edit.node].attributes) {
+    return {std::nullopt, QStringLiteral("Structural fenced code mismatch")};
+  }
+  auto expected = document;
+  auto& siblings = expected.nodes[0].children;
+  const auto position =
+      std::find(siblings.begin(), siblings.end(), edit.node);
+  if (position == siblings.end()) {
+    return {std::nullopt, QStringLiteral("Invalid fenced code target")};
+  }
+  const auto newIndex = copySubtree(expected, *parsed.document, child, 0);
+  *position = newIndex;
+  return apply(document, expected, mapped->body, normalized);
+}
+
 std::optional<SourceRange> contentRangeFor(const Document& document,
                                            const ListItemSource& item,
                                            SourceRange real) {
@@ -3446,6 +4187,672 @@ EditResult indentListItemSource(const Document& document,
   return apply(document, expected, source.range, newSource);
 }
 
+bool validTableCellPayload(const QByteArray& value, QString& error) {
+  if (value.contains('\0') || value.contains('\r') || value.contains('\n') ||
+      !validUtf8(value)) {
+    error = QStringLiteral("Invalid table cell payload");
+    return false;
+  }
+  if (!value.isEmpty()) {
+    if (value.front() == ' ' || value.back() == ' ' ||
+        value.contains('\t')) {
+      error = QStringLiteral("Invalid table cell whitespace");
+      return false;
+    }
+  }
+  return true;
+}
+
+QByteArray escapeTableCell(const QByteArray& value) {
+  constexpr auto kPunctuation = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
+  QByteArray escaped;
+  for (auto character : value) {
+    if (QByteArrayView(kPunctuation).contains(character)) {
+      escaped += '\\';
+    }
+    escaped += character;
+  }
+  return escaped;
+}
+
+QByteArray tableAlignmentDelimiter(TableAlignment alignment) {
+  switch (alignment) {
+    case TableAlignment::kLeft:
+      return ":---";
+    case TableAlignment::kCenter:
+      return ":---:";
+    case TableAlignment::kRight:
+      return "---:";
+    case TableAlignment::kNone:
+      break;
+  }
+  return "---";
+}
+
+QByteArray serializeTable(
+    const std::vector<QByteArray>& header,
+    const std::vector<std::vector<QByteArray>>& body,
+    const std::vector<TableAlignment>& alignments, const QByteArray& eol,
+    bool trailingEol, const QByteArray& continuationPrefix = {}) {
+  QByteArray result;
+  bool firstRow = true;
+  const auto row = [&](const std::vector<QByteArray>& cells) {
+    QByteArray line;
+    if (!firstRow) {
+      line += continuationPrefix;
+    }
+    firstRow = false;
+    line += "|";
+    for (const auto& cell : cells) {
+      line += " ";
+      line += cell;
+      line += " |";
+    }
+    line += eol;
+    return line;
+  };
+  result += row(header);
+  std::vector<QByteArray> delimiter;
+  delimiter.reserve(alignments.size());
+  for (const auto alignment : alignments) {
+    delimiter.push_back(tableAlignmentDelimiter(alignment));
+  }
+  result += row(delimiter);
+  for (const auto& cells : body) {
+    result += row(cells);
+  }
+  if (!trailingEol && result.endsWith(eol)) {
+    result.chop(eol.size());
+  }
+  return result;
+}
+
+std::optional<ContextList> parseTableContext(
+    const Document& document, const std::vector<DefinitionCandidate>& definitions,
+    qsizetype first, qsizetype last, const QByteArray& tableSource,
+    QString& error) {
+  qsizetype offset = 0;
+  const auto context = definitionContext(document, definitions, first, last,
+                                         offset);
+  const auto header = context.left(offset);
+  QByteArray suffix;
+  if (context.size() > offset + (last - first)) {
+    suffix = context.mid(offset + (last - first));
+  }
+  auto parsed = parse(header + tableSource + suffix);
+  if (!parsed.document) {
+    error = QStringLiteral("Structural table parse failed");
+    return std::nullopt;
+  }
+  size_t root = parsed.document->nodes.size();
+  for (auto child : parsed.document->nodes[0].children) {
+    if (parsed.document->nodes[child].type == MD_BLOCK_TABLE) {
+      root = child;
+      break;
+    }
+  }
+  if (root >= parsed.document->nodes.size()) {
+    error = QStringLiteral("Structural table parse produced no table");
+    return std::nullopt;
+  }
+  return ContextList{std::move(*parsed.document), root};
+}
+
+QByteArray tableEol(const Document& document, const TableSource& table) {
+  return documentEol(
+      document.source.mid(table.range.offset, table.range.size));
+}
+
+bool tableTrailingEol(const Document& document, const TableSource& table) {
+  return !(table.range.offset + table.range.size == document.source.size() &&
+           !document.source.endsWith('\n') &&
+           !document.source.endsWith('\r'));
+}
+
+std::vector<QByteArray> tableHeaderFragments(const Document& document,
+                                             const TableSource& table) {
+  std::vector<QByteArray> result;
+  for (const auto& cell : table.header.cells) {
+    result.push_back(document.source.mid(cell.range.offset, cell.range.size));
+  }
+  return result;
+}
+
+std::vector<std::vector<QByteArray>> tableBodyFragments(
+    const Document& document, const TableSource& table) {
+  std::vector<std::vector<QByteArray>> result;
+  for (const auto& row : table.body) {
+    std::vector<QByteArray> cells;
+    for (const auto& cell : row.cells) {
+      cells.push_back(document.source.mid(cell.range.offset, cell.range.size));
+    }
+    result.push_back(std::move(cells));
+  }
+  return result;
+}
+
+EditResult insertTableRowSource(const Document& document,
+                                const InsertTableRow& edit) {
+  const auto mapped = mapTable(document, edit.table);
+  if (!mapped.table) {
+    return {std::nullopt, mapped.error};
+  }
+  const auto& table = *mapped.table;
+  if (edit.position > table.body.size()) {
+    return {std::nullopt, QStringLiteral("Invalid table row position")};
+  }
+  if (edit.cells.size() != table.columns) {
+    return {std::nullopt, QStringLiteral("Invalid table row payload")};
+  }
+  std::vector<QByteArray> newCells;
+  newCells.reserve(edit.cells.size());
+  for (const auto& cell : edit.cells) {
+    QString error;
+    if (!validTableCellPayload(cell, error)) {
+      return {std::nullopt, error};
+    }
+    newCells.push_back(escapeTableCell(cell));
+  }
+  auto body = tableBodyFragments(document, table);
+  body.insert(body.begin() + qsizetype(edit.position), std::move(newCells));
+  const auto header = tableHeaderFragments(document, table);
+  const auto eol = tableEol(document, table);
+  const auto newSource = serializeTable(header, body, table.alignments, eol,
+                                        tableTrailingEol(document, table), table.continuationPrefix);
+  const auto canonicalSource = stripContainerPrefix(
+      newSource, table.continuationPrefix, table.blankLinePrefix);
+  const auto definitions = definitionInventory(document);
+  QString contextError;
+  auto parsed = parseTableContext(document, definitions, table.range.offset,
+                                 table.range.offset + table.range.size,
+                                 canonicalSource, contextError);
+  if (!parsed) {
+    return {std::nullopt, contextError};
+  }
+  const auto& parsedTable = parsed->document.nodes[parsed->root];
+  if (parsedTable.attributes["body_rows"].toInt() != int(body.size()) ||
+      parsedTable.attributes["columns"].toInt() != int(table.columns)) {
+    return {std::nullopt, QStringLiteral("Structural table mismatch")};
+  }
+  auto expected = graftList(document, edit.table, *parsed);
+  return apply(document, expected, table.range, newSource);
+}
+
+EditResult removeTableRowSource(const Document& document,
+                                const RemoveTableRow& edit) {
+  const auto mapped = mapTable(document, edit.table);
+  if (!mapped.table) {
+    return {std::nullopt, mapped.error};
+  }
+  const auto& table = *mapped.table;
+  if (table.body.empty() || edit.index >= table.body.size()) {
+    return {std::nullopt, QStringLiteral("Invalid table row index")};
+  }
+  auto body = tableBodyFragments(document, table);
+  body.erase(body.begin() + qsizetype(edit.index));
+  const auto header = tableHeaderFragments(document, table);
+  const auto eol = tableEol(document, table);
+  const auto newSource = serializeTable(header, body, table.alignments, eol,
+                                        tableTrailingEol(document, table), table.continuationPrefix);
+  const auto canonicalSource = stripContainerPrefix(
+      newSource, table.continuationPrefix, table.blankLinePrefix);
+  const auto definitions = definitionInventory(document);
+  QString contextError;
+  auto parsed = parseTableContext(document, definitions, table.range.offset,
+                                 table.range.offset + table.range.size,
+                                 canonicalSource, contextError);
+  if (!parsed) {
+    return {std::nullopt, contextError};
+  }
+  const auto& parsedTable = parsed->document.nodes[parsed->root];
+  if (parsedTable.attributes["body_rows"].toInt() != int(body.size())) {
+    return {std::nullopt, QStringLiteral("Structural table mismatch")};
+  }
+  auto expected = graftList(document, edit.table, *parsed);
+  return apply(document, expected, table.range, newSource);
+}
+
+EditResult setTableAlignmentSource(const Document& document,
+                                   const SetTableAlignment& edit) {
+  const auto mapped = mapTable(document, edit.table);
+  if (!mapped.table) {
+    return {std::nullopt, mapped.error};
+  }
+  const auto& table = *mapped.table;
+  if (edit.column >= table.columns) {
+    return {std::nullopt, QStringLiteral("Invalid table column index")};
+  }
+  if (table.alignments[edit.column] == edit.alignment) {
+    return {document.source, {}};
+  }
+  auto alignments = table.alignments;
+  alignments[edit.column] = edit.alignment;
+  const auto header = tableHeaderFragments(document, table);
+  const auto body = tableBodyFragments(document, table);
+  const auto eol = tableEol(document, table);
+  const auto newSource = serializeTable(header, body, alignments, eol,
+                                        tableTrailingEol(document, table), table.continuationPrefix);
+  const auto canonicalSource = stripContainerPrefix(
+      newSource, table.continuationPrefix, table.blankLinePrefix);
+  const auto definitions = definitionInventory(document);
+  QString contextError;
+  auto parsed = parseTableContext(document, definitions, table.range.offset,
+                                 table.range.offset + table.range.size,
+                                 canonicalSource, contextError);
+  if (!parsed) {
+    return {std::nullopt, contextError};
+  }
+  const auto& parsedTable = parsed->document.nodes[parsed->root];
+  if (parsedTable.attributes["columns"].toInt() != int(table.columns)) {
+    return {std::nullopt, QStringLiteral("Structural table mismatch")};
+  }
+  auto expected = graftList(document, edit.table, *parsed);
+  return apply(document, expected, table.range, newSource);
+}
+
+EditResult insertTableColumnSource(const Document& document,
+                                   const InsertTableColumn& edit) {
+  const auto mapped = mapTable(document, edit.table);
+  if (!mapped.table) {
+    return {std::nullopt, mapped.error};
+  }
+  const auto& table = *mapped.table;
+  if (edit.position > table.columns) {
+    return {std::nullopt, QStringLiteral("Invalid table column position")};
+  }
+  if (edit.bodyCells.size() != table.body.size()) {
+    return {std::nullopt, QStringLiteral("Invalid table column payload")};
+  }
+  QString error;
+  if (!validTableCellPayload(edit.header, error)) {
+    return {std::nullopt, error};
+  }
+  std::vector<QByteArray> newBodyCells;
+  newBodyCells.reserve(edit.bodyCells.size());
+  for (const auto& cell : edit.bodyCells) {
+    if (!validTableCellPayload(cell, error)) {
+      return {std::nullopt, error};
+    }
+    newBodyCells.push_back(escapeTableCell(cell));
+  }
+  auto header = tableHeaderFragments(document, table);
+  header.insert(header.begin() + qsizetype(edit.position),
+                escapeTableCell(edit.header));
+  auto body = tableBodyFragments(document, table);
+  for (size_t row = 0; row < body.size(); ++row) {
+    body[row].insert(body[row].begin() + qsizetype(edit.position),
+                     newBodyCells[row]);
+  }
+  auto alignments = table.alignments;
+  alignments.insert(alignments.begin() + qsizetype(edit.position),
+                    edit.alignment);
+  const auto eol = tableEol(document, table);
+  const auto newSource = serializeTable(header, body, alignments, eol,
+                                        tableTrailingEol(document, table), table.continuationPrefix);
+  const auto canonicalSource = stripContainerPrefix(
+      newSource, table.continuationPrefix, table.blankLinePrefix);
+  const auto definitions = definitionInventory(document);
+  QString contextError;
+  auto parsed = parseTableContext(document, definitions, table.range.offset,
+                                 table.range.offset + table.range.size,
+                                 canonicalSource, contextError);
+  if (!parsed) {
+    return {std::nullopt, contextError};
+  }
+  const auto& parsedTable = parsed->document.nodes[parsed->root];
+  if (parsedTable.attributes["columns"].toInt() != int(table.columns + 1) ||
+      parsedTable.attributes["body_rows"].toInt() != int(body.size())) {
+    return {std::nullopt, QStringLiteral("Structural table mismatch")};
+  }
+  auto expected = graftList(document, edit.table, *parsed);
+  return apply(document, expected, table.range, newSource);
+}
+
+EditResult removeTableColumnSource(const Document& document,
+                                   const RemoveTableColumn& edit) {
+  const auto mapped = mapTable(document, edit.table);
+  if (!mapped.table) {
+    return {std::nullopt, mapped.error};
+  }
+  const auto& table = *mapped.table;
+  if (table.columns <= 1) {
+    return {std::nullopt, QStringLiteral("Cannot remove the last table column")};
+  }
+  if (edit.index >= table.columns) {
+    return {std::nullopt, QStringLiteral("Invalid table column index")};
+  }
+  auto header = tableHeaderFragments(document, table);
+  header.erase(header.begin() + qsizetype(edit.index));
+  auto body = tableBodyFragments(document, table);
+  for (auto& row : body) {
+    row.erase(row.begin() + qsizetype(edit.index));
+  }
+  auto alignments = table.alignments;
+  alignments.erase(alignments.begin() + qsizetype(edit.index));
+  const auto eol = tableEol(document, table);
+  const auto newSource = serializeTable(header, body, alignments, eol,
+                                        tableTrailingEol(document, table), table.continuationPrefix);
+  const auto canonicalSource = stripContainerPrefix(
+      newSource, table.continuationPrefix, table.blankLinePrefix);
+  const auto definitions = definitionInventory(document);
+  QString contextError;
+  auto parsed = parseTableContext(document, definitions, table.range.offset,
+                                 table.range.offset + table.range.size,
+                                 canonicalSource, contextError);
+  if (!parsed) {
+    return {std::nullopt, contextError};
+  }
+  const auto& parsedTable = parsed->document.nodes[parsed->root];
+  if (parsedTable.attributes["columns"].toInt() != int(table.columns - 1) ||
+      parsedTable.attributes["body_rows"].toInt() != int(body.size())) {
+    return {std::nullopt, QStringLiteral("Structural table mismatch")};
+  }
+  auto expected = graftList(document, edit.table, *parsed);
+  return apply(document, expected, table.range, newSource);
+}
+
+EditResult removeTableSource(const Document& document, const RemoveTable& edit) {
+  const auto mapped = mapTable(document, edit.table);
+  if (!mapped.table) {
+    return {std::nullopt, mapped.error};
+  }
+  const auto parent = document.nodes[edit.table].parent;
+  SourceRange removal = mapped.table->range;
+  if (parent && document.nodes[*parent].type == MD_BLOCK_LI) {
+    size_t firstBlock = document.nodes[*parent].children.size();
+    for (auto child : document.nodes[*parent].children) {
+      if (document.nodes[child].kind == NodeKind::kBlock) {
+        firstBlock = child;
+        break;
+      }
+    }
+    size_t blocks = 0;
+    for (auto child : document.nodes[*parent].children) {
+      if (document.nodes[child].kind == NodeKind::kBlock) {
+        ++blocks;
+      }
+    }
+    if (firstBlock == edit.table) {
+      const auto lineStart = lineStartAt(document.source, mapped.table->range.offset);
+      bool onlySpaces = true;
+      for (auto i = lineStart; i < mapped.table->range.offset; ++i) {
+        if (document.source[i] != ' ') {
+          onlySpaces = false;
+          break;
+        }
+      }
+      if (!onlySpaces) {
+        return {std::nullopt,
+                QStringLiteral("Unsupported RemoveTable on an LI marker line")};
+      }
+    }
+    if (blocks <= 1) {
+      return {std::nullopt,
+              QStringLiteral("Unsupported cascade: table is the only LI block")};
+    }
+    removal = {lineStartAt(document.source, mapped.table->range.offset),
+               mapped.table->range.offset + mapped.table->range.size -
+                   lineStartAt(document.source, mapped.table->range.offset)};
+  } else if (parent && document.nodes[*parent].type == MD_BLOCK_QUOTE) {
+    if (document.nodes[*parent].children.size() <= 1) {
+      return {std::nullopt,
+              QStringLiteral("Unsupported cascade: table is the only quote block")};
+    }
+    const auto lineStart = lineStartAt(document.source, mapped.table->range.offset);
+    removal = {lineStart, mapped.table->range.offset +
+                              mapped.table->range.size - lineStart};
+  }
+  auto expected = removeListNode(document, edit.table);
+  if (parent && document.nodes[*parent].type == MD_BLOCK_LI) {
+    updateLiTightness(expected, *parent);
+  }
+  return apply(document, expected, removal, QByteArray{});
+}
+
+std::optional<size_t> tableNodeForCell(const Document& document, size_t cell) {
+  auto parent = document.nodes[cell].parent;
+  while (parent) {
+    if (*parent >= document.nodes.size()) {
+      return std::nullopt;
+    }
+    if (document.nodes[*parent].kind == NodeKind::kBlock &&
+        document.nodes[*parent].type == MD_BLOCK_TABLE) {
+      return *parent;
+    }
+    parent = document.nodes[*parent].parent;
+  }
+  return std::nullopt;
+}
+
+const TableCellSource* findTableCell(const TableSource& table, size_t node) {
+  for (const auto& cell : table.header.cells) {
+    if (cell.node == node) {
+      return &cell;
+    }
+  }
+  for (const auto& row : table.body) {
+    for (const auto& cell : row.cells) {
+      if (cell.node == node) {
+        return &cell;
+      }
+    }
+  }
+  return nullptr;
+}
+
+EditResult insertTableCellTextSource(const Document& document,
+                                     const InsertTableCellText& edit) {
+  if (edit.cell >= document.nodes.size() ||
+      document.nodes[edit.cell].kind != NodeKind::kBlock ||
+      (document.nodes[edit.cell].type != MD_BLOCK_TH &&
+       document.nodes[edit.cell].type != MD_BLOCK_TD)) {
+    return {std::nullopt, QStringLiteral("Invalid table cell target")};
+  }
+  const auto tableNode = tableNodeForCell(document, edit.cell);
+  if (!tableNode || document.nodes[*tableNode].parent !=
+                        std::optional<size_t>(0)) {
+    return {std::nullopt,
+            QStringLiteral("Table cell text insertion supports only top-level "
+                           "tables")};
+  }
+  const auto mapped = mapTable(document, *tableNode);
+  if (!mapped.table) {
+    return {std::nullopt, mapped.error};
+  }
+  const auto* cell = findTableCell(*mapped.table, edit.cell);
+  if (!cell || cell->range.size != 0 ||
+      !document.nodes[edit.cell].children.empty()) {
+    return {std::nullopt, QStringLiteral("Table cell is not empty")};
+  }
+  QString payloadError;
+  if (edit.text.isEmpty() || !validTableCellPayload(edit.text, payloadError)) {
+    return {std::nullopt,
+            QStringLiteral("Table cell text must be nonempty single-line UTF-8")};
+  }
+  const auto escaped = escapeTableCell(edit.text);
+  const auto tableSource = document.source.mid(mapped.table->range.offset,
+                                               mapped.table->range.size);
+  const auto lineStart = lineStartAt(document.source, cell->range.offset);
+  auto lineEnd = document.source.indexOf('\n', cell->range.offset);
+  if (lineEnd < 0) {
+    lineEnd = document.source.size();
+  }
+  auto bodyEnd = lineEnd;
+  if (bodyEnd > lineStart && document.source[bodyEnd - 1] == '\r') {
+    --bodyEnd;
+  }
+  qsizetype previousPipe = -1;
+  for (auto i = cell->range.offset - 1; i >= lineStart; --i) {
+    if (document.source[i] == '|' &&
+        !escapedAt(document.source, lineStart, i)) {
+      previousPipe = i;
+      break;
+    }
+  }
+  qsizetype nextPipe = -1;
+  for (auto i = cell->range.offset + cell->range.size; i < bodyEnd; ++i) {
+    if (document.source[i] == '|' &&
+        !escapedAt(document.source, lineStart, i)) {
+      nextPipe = i;
+      break;
+    }
+  }
+  if (previousPipe < 0 || nextPipe <= previousPipe) {
+    return {std::nullopt,
+            QStringLiteral("Table cell insertion requires outer pipes")};
+  }
+  const auto segmentOffset = previousPipe + 1;
+  const auto segmentSize = nextPipe - segmentOffset;
+  const auto replacement = QByteArray(" ") + escaped + " ";
+  const auto relative = segmentOffset - mapped.table->range.offset;
+  const auto relativeEnd =
+      relative + segmentSize;
+  if (relative < 0 || relativeEnd > tableSource.size()) {
+    return {std::nullopt, QStringLiteral("Invalid table cell range")};
+  }
+  auto newTableSource = tableSource.left(relative);
+  newTableSource += replacement;
+  newTableSource += tableSource.mid(relativeEnd);
+  const auto definitions = definitionInventory(document);
+  QString contextError;
+  auto parsed = parseTableContext(
+      document, definitions, mapped.table->range.offset,
+      mapped.table->range.offset + mapped.table->range.size, newTableSource,
+      contextError);
+  if (!parsed) {
+    return {std::nullopt, contextError};
+  }
+  auto expected = graftList(document, *tableNode, *parsed);
+  return apply(document, expected, {segmentOffset, segmentSize}, replacement);
+}
+
+std::optional<qsizetype> topLevelBlockStart(const Document& document,
+                                            size_t node) {
+  QString error;
+  const auto range = mapTopLevelBlockRange(document, node, error);
+  if (range) {
+    return range->offset;
+  }
+  for (const auto& envelope : evidenceEnvelopes(document)) {
+    if (envelope.node == node) {
+      return lineStartAt(document.source, envelope.range.offset);
+    }
+  }
+  return std::nullopt;
+}
+
+struct TopLevelInsertion {
+  qsizetype offset;
+  QByteArray prefix;
+  QByteArray suffix;
+};
+
+std::optional<TopLevelInsertion> topLevelInsertion(const Document& document,
+                                                   size_t position,
+                                                   QString& error) {
+  if (document.nodes.empty() ||
+      document.nodes[0].kind != NodeKind::kBlock ||
+      document.nodes[0].type != MD_BLOCK_DOC) {
+    error = QStringLiteral("Invalid block insertion");
+    return std::nullopt;
+  }
+  const auto& root = document.nodes[0];
+  if (position > root.children.size()) {
+    error = QStringLiteral("Invalid block insertion position");
+    return std::nullopt;
+  }
+  qsizetype offset = document.source.size();
+  if (position < root.children.size()) {
+    const auto start = topLevelBlockStart(document, root.children[position]);
+    if (!start) {
+      error = QStringLiteral("Cannot find block insertion boundary");
+      return std::nullopt;
+    }
+    offset = *start;
+  }
+  const auto eol = documentEol(document.source);
+  QByteArray prefix;
+  if (offset > 0) {
+    const auto before = document.source.left(offset);
+    const bool blank = before.endsWith("\n\n") ||
+                       before.endsWith("\r\n\r\n") || before.endsWith("\r\r");
+    const bool one = before.endsWith('\n') || before.endsWith('\r');
+    if (!blank) {
+      prefix = one ? eol : eol + eol;
+    }
+  }
+  const QByteArray suffix = offset < document.source.size() ? eol : QByteArray{};
+  return TopLevelInsertion{offset, prefix, suffix};
+}
+
+EditResult insertTopLevelFragment(const Document& document, size_t position,
+                                  const QByteArray& fragment,
+                                  int expectedType) {
+  QString error;
+  const auto insertion = topLevelInsertion(document, position, error);
+  if (!insertion) {
+    return {std::nullopt, error};
+  }
+  auto parsed = parse(fragment);
+  if (!parsed.document || parsed.document->nodes[0].children.size() != 1) {
+    return {std::nullopt, QStringLiteral("Structural block insertion failed")};
+  }
+  const auto child = parsed.document->nodes[0].children.front();
+  if (parsed.document->nodes[child].type != expectedType) {
+    return {std::nullopt, QStringLiteral("Structural block insertion failed")};
+  }
+  auto expected = document;
+  const auto newIndex = copySubtree(expected, *parsed.document, child, 0);
+  expected.nodes[0].children.insert(
+      expected.nodes[0].children.begin() + qsizetype(position), newIndex);
+  return apply(document, expected, {insertion->offset, 0},
+               insertion->prefix + fragment + insertion->suffix);
+}
+
+EditResult insertTableSource(const Document& document, const InsertTable& edit) {
+  if (edit.columns == 0 || edit.columns > 1000 || edit.bodyRows > 10000) {
+    return {std::nullopt, QStringLiteral("Invalid table dimensions")};
+  }
+  const auto eol = documentEol(document.source);
+  const auto row = [&](bool delimiter) {
+    QByteArray value;
+    for (size_t column = 0; column < edit.columns; ++column) {
+      value += delimiter ? QByteArray("| --- ") : QByteArray("|  ");
+    }
+    value += '|';
+    value += eol;
+    return value;
+  };
+  QByteArray table;
+  for (size_t column = 0; column < edit.columns; ++column) {
+    table += "| Column " + QByteArray::number(qulonglong(column + 1)) + ' ';
+  }
+  table += '|';
+  table += eol;
+  table += row(true);
+  for (size_t body = 0; body < edit.bodyRows; ++body) {
+    table += row(false);
+  }
+  return insertTopLevelFragment(document, edit.position, table,
+                                MD_BLOCK_TABLE);
+}
+
+EditResult insertHorizontalRuleSource(const Document& document,
+                                      const InsertHorizontalRule& edit) {
+  const auto fragment = QByteArray("---") + documentEol(document.source);
+  return insertTopLevelFragment(document, edit.position, fragment,
+                                MD_BLOCK_HR);
+}
+
+EditResult insertFencedCodeSource(const Document& document,
+                                  const InsertFencedCode& edit) {
+  const auto eol = documentEol(document.source);
+  const auto fragment =
+      QByteArray("```") + eol + QByteArray("```") + eol;
+  return insertTopLevelFragment(document, edit.position, fragment,
+                                MD_BLOCK_CODE);
+}
+
 EditResult outdentListItemSource(const Document& document,
                                  const OutdentListItem& edit) {
   QString error;
@@ -3579,6 +4986,204 @@ EditResult outdentListItemSource(const Document& document,
   return apply(document, expected, outer.list->range, newSource);
 }
 
+
+EditResult wrapInLinkSource(const Document& document,
+                            const WrapInLink& edit) {
+  if (edit.node >= document.nodes.size()) {
+    return {std::nullopt, QStringLiteral("Invalid link text target")};
+  }
+  const auto& node = document.nodes[edit.node];
+  const auto& range = edit.textRange;
+  if (node.kind != NodeKind::kText || node.type != MD_TEXT_NORMAL ||
+      !node.source || node.source->offset < 0 ||
+      node.source->offset > document.source.size() ||
+      node.source->size != node.text.size() ||
+      node.source->size > document.source.size() - node.source->offset ||
+      document.source.mid(node.source->offset, node.source->size) !=
+          node.text ||
+      range.offset < 0 || range.size <= 0 ||
+      range.offset > node.text.size() ||
+      range.size > node.text.size() - range.offset) {
+    return {std::nullopt,
+            QStringLiteral("Link creation requires a mapped text selection")};
+  }
+  const auto selected = node.text.mid(range.offset, range.size);
+  if (selected.isEmpty() || !validUtf8(selected) ||
+      selected.contains('\0') || selected.contains('\r') ||
+      selected.contains('\n')) {
+    return {std::nullopt, QStringLiteral("Invalid link label selection")};
+  }
+  if (edit.url.isEmpty() || !validUtf8(edit.url) ||
+      edit.url.contains('\0') || edit.url.contains('\r') ||
+      edit.url.contains('\n') || edit.url.contains('<') ||
+      edit.url.contains('>') || edit.url.contains(' ') ||
+      edit.url.contains('\t')) {
+    return {std::nullopt, QStringLiteral("Invalid link URL")};
+  }
+  auto ancestor = node.parent;
+  while (ancestor) {
+    if (*ancestor >= document.nodes.size()) {
+      return {std::nullopt, QStringLiteral("Invalid link ancestry")};
+    }
+    const auto& parent = document.nodes[*ancestor];
+    if (parent.kind == NodeKind::kSpan &&
+        (parent.type == MD_SPAN_A || parent.type == MD_SPAN_IMG)) {
+      return {std::nullopt,
+              QStringLiteral("Nested links/images are not supported")};
+    }
+    ancestor = parent.parent;
+  }
+  const auto replacement = QByteArray("[") + selected + QByteArray("](<") +
+                           edit.url + QByteArray(">)");
+  auto parsed = parse(replacement);
+  if (!parsed.document || parsed.document->nodes[0].children.size() != 1) {
+    return {std::nullopt, QStringLiteral("Invalid link source")};
+  }
+  const auto paragraph = parsed.document->nodes[0].children.front();
+  if (parsed.document->nodes[paragraph].type != MD_BLOCK_P ||
+      parsed.document->nodes[paragraph].children.size() != 1) {
+    return {std::nullopt, QStringLiteral("Invalid link source")};
+  }
+  const auto link = parsed.document->nodes[paragraph].children.front();
+  if (parsed.document->nodes[link].type != MD_SPAN_A) {
+    return {std::nullopt, QStringLiteral("Invalid link source")};
+  }
+  const auto parent = node.parent;
+  if (!parent || *parent >= document.nodes.size()) {
+    return {std::nullopt, QStringLiteral("Invalid link parent")};
+  }
+  auto& siblings = document.nodes[*parent].children;
+  const auto position = std::find(siblings.begin(), siblings.end(), edit.node);
+  if (position == siblings.end()) {
+    return {std::nullopt, QStringLiteral("Invalid link parent")};
+  }
+  auto expected = document;
+  std::vector<size_t> replacementNodes;
+  const auto addText = [&](const QByteArray& text) {
+    auto copy = document.nodes[edit.node];
+    copy.text = text;
+    copy.children.clear();
+    copy.source.reset();
+    expected.nodes.push_back(std::move(copy));
+    replacementNodes.push_back(expected.nodes.size() - 1);
+  };
+  const auto before = node.text.left(range.offset);
+  const auto after = node.text.mid(range.offset + range.size);
+  if (!before.isEmpty()) {
+    addText(before);
+  }
+  const auto linkIndex = copySubtree(expected, *parsed.document, link, *parent);
+  replacementNodes.push_back(linkIndex);
+  if (!after.isEmpty()) {
+    addText(after);
+  }
+  const auto index = size_t(position - siblings.begin());
+  auto& expectedSiblings = expected.nodes[*parent].children;
+  expectedSiblings.erase(expectedSiblings.begin() + qsizetype(index));
+  expectedSiblings.insert(expectedSiblings.begin() + qsizetype(index),
+                          replacementNodes.begin(), replacementNodes.end());
+  return apply(document, expected,
+               {node.source->offset + range.offset, range.size}, replacement);
+}
+
+EditResult insertImageSource(const Document& document,
+                             const InsertImage& edit) {
+  if (edit.node >= document.nodes.size()) {
+    return {std::nullopt, QStringLiteral("Invalid image text target")};
+  }
+  const auto& node = document.nodes[edit.node];
+  const auto& range = edit.textRange;
+  if (node.kind != NodeKind::kText || node.type != MD_TEXT_NORMAL ||
+      !node.source || node.source->offset < 0 ||
+      node.source->offset > document.source.size() ||
+      node.source->size != node.text.size() ||
+      node.source->size > document.source.size() - node.source->offset ||
+      document.source.mid(node.source->offset, node.source->size) !=
+          node.text ||
+      range.offset < 0 || range.size <= 0 ||
+      range.offset > node.text.size() ||
+      range.size > node.text.size() - range.offset) {
+    return {std::nullopt,
+            QStringLiteral("Image creation requires a mapped text selection")};
+  }
+  const auto alt = node.text.mid(range.offset, range.size);
+  if (alt.isEmpty() || !validUtf8(alt) || alt.contains('\0') ||
+      alt.contains('\r') || alt.contains('\n')) {
+    return {std::nullopt, QStringLiteral("Invalid image alt selection")};
+  }
+  if (edit.src.isEmpty() || !validUtf8(edit.src) ||
+      edit.src.contains('\0') || edit.src.contains('\r') ||
+      edit.src.contains('\n') || edit.src.contains('<') ||
+      edit.src.contains('>') || edit.src.contains(' ') ||
+      edit.src.contains('\t')) {
+    return {std::nullopt, QStringLiteral("Invalid image source")};
+  }
+  auto ancestor = node.parent;
+  while (ancestor) {
+    if (*ancestor >= document.nodes.size()) {
+      return {std::nullopt, QStringLiteral("Invalid image ancestry")};
+    }
+    const auto& parent = document.nodes[*ancestor];
+    if (parent.kind == NodeKind::kSpan &&
+        (parent.type == MD_SPAN_A || parent.type == MD_SPAN_IMG)) {
+      return {std::nullopt,
+              QStringLiteral("Nested links/images are not supported")};
+    }
+    ancestor = parent.parent;
+  }
+  const auto replacement = QByteArray("![") + alt + QByteArray("](<") +
+                           edit.src + QByteArray(">)");
+  auto parsed = parse(replacement);
+  if (!parsed.document || parsed.document->nodes[0].children.size() != 1) {
+    return {std::nullopt, QStringLiteral("Invalid image source")};
+  }
+  const auto paragraph = parsed.document->nodes[0].children.front();
+  if (parsed.document->nodes[paragraph].type != MD_BLOCK_P ||
+      parsed.document->nodes[paragraph].children.size() != 1) {
+    return {std::nullopt, QStringLiteral("Invalid image source")};
+  }
+  const auto image = parsed.document->nodes[paragraph].children.front();
+  if (parsed.document->nodes[image].type != MD_SPAN_IMG) {
+    return {std::nullopt, QStringLiteral("Invalid image source")};
+  }
+  const auto parent = node.parent;
+  if (!parent || *parent >= document.nodes.size()) {
+    return {std::nullopt, QStringLiteral("Invalid image parent")};
+  }
+  auto& siblings = document.nodes[*parent].children;
+  const auto position = std::find(siblings.begin(), siblings.end(), edit.node);
+  if (position == siblings.end()) {
+    return {std::nullopt, QStringLiteral("Invalid image parent")};
+  }
+  auto expected = document;
+  std::vector<size_t> replacementNodes;
+  const auto addText = [&](const QByteArray& text) {
+    auto copy = document.nodes[edit.node];
+    copy.text = text;
+    copy.children.clear();
+    copy.source.reset();
+    expected.nodes.push_back(std::move(copy));
+    replacementNodes.push_back(expected.nodes.size() - 1);
+  };
+  const auto before = node.text.left(range.offset);
+  const auto after = node.text.mid(range.offset + range.size);
+  if (!before.isEmpty()) {
+    addText(before);
+  }
+  const auto imageIndex = copySubtree(expected, *parsed.document, image,
+                                      *parent);
+  replacementNodes.push_back(imageIndex);
+  if (!after.isEmpty()) {
+    addText(after);
+  }
+  const auto index = size_t(position - siblings.begin());
+  auto& expectedSiblings = expected.nodes[*parent].children;
+  expectedSiblings.erase(expectedSiblings.begin() + qsizetype(index));
+  expectedSiblings.insert(expectedSiblings.begin() + qsizetype(index),
+                          replacementNodes.begin(), replacementNodes.end());
+  return apply(document, expected,
+               {node.source->offset + range.offset, range.size}, replacement);
+}
 
 EditResult toggleInlineSource(const Document& document,
                               const ToggleInlineStyle& edit) {
@@ -3725,6 +5330,11 @@ EditResult toggleInlineSource(const Document& document,
 
 }  // namespace
 
+std::optional<FencedCodeBodySource> mapFencedCodeBody(
+    const Document& document, size_t node, QString& error) {
+  return mapFencedCodeBodyInternal(document, node, error);
+}
+
 ParseResult applyEdit(const Document& document, const SnapshotToken& token,
                       const EditCommand& command) {
   const auto current = snapshotToken(document);
@@ -3753,10 +5363,40 @@ ParseResult applyEdit(const Document& document, const SnapshotToken& token,
           return wrapInQuoteSource(document, edit);
         } else if constexpr (std::is_same_v<Command, UnwrapQuote>) {
           return unwrapQuoteSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, WrapInList>) {
+          return wrapInListSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, ReplaceCodeBody>) {
+          return replaceCodeBodySource(document, edit);
         } else if constexpr (std::is_same_v<Command, IndentListItem>) {
           return indentListItemSource(document, edit);
         } else if constexpr (std::is_same_v<Command, OutdentListItem>) {
           return outdentListItemSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, InsertTableRow>) {
+          return insertTableRowSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, RemoveTableRow>) {
+          return removeTableRowSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, SetTableAlignment>) {
+          return setTableAlignmentSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, InsertTableColumn>) {
+          return insertTableColumnSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, RemoveTableColumn>) {
+          return removeTableColumnSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, RemoveTable>) {
+          return removeTableSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, InsertTableCellText>) {
+          return insertTableCellTextSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, InsertTable>) {
+          return insertTableSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, InsertHorizontalRule>) {
+          return insertHorizontalRuleSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, InsertFencedCode>) {
+          return insertFencedCodeSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, WrapInLink>) {
+          return wrapInLinkSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, InsertImage>) {
+          return insertImageSource(document, edit);
+        } else if constexpr (std::is_same_v<Command, ReplaceInlineCode>) {
+          return replaceInlineCodeSource(document, edit);
         } else {
           return toggleInlineSource(document, edit);
         }

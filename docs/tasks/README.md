@@ -10,35 +10,60 @@
 | 002 | Spike GFM-парсера и round-trip | Done | 001 |
 | 003 | Модель документа, сессия и файловый ввод-вывод | Done | 001, 002 |
 | 004 | SDI-окна и Markdown-редактор | Done | 001, 003 |
-| 005 | Непрерывный WYSIWYG-редактор (поэтапная приёмка) | In Progress | 002, 003, 004; первый срез 026 |
-| 006 | Постраничный WYSIWYG и настройки страницы | Draft | 005 |
-| 007 | HTML-экспорт | Ready | 002, 003 |
-| 008 | PDF-экспорт и печать | Draft | 006 |
-| 009 | Настройки приложения и сочетания клавиш | Draft | 001, 004 |
-| 010 | Решения по автосохранению и макету страницы | Draft | — |
-| 011 | Сквозная проверка и готовность к выпуску | Ready | 004, 005, 006, 007, 008, 009 |
+| 005 | Непрерывный WYSIWYG-редактор (поэтапная приёмка) | Done | 002, 003, 004; срезы 026–042 |
+| 006 | Постраничный WYSIWYG и настройки страницы | Done | 005; page defaults в 009 |
+| 007 | HTML-экспорт | Done | 002, 003 |
+| 008 | PDF-экспорт и печать | Done | 006 |
+| 009 | Настройки приложения и сочетания клавиш | Done | 001, 004 |
+| 010 | Решения по автосохранению и макету страницы | Done | — |
+| 011 | Сквозная проверка и готовность к выпуску | Blocked | 004–009; ждёт native/manual QA и remote CI |
 | 012 | MD4C block source-map и структурные операции | Done | 002 |
 | 013 | Вложенные диапазоны и общий контракт MD4C-правок | Done | 012 |
 | 014 | MD4C списки/цитаты — родительский контракт | Done | 013, 025; приёмка 016–020 |
-| 015 | MD4C таблицы — родительский контракт | Ready | 014, 025; приёмка 021–024 |
+| 015 | MD4C таблицы — родительский контракт | Done | 014, 025; приёмка 021–024 |
 | 016 | Source-map top-level списков | Done | 013 |
 | 017 | Базовые команды top-level списков | Done | 016, 025 |
 | 018 | Top-level цитаты и wrap/unwrap | Done | 017 |
 | 019 | Вложенные list/quote контейнеры | Done | 017, 018 |
 | 020 | Indent/outdent списков | Done | 019 |
-| 021 | Source-map top-level таблиц | Ready | 014 |
-| 022 | Строки таблиц и alignment | Ready | 021 |
-| 023 | Колонки и удаление таблицы | Ready | 022 |
-| 024 | Вложенные таблицы | Ready | 019, 023 |
+| 021 | Source-map top-level таблиц | Done | 014 |
+| 022 | Строки таблиц и alignment | Done | 021 |
+| 023 | Колонки и удаление таблицы | Done | 022 |
+| 024 | Вложенные таблицы | Done | 019, 023 |
 | 025 | Проектирование scope link definitions | Done | 013 |
 | 026 | Безопасный редактируемый WYSIWYG-срез | Done | 004, 013 |
 | 027 | Bold/Italic/Strikethrough в выделенном run | Done | 026 |
 | 028 | Инертные ссылки и редактирование подписей | Done | 026, 027 |
+| 029 | Инертные изображения и alt-подписи | Done | 028 |
+| 030 | Blockquote и списки в continuous WYSIWYG | Done | 014–020, 026–029 |
+| 031 | Редактируемые fenced code blocks в continuous | Done | 012, 026–030 |
+| 032 | Иконки кнопок toolbar | Done | 009, 030, 031 |
+| 033 | Первый срез визуальных таблиц в continuous | Done | 015, 021–024, 026–032 |
+| 034 | Table structure commands в continuous | Done | 021–024, 033 |
+| 035 | Ввод текста в пустые table cells | Done | 021–024, 033, 034 |
+| 036 | Создание таблицы из Format > Table | Done | 021–024, 033–035 |
+| 037 | Code block и Horizontal Rule insertion | Done | 031, 036 |
+| 038 | Создание inline-ссылки из selection | Done | 013, 027, 028 |
+| 039 | Создание inline-изображения из alt-selection | Done | 013, 028, 029, 038 |
+| 040 | Выбор размера таблицы при создании | Done | 036 |
+| 041 | Inline code spans: rendering и редактирование | Done | 013, 026, 031 |
+| 042 | Acceptance matrix Task 005 и закрытие среза | Done | 026–041 |
 
 ```text
 001 -> 002 -> 003 -> 004 -> 005 -> 006 -> 008
                    \-> 007
 001 -> 004 -> 009
+009,030,031 -> 032
+015,021–024,026–032 -> 033
+021–024,033 -> 034
+021–024,033,034 -> 035
+021–024,033–035 -> 036
+031,036 -> 037
+013,027,028 -> 038
+013,028,029,038 -> 039
+036 -> 040
+013,026,031 -> 041
+026–041 -> 042; 005 Done -> 011 unblocked by dependency, release QA remains
 010 разблокирует решения в 006/008 и последующую задачу автосохранения
 004,005,006,007,008,009 -> 011
 002 -> 012 -> 013 -> 016 -> 017 -> 018 -> 019 -> 020
@@ -47,6 +72,7 @@
 014 -> 021 -> 022 -> 023 -> 024
                    019 -> 024
 021,022,023,024,025 -> приёмка 015
+026 -> 027 -> 028 -> 029 -> 030 -> 031
 ```
 
 Независимые задачи можно запускать параллельно только после утверждения общих контрактов и владения затрагиваемыми файлами. Например, после завершения 003 задачи 004 и 007 могут идти параллельно; задача 005 начинается после 004 и готового GFM контракта.
@@ -140,11 +166,16 @@ WrapInQuote/UnwrapQuote для document parent; 019 Done распростран�
 команды на nested LI/QUOTE parents (depth 1–3) с virtual content и prefix
 rendering; 020 Done добавляет атомарные IndentListItem/OutdentListItem с
 сохранением start, renumber только затронутых lists и AST guard для
-tightness/task-state. Следующий крупный этап — таблицы 021–024.
+tightness/task-state; 021 Done добавляет exact top-level table/row/raw-cell
+mapping и context-aware reference validation; 022 Done добавляет InsertTableRow/
+RemoveTableRow/SetTableAlignment с plain-text payload, нормализованной table
+serialization и alignment no-op; 023 Done добавляет InsertTableColumn/
+RemoveTableColumn/RemoveTable с last-column защитой и atomic удалением только
+table range; 024 Done распространяет mapping и все шесть table commands на
+nested LI/QUOTE tables depth 1–3 с required RemoveTable refusals.
 Подтверждены сохранение start с последовательной нумерацией, удаление списка
 при удалении последнего LI, header-only после удаления последней body row и
 запрет удаления последней колонки (для таблицы есть отдельная RemoveTable).
 Новые plain-text cells с краевым ASCII space/любым TAB в v2 отклоняются;
-пустые cells разрешены. List-команды пока не подключены к UI; table
-mutations 021–024 не реализованы, проверены mapping 016 и parser
-characterization 025.
+пустые cells разрешены. List/quote/table-команды пока не подключены к UI;
+016–025 выполнены на engine/test уровне.

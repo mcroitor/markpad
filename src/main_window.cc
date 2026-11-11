@@ -1,27 +1,80 @@
 #include "main_window.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QCloseEvent>
+#include <QColor>
+#include <QFileDialog>
 #include <QFileInfo>
+#include <QFont>
 #include <QFontDatabase>
 #include <QKeyEvent>
+#include <QList>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPageLayout>
+#include <QPalette>
 #include <QPlainTextEdit>
+#include <QPrintDialog>
+#include <QPrinter>
 #include <QSignalBlocker>
+#include <QSize>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QStyle>
 #include <QStringConverter>
 #include <QTextCursor>
 #include <QTextEdit>
+#include <QTimer>
 #include <QToolBar>
 #include <algorithm>
 
 #include "continuous_editor.h"
+#include "html_export.h"
 #include "markdown_highlighter.h"
+#include "pdf_export.h"
+#include "qt_html_export_service.h"
+#include "settings_dialog.h"
+#include "toolbar_icons.h"
 
 namespace markpad {
 namespace {
+
+std::optional<ContinuousEditor::TableAction> tableActionKind(
+    const QString& name) {
+  if (name == QStringLiteral("tableInsertRowAboveAction")) {
+    return ContinuousEditor::TableAction::kInsertRowAbove;
+  }
+  if (name == QStringLiteral("tableInsertRowBelowAction")) {
+    return ContinuousEditor::TableAction::kInsertRowBelow;
+  }
+  if (name == QStringLiteral("tableRemoveRowAction")) {
+    return ContinuousEditor::TableAction::kRemoveRow;
+  }
+  if (name == QStringLiteral("tableInsertColumnLeftAction")) {
+    return ContinuousEditor::TableAction::kInsertColumnLeft;
+  }
+  if (name == QStringLiteral("tableInsertColumnRightAction")) {
+    return ContinuousEditor::TableAction::kInsertColumnRight;
+  }
+  if (name == QStringLiteral("tableRemoveColumnAction")) {
+    return ContinuousEditor::TableAction::kRemoveColumn;
+  }
+  if (name == QStringLiteral("tableAlignLeftAction")) {
+    return ContinuousEditor::TableAction::kAlignLeft;
+  }
+  if (name == QStringLiteral("tableAlignCenterAction")) {
+    return ContinuousEditor::TableAction::kAlignCenter;
+  }
+  if (name == QStringLiteral("tableAlignRightAction")) {
+    return ContinuousEditor::TableAction::kAlignRight;
+  }
+  if (name == QStringLiteral("tableRemoveTableAction")) {
+    return ContinuousEditor::TableAction::kRemoveTable;
+  }
+  return std::nullopt;
+}
 
 struct Projection {
   QString text;
@@ -77,6 +130,11 @@ QString rawEditorText(QPlainTextEdit* editor) {
 
 MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
     : session_(files), dialogs_(dialogs), editor_(new QPlainTextEdit(this)) {
+  const auto loaded = settingsService_.load();
+  settings_ = loaded.settings;
+  languageText_ = settingsService_.languageMap(settings_.language);
+  settingsDiagnostic_ = loaded.diagnostic;
+  dialogs_.setDefaultLocation(settings_.defaultFileLocation);
   resize(1000, 700);
   editor_->setObjectName(QStringLiteral("markdownEditor"));
   editor_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
@@ -89,9 +147,11 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   setCentralWidget(workspace_);
   continuous_->editor()->installEventFilter(this);
   new MarkdownHighlighter(editor_->document());
-  auto* file = menuBar()->addMenu(QStringLiteral("&File"));
+  auto* file = menuBar()->addMenu(text(QStringLiteral("menu.file"),
+                                      QStringLiteral("&File")));
+  file->setObjectName(QStringLiteral("fileMenu"));
   auto* toolbar = addToolBar(QStringLiteral("File"));
-  toolbar->setObjectName(QStringLiteral("fileToolbar"));
+  toolbar->setObjectName(QStringLiteral("mainToolBar"));
   const auto action = [&](const QString& text, const QString& name,
                           const QKeySequence& shortcut, const auto& handler) {
     auto* value = file->addAction(text);
@@ -116,22 +176,42 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
                             [this] { saveDocument(); }));
   action(QStringLiteral("Save &As..."), QStringLiteral("saveAsAction"),
          QKeySequence::SaveAs, [this] { saveDocumentAs(); });
+  auto* exportMenu = file->addMenu(
+      text(QStringLiteral("menu.export"), QStringLiteral("&Export")));
+  exportMenu->setObjectName(QStringLiteral("exportMenu"));
+  exportMenu->menuAction()->setObjectName(QStringLiteral("exportAction"));
+  auto* exportPdfAction = exportMenu->addAction(
+      text(QStringLiteral("action.exportPdf"), QStringLiteral("PDF")));
+  exportPdfAction->setObjectName(QStringLiteral("exportPdfAction"));
+  connect(exportPdfAction, &QAction::triggered, this,
+          [this] { exportPdf(); });
+  auto* exportHtmlAction = exportMenu->addAction(
+      text(QStringLiteral("action.exportHtml"), QStringLiteral("HTML")));
+  exportHtmlAction->setObjectName(QStringLiteral("exportHtmlAction"));
+  connect(exportHtmlAction, &QAction::triggered, this,
+          [this] { exportHtml(); });
+  auto* print = file->addAction(
+      text(QStringLiteral("action.print"), QStringLiteral("&Print")));
+  print->setObjectName(QStringLiteral("printAction"));
+  connect(print, &QAction::triggered, this, [this] { printDocument(); });
   file->addSeparator();
-  action(QStringLiteral("&Close"), QStringLiteral("closeAction"),
-         QKeySequence::Close, [this] { close(); });
-  action(QStringLiteral("E&xit"), QStringLiteral("exitAction"),
-         QKeySequence::Quit, [this] { emit exitRequested(); });
+  action(text(QStringLiteral("action.exit"), QStringLiteral("E&xit")),
+         QStringLiteral("exitAction"), QKeySequence::Quit,
+         [this] { emit exitRequested(); });
 
-  auto* edit = menuBar()->addMenu(QStringLiteral("&Edit"));
-  undoAction_ = edit->addAction(QStringLiteral("&Undo"));
+  auto* edit = menuBar()->addMenu(
+      text(QStringLiteral("menu.edit"), QStringLiteral("&Edit")));
+  edit->setObjectName(QStringLiteral("editMenu"));
+  undoAction_ = edit->addAction(
+      text(QStringLiteral("action.undo"), QStringLiteral("&Undo")));
   undoAction_->setObjectName(QStringLiteral("undoAction"));
   undoAction_->setShortcut(QKeySequence::Undo);
   connect(undoAction_, &QAction::triggered, this, &MainWindow::undo);
-  redoAction_ = edit->addAction(QStringLiteral("&Redo"));
+  redoAction_ = edit->addAction(
+      text(QStringLiteral("action.redo"), QStringLiteral("&Redo")));
   redoAction_->setObjectName(QStringLiteral("redoAction"));
   redoAction_->setShortcut(QKeySequence::Redo);
   connect(redoAction_, &QAction::triggered, this, &MainWindow::redo);
-  edit->addSeparator();
   const auto editAction = [&](const QString& name,
                               QKeySequence::StandardKey key, auto plainSlot,
                               auto richSlot) {
@@ -146,24 +226,70 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
     });
     return value;
   };
-  cutAction_ = editAction(QStringLiteral("Cu&t"), QKeySequence::Cut,
-                          &QPlainTextEdit::cut, &QTextEdit::cut);
-  copyAction_ = editAction(QStringLiteral("&Copy"), QKeySequence::Copy,
-                           &QPlainTextEdit::copy, &QTextEdit::copy);
+  cutAction_ = editAction(
+      text(QStringLiteral("action.cut"), QStringLiteral("Cu&t")),
+      QKeySequence::Cut, &QPlainTextEdit::cut, &QTextEdit::cut);
+  cutAction_->setObjectName(QStringLiteral("cutAction"));
+  copyAction_ = editAction(
+      text(QStringLiteral("action.copy"), QStringLiteral("&Copy")),
+      QKeySequence::Copy, &QPlainTextEdit::copy, &QTextEdit::copy);
+  copyAction_->setObjectName(QStringLiteral("copyAction"));
   connect(editor_, &QPlainTextEdit::copyAvailable, this,
           &MainWindow::refreshState);
-  editAction(QStringLiteral("&Paste"), QKeySequence::Paste,
-             &QPlainTextEdit::paste, &QTextEdit::paste);
-  editAction(QStringLiteral("Select &All"), QKeySequence::SelectAll,
-             &QPlainTextEdit::selectAll, &QTextEdit::selectAll);
-  editor_->addActions(edit->actions());
-  editor_->setContextMenuPolicy(Qt::ActionsContextMenu);
-  continuous_->editor()->addActions(edit->actions());
-  continuous_->editor()->setContextMenuPolicy(Qt::ActionsContextMenu);
-  auto* format = menuBar()->addMenu(QStringLiteral("F&ormat"));
-  const QStringList inlineNames{QStringLiteral("&Bold"),
-                                QStringLiteral("&Italic"),
-                                QStringLiteral("&Strikethrough")};
+  auto* pasteAction = editAction(
+      text(QStringLiteral("action.paste"), QStringLiteral("&Paste")),
+      QKeySequence::Paste, &QPlainTextEdit::paste, &QTextEdit::paste);
+  pasteAction->setObjectName(QStringLiteral("pasteAction"));
+  auto* selectAllAction = new QAction(
+      text(QStringLiteral("action.selectAll"), QStringLiteral("Select &All")),
+      this);
+  selectAllAction->setObjectName(QStringLiteral("selectAllAction"));
+  selectAllAction->setShortcut(QKeySequence::SelectAll);
+  connect(selectAllAction, &QAction::triggered, this, [this] {
+    if (continuousMode_) {
+      continuous_->editor()->selectAll();
+    } else {
+      editor_->selectAll();
+    }
+  });
+  edit->addSeparator();
+  auto* settingsAction = edit->addAction(
+      text(QStringLiteral("action.settings"), QStringLiteral("&Settings")));
+  settingsAction->setObjectName(QStringLiteral("settingsAction"));
+  connect(settingsAction, &QAction::triggered, this,
+          [this] { showSettings(); });
+  auto* format = menuBar()->addMenu(
+      text(QStringLiteral("menu.format"), QStringLiteral("F&ormat")));
+  format->setObjectName(QStringLiteral("formatMenu"));
+  auto* headings = format->addMenu(
+      text(QStringLiteral("action.heading"), QStringLiteral("Heading")));
+  headings->setObjectName(QStringLiteral("headingMenu"));
+  headings->menuAction()->setObjectName(QStringLiteral("headingMenuAction"));
+  for (int level = 0; level <= 6; ++level) {
+    QAction* value = nullptr;
+    if (level == 0) {
+      value = new QAction(
+          text(QStringLiteral("action.paragraph"),
+               QStringLiteral("Paragraph")),
+          this);
+    } else {
+      value = headings->addAction(QStringLiteral("H%1").arg(level));
+    }
+    value->setObjectName(QStringLiteral("heading%1Action").arg(level));
+    headingActions_.push_back(value);
+    connect(value, &QAction::triggered, this, [this, level] {
+      const auto node = continuous_->headingNode();
+      if (node) {
+        applyContinuousCommand(continuous_->token(),
+                               markdown::SetHeadingLevel{*node, level});
+      }
+    });
+  }
+  const QStringList inlineNames{
+      text(QStringLiteral("action.bold"), QStringLiteral("&Bold")),
+      text(QStringLiteral("action.italic"), QStringLiteral("&Italic")),
+      text(QStringLiteral("action.strikethrough"),
+           QStringLiteral("&Strikethrough"))};
   const QStringList inlineIds{QStringLiteral("boldAction"),
                               QStringLiteral("italicAction"),
                               QStringLiteral("strikethroughAction")};
@@ -181,22 +307,75 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
     connect(value, &QAction::triggered, this,
             [this, style] { continuous_->toggleInlineStyle(style); });
   }
-  auto* headings = format->addMenu(QStringLiteral("Heading"));
-  for (int level = 0; level <= 6; ++level) {
-    auto* value =
-        headings->addAction(level == 0 ? QStringLiteral("Paragraph")
-                                       : QStringLiteral("H%1").arg(level));
-    value->setObjectName(QStringLiteral("heading%1Action").arg(level));
-    headingActions_.push_back(value);
-    connect(value, &QAction::triggered, this, [this, level] {
-      const auto node = continuous_->headingNode();
-      if (node) {
-        applyContinuousCommand(continuous_->token(),
-                               markdown::SetHeadingLevel{*node, level});
-      }
-    });
-  }
-  taskAction_ = format->addAction(QStringLiteral("Toggle task checked"));
+  blockquoteAction_ = format->addAction(
+      text(QStringLiteral("action.blockquote"), QStringLiteral("Blockquote")));
+  blockquoteAction_->setObjectName(QStringLiteral("blockquoteAction"));
+  connect(blockquoteAction_, &QAction::triggered, this,
+          [this] { continuous_->toggleBlockquote(); });
+  auto* blockquote = blockquoteAction_;
+  codeAction_ = format->addAction(
+      text(QStringLiteral("action.code"), QStringLiteral("Code")));
+  codeAction_->setObjectName(QStringLiteral("codeAction"));
+  connect(codeAction_, &QAction::triggered, this,
+          [this] { continuous_->insertFencedCode(); });
+  auto* code = codeAction_;
+  horizontalLineAction_ = format->addAction(
+      text(QStringLiteral("action.horizontalLine"),
+           QStringLiteral("Horizontal Line")));
+  horizontalLineAction_->setObjectName(QStringLiteral("horizontalLineAction"));
+  connect(horizontalLineAction_, &QAction::triggered, this,
+          [this] { continuous_->insertHorizontalRule(); });
+  auto* horizontal = horizontalLineAction_;
+  linkAction_ = format->addAction(
+      text(QStringLiteral("action.link"), QStringLiteral("Link")));
+  linkAction_->setObjectName(QStringLiteral("linkAction"));
+  connect(linkAction_, &QAction::triggered, this, [this] {
+    const auto url = dialogs_.chooseLink(this);
+    if (url) {
+      continuous_->insertLink(*url);
+    }
+  });
+  auto* link = linkAction_;
+  imageAction_ = format->addAction(
+      text(QStringLiteral("action.image"), QStringLiteral("Image")));
+  imageAction_->setObjectName(QStringLiteral("imageAction"));
+  connect(imageAction_, &QAction::triggered, this, [this] {
+    const auto src = dialogs_.chooseImage(this);
+    if (src) {
+      continuous_->insertImage(*src);
+    }
+  });
+  auto* image = imageAction_;
+  tableAction_ = format->addAction(
+      text(QStringLiteral("action.table"), QStringLiteral("Table")));
+  tableAction_->setObjectName(QStringLiteral("tableAction"));
+  connect(tableAction_, &QAction::triggered, this, [this] {
+    const auto size = dialogs_.chooseTableSize(this);
+    if (size) {
+      continuous_->insertTable(size_t(size->columns), size_t(size->bodyRows));
+    }
+  });
+  auto* table = tableAction_;
+  auto* listMenu = format->addMenu(
+      text(QStringLiteral("action.list"), QStringLiteral("List")));
+  listMenu->setObjectName(QStringLiteral("listMenu"));
+  listMenu->menuAction()->setObjectName(QStringLiteral("listMenuAction"));
+  orderedListAction_ = listMenu->addAction(
+      text(QStringLiteral("action.orderedList"), QStringLiteral("Ordered")));
+  orderedListAction_->setObjectName(QStringLiteral("orderedListAction"));
+  connect(orderedListAction_, &QAction::triggered, this,
+          [this] { continuous_->changeListKind(true); });
+  auto* ordered = orderedListAction_;
+  unorderedListAction_ = listMenu->addAction(
+      text(QStringLiteral("action.unorderedList"), QStringLiteral("Unordered")));
+  unorderedListAction_->setObjectName(QStringLiteral("unorderedListAction"));
+  connect(unorderedListAction_, &QAction::triggered, this,
+          [this] { continuous_->changeListKind(false); });
+  auto* unordered = unorderedListAction_;
+  taskAction_ = new QAction(
+      text(QStringLiteral("action.toggleTask"),
+           QStringLiteral("Toggle task checked")),
+      this);
   taskAction_->setObjectName(QStringLiteral("toggleTaskAction"));
   connect(taskAction_, &QAction::triggered, this, [this] {
     const auto node = continuous_->taskNode();
@@ -206,31 +385,161 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
           markdown::SetTaskChecked{*node, !continuous_->taskChecked()});
     }
   });
-  auto* view = menuBar()->addMenu(QStringLiteral("&View"));
-  auto* modes = view->addMenu(QStringLiteral("Switch mode"));
-  markdownAction_ = modes->addAction(QStringLiteral("Markdown"));
+  tableMenu_ = new QMenu(text(QStringLiteral("action.table"),
+                              QStringLiteral("Table")),
+                        this);
+  tableMenu_->setObjectName(QStringLiteral("tableContextMenu"));
+  tableMenu_->menuAction()->setObjectName(
+      QStringLiteral("tableContextMenuAction"));
+  const auto addTableAction = [this](const QString& label, const QString& name,
+                                     ContinuousEditor::TableAction kind) {
+    auto* value = tableMenu_->addAction(label);
+    value->setObjectName(name);
+    connect(value, &QAction::triggered, this,
+            [this, kind] { continuous_->applyTableAction(kind); });
+    return value;
+  };
+  addTableAction(QStringLiteral("Insert Row Above"),
+                 QStringLiteral("tableInsertRowAboveAction"),
+                 ContinuousEditor::TableAction::kInsertRowAbove);
+  addTableAction(QStringLiteral("Insert Row Below"),
+                 QStringLiteral("tableInsertRowBelowAction"),
+                 ContinuousEditor::TableAction::kInsertRowBelow);
+  addTableAction(QStringLiteral("Delete Row"),
+                 QStringLiteral("tableRemoveRowAction"),
+                 ContinuousEditor::TableAction::kRemoveRow);
+  tableMenu_->addSeparator();
+  addTableAction(QStringLiteral("Insert Column Left"),
+                 QStringLiteral("tableInsertColumnLeftAction"),
+                 ContinuousEditor::TableAction::kInsertColumnLeft);
+  addTableAction(QStringLiteral("Insert Column Right"),
+                 QStringLiteral("tableInsertColumnRightAction"),
+                 ContinuousEditor::TableAction::kInsertColumnRight);
+  addTableAction(QStringLiteral("Delete Column"),
+                 QStringLiteral("tableRemoveColumnAction"),
+                 ContinuousEditor::TableAction::kRemoveColumn);
+  tableMenu_->addSeparator();
+  addTableAction(QStringLiteral("Align Column Left"),
+                 QStringLiteral("tableAlignLeftAction"),
+                 ContinuousEditor::TableAction::kAlignLeft);
+  addTableAction(QStringLiteral("Align Column Center"),
+                 QStringLiteral("tableAlignCenterAction"),
+                 ContinuousEditor::TableAction::kAlignCenter);
+  addTableAction(QStringLiteral("Align Column Right"),
+                 QStringLiteral("tableAlignRightAction"),
+                 ContinuousEditor::TableAction::kAlignRight);
+  tableMenu_->addSeparator();
+  addTableAction(QStringLiteral("Delete Table"),
+                 QStringLiteral("tableRemoveTableAction"),
+                 ContinuousEditor::TableAction::kRemoveTable);
+  auto* view = menuBar()->addMenu(
+      text(QStringLiteral("menu.view"), QStringLiteral("&View")));
+  view->setObjectName(QStringLiteral("viewMenu"));
+  auto* fullScreen = view->addAction(
+      text(QStringLiteral("view.fullScreen"), QStringLiteral("Full Screen")));
+  fullScreen->setObjectName(QStringLiteral("fullScreenAction"));
+  fullScreen->setCheckable(true);
+  connect(fullScreen, &QAction::toggled, this, [this](bool enabled) {
+    if (enabled) {
+      showFullScreen();
+    } else {
+      showNormal();
+    }
+  });
+  const auto setZoom = [this](double value) {
+    zoom_ = std::clamp(value, 0.5, 4.0);
+    QString error;
+    if (!applySettings(settings_, &error)) {
+      dialogs_.showError(this, error);
+    }
+    refreshState();
+  };
+  auto* zoomIn = view->addAction(
+      text(QStringLiteral("view.zoomIn"), QStringLiteral("Zoom In")));
+  zoomIn->setObjectName(QStringLiteral("zoomInAction"));
+  zoomIn->setShortcut(QKeySequence::ZoomIn);
+  connect(zoomIn, &QAction::triggered, this, [setZoom, this] {
+    setZoom(zoom_ * 1.1);
+  });
+  auto* zoomOut = view->addAction(
+      text(QStringLiteral("view.zoomOut"), QStringLiteral("Zoom Out")));
+  zoomOut->setObjectName(QStringLiteral("zoomOutAction"));
+  zoomOut->setShortcut(QKeySequence::ZoomOut);
+  connect(zoomOut, &QAction::triggered, this, [setZoom, this] {
+    setZoom(zoom_ / 1.1);
+  });
+  auto* resetZoom = view->addAction(
+      text(QStringLiteral("view.resetZoom"), QStringLiteral("Reset Zoom")));
+  resetZoom->setObjectName(QStringLiteral("resetZoomAction"));
+  resetZoom->setShortcut(QKeySequence(QStringLiteral("Ctrl+0")));
+  connect(resetZoom, &QAction::triggered, this, [setZoom] { setZoom(1.0); });
+  view->addSeparator();
+  auto* modes = view->addMenu(
+      text(QStringLiteral("view.switchMode"), QStringLiteral("Switch Mode")));
+  modes->setObjectName(QStringLiteral("switchModeMenu"));
+  modes->menuAction()->setObjectName(QStringLiteral("switchModeAction"));
+  markdownAction_ = modes->addAction(
+      text(QStringLiteral("view.markdown"), QStringLiteral("Markdown")));
   markdownAction_->setObjectName(QStringLiteral("markdownModeAction"));
   markdownAction_->setCheckable(true);
-  continuousAction_ =
-      modes->addAction(QStringLiteral("WYSIWYG (continuous, limited)"));
+  continuousAction_ = modes->addAction(
+      text(QStringLiteral("view.continuous"),
+           QStringLiteral("WYSIWYG (Continuous layout)")));
   continuousAction_->setObjectName(QStringLiteral("continuousModeAction"));
   continuousAction_->setCheckable(true);
+  pagedAction_ = modes->addAction(
+      text(QStringLiteral("view.paged"),
+           QStringLiteral("WYSIWYG (Page layout)")));
+  pagedAction_->setObjectName(QStringLiteral("pagedModeAction"));
+  pagedAction_->setCheckable(true);
   connect(markdownAction_, &QAction::triggered, this,
           [this] { setContinuousMode(false); });
-  connect(continuousAction_, &QAction::triggered, this,
-          [this] { setContinuousMode(true); });
-  view->addAction(toolbar->toggleViewAction());
-  auto* status = view->addAction(QStringLiteral("Status bar"));
-  status->setCheckable(true);
-  status->setChecked(true);
-  connect(status, &QAction::toggled, statusBar(), &QStatusBar::setVisible);
-  auto* help = menuBar()->addMenu(QStringLiteral("&Help"));
-  connect(help->addAction(QStringLiteral("About Markpad")), &QAction::triggered,
-          this, [this] {
-            QMessageBox::about(
-                this, QStringLiteral("Markpad"),
-                QStringLiteral("Markpad - Markdown source editor"));
-          });
+  connect(continuousAction_, &QAction::triggered, this, [this] {
+    setPagedMode(false);
+    setContinuousMode(true);
+  });
+  connect(pagedAction_, &QAction::triggered, this,
+          [this] { setPagedMode(true); });
+  auto* help = menuBar()->addMenu(
+      text(QStringLiteral("menu.help"), QStringLiteral("&Help")));
+  help->setObjectName(QStringLiteral("helpMenu"));
+  const QList<QAction*> contextActions{
+      undoAction_, redoAction_, cutAction_, copyAction_, pasteAction,
+      selectAllAction, headingActions_.front(), taskAction_};
+  for (auto* target : {static_cast<QWidget*>(editor_),
+                       static_cast<QWidget*>(continuous_->editor())}) {
+    for (auto* contextAction : contextActions) {
+      target->addAction(contextAction);
+    }
+    for (auto* inlineAction : inlineActions_) {
+      target->addAction(inlineAction);
+    }
+    target->setContextMenuPolicy(Qt::ActionsContextMenu);
+  }
+  continuous_->editor()->addAction(tableMenu_->menuAction());
+  toolbar->setToolButtonStyle(Qt::ToolButtonIconOnly);
+  toolbar->setIconSize(QSize(20, 20));
+  toolbar->addSeparator();
+  toolbar->addAction(undoAction_);
+  toolbar->addAction(redoAction_);
+  toolbar->addAction(settingsAction);
+  toolbar->addSeparator();
+  toolbar->addAction(headings->menuAction());
+  for (auto* inlineAction : inlineActions_) {
+    toolbar->addAction(inlineAction);
+  }
+  toolbar->addAction(blockquote);
+  toolbar->addAction(code);
+  toolbar->addAction(horizontal);
+  toolbar->addAction(link);
+  toolbar->addAction(image);
+  toolbar->addAction(table);
+  toolbar->addAction(listMenu->menuAction());
+  toolbar->addAction(ordered);
+  toolbar->addAction(unordered);
+  toolbar->addSeparator();
+  toolbar->addAction(modes->menuAction());
+  refreshToolbarIcons();
   connect(editor_->document(), &QTextDocument::contentsChange, this,
           [this](int position, int removed, int added) {
             if (!refreshing_ && (removed != 0 || added != 0)) {
@@ -250,6 +559,15 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   connect(continuous_, &ContinuousEditor::commandRequested, this,
           &MainWindow::applyContinuousCommand);
   refreshEditor();
+  QString settingsError;
+  if (!applySettings(settings_, &settingsError)) {
+    settingsDiagnostic_ += settingsError;
+  }
+  if (!settingsDiagnostic_.isEmpty()) {
+    QTimer::singleShot(0, this, [this] {
+      statusBar()->showMessage(settingsDiagnostic_, 10000);
+    });
+  }
 }
 
 bool MainWindow::reusable() const {
@@ -308,6 +626,215 @@ bool MainWindow::saveDocumentAs() {
   return true;
 }
 
+bool MainWindow::exportPdf() {
+  const auto snapshot = session_.snapshot();
+  auto parsed = markdown::parse(
+      QByteArray(snapshot.source.data(), qsizetype(snapshot.source.size())));
+  if (!parsed.document) {
+    dialogs_.showError(this, parsed.error);
+    return false;
+  }
+  QString suggested = displayPath(session_.path());
+  if (suggested.isEmpty()) {
+    suggested = QStringLiteral("document");
+  }
+  const QFileInfo info(suggested);
+  suggested =
+      QDir(info.path()).filePath(info.completeBaseName() + QStringLiteral(".pdf"));
+  const auto selected = QFileDialog::getSaveFileName(
+      this, QStringLiteral("Export PDF"), suggested,
+      QStringLiteral("PDF (*.pdf);;All files (*)"));
+  if (selected.isEmpty()) {
+    return false;
+  }
+  PdfExportOptions options;
+  options.page = settings_.page;
+  options.fontFamily = settings_.editorFontFamily;
+  options.fontSize = settings_.editorFontSize;
+  const auto result =
+      markpad::exportPdf(*parsed.document, filePath(selected), options);
+  if (!result.success()) {
+    dialogs_.showError(this, *result.error);
+    return false;
+  }
+  if (!result.warning.isEmpty()) {
+    statusBar()->showMessage(result.warning, 10000);
+  } else {
+    statusBar()->showMessage(
+        QStringLiteral("PDF exported (%1 pages)").arg(result.pageCount), 3000);
+  }
+  return true;
+}
+
+bool MainWindow::printDocument() {
+  const auto snapshot = session_.snapshot();
+  auto parsed = markdown::parse(
+      QByteArray(snapshot.source.data(), qsizetype(snapshot.source.size())));
+  if (!parsed.document) {
+    dialogs_.showError(this, parsed.error);
+    return false;
+  }
+  QPrinter printer(QPrinter::HighResolution);
+  const auto margins = QMarginsF(
+      settings_.page.marginLeftMm, settings_.page.marginTopMm,
+      settings_.page.marginRightMm, settings_.page.marginBottomMm);
+  printer.setPageLayout(QPageLayout(
+      settings_.page.size == PageSize::kLetter
+          ? QPageSize(QPageSize::Letter)
+          : settings_.page.size == PageSize::kLegal
+                ? QPageSize(QPageSize::Legal)
+                : QPageSize(QPageSize::A4),
+      settings_.page.orientation == PageOrientation::kLandscape
+          ? QPageLayout::Landscape
+          : QPageLayout::Portrait,
+      margins, QPageLayout::Millimeter));
+  QPrintDialog dialog(&printer, this);
+  dialog.setWindowTitle(QStringLiteral("Print"));
+  if (dialog.exec() != QDialog::Accepted) {
+    return false;
+  }
+  PdfExportOptions options;
+  options.page = settings_.page;
+  options.fontFamily = settings_.editorFontFamily;
+  options.fontSize = settings_.editorFontSize;
+  if (const auto error =
+          markpad::printDocument(*parsed.document, printer, options)) {
+    dialogs_.showError(this, *error);
+    return false;
+  }
+  return true;
+}
+
+bool MainWindow::exportHtml() {
+  const auto snapshot = session_.snapshot();
+  auto parsed = markdown::parse(
+      QByteArray(snapshot.source.data(), qsizetype(snapshot.source.size())));
+  if (!parsed.document) {
+    dialogs_.showError(this, parsed.error);
+    return false;
+  }
+  const auto rendered = markdown::renderHtml(*parsed.document);
+  if (!rendered.html) {
+    dialogs_.showError(this, rendered.error);
+    return false;
+  }
+  QString suggested = displayPath(session_.path());
+  if (suggested.isEmpty()) {
+    suggested = QStringLiteral("document");
+  }
+  const QFileInfo info(suggested);
+  suggested =
+      QDir(info.path()).filePath(info.completeBaseName() + QStringLiteral(".html"));
+  const auto selected = QFileDialog::getSaveFileName(
+      this, QStringLiteral("Export HTML"), suggested,
+      QStringLiteral("HTML (*.html *.htm);;All files (*)"));
+  if (selected.isEmpty()) {
+    return false;
+  }
+  if (const auto error = writeHtmlFile(filePath(selected), *rendered.html)) {
+    dialogs_.showError(this, *error);
+    return false;
+  }
+  statusBar()->showMessage(QStringLiteral("HTML exported"), 3000);
+  return true;
+}
+
+QString MainWindow::text(const QString& key, const QString& fallback) const {
+  return languageText_.value(key, fallback);
+}
+
+bool MainWindow::applySettings(const Settings& settings, QString* error) {
+  QPalette palette = QApplication::style()->standardPalette();
+  if (settings.theme == Theme::kDark) {
+    const QColor window(45, 45, 48);
+    const QColor base(30, 30, 32);
+    const QColor text(230, 230, 230);
+    palette.setColor(QPalette::Window, window);
+    palette.setColor(QPalette::WindowText, text);
+    palette.setColor(QPalette::Base, base);
+    palette.setColor(QPalette::AlternateBase, window);
+    palette.setColor(QPalette::Text, text);
+    palette.setColor(QPalette::Button, window);
+    palette.setColor(QPalette::ButtonText, text);
+    palette.setColor(QPalette::ToolTipBase, base);
+    palette.setColor(QPalette::ToolTipText, text);
+    palette.setColor(QPalette::Highlight, QColor(68, 112, 180));
+    palette.setColor(QPalette::HighlightedText, Qt::white);
+    palette.setColor(QPalette::Disabled, QPalette::Text,
+                     QColor(140, 140, 140));
+    palette.setColor(QPalette::Disabled, QPalette::ButtonText,
+                     QColor(140, 140, 140));
+  }
+  QApplication::setPalette(palette);
+  refreshToolbarIcons();
+
+  QFont font = settings.editorFontFamily.trimmed().isEmpty()
+                   ? QFontDatabase::systemFont(QFontDatabase::FixedFont)
+                   : QFont(settings.editorFontFamily);
+  font.setPointSize(
+      std::max(1, qRound(settings.editorFontSize * zoom_)));
+  editor_->setFont(font);
+  continuous_->editor()->setFont(font);
+  editor_->setLineWrapMode(settings.wordWrap ? QPlainTextEdit::WidgetWidth
+                                             : QPlainTextEdit::NoWrap);
+  continuous_->editor()->setLineWrapMode(
+      settings.wordWrap ? QTextEdit::WidgetWidth : QTextEdit::NoWrap);
+  dialogs_.setDefaultLocation(settings.defaultFileLocation);
+
+  QMap<QString, QAction*> actions;
+  for (auto* action : findChildren<QAction*>()) {
+    if (!action->objectName().isEmpty()) {
+      actions.insert(action->objectName(), action);
+    }
+  }
+  QStringList unknown;
+  for (auto it = settings.shortcuts.begin(); it != settings.shortcuts.end();
+       ++it) {
+    auto* action = actions.value(it.key());
+    if (!action) {
+      unknown.push_back(it.key());
+      continue;
+    }
+    action->setShortcut(QKeySequence::fromString(it.value()));
+  }
+  if (!unknown.isEmpty() && error) {
+    *error = QStringLiteral("Unknown shortcut targets: %1")
+                 .arg(unknown.join(QStringLiteral(", ")));
+    return false;
+  }
+  continuous_->setPageSetup(settings.page);
+  if (pagedMode_) {
+    continuous_->setPaged(true);
+  }
+  return true;
+}
+
+void MainWindow::showSettings() {
+  SettingsDialog dialog(settingsService_.languages(), this);
+  dialog.setValues(settings_);
+  if (dialog.exec() != QDialog::Accepted) {
+    return;
+  }
+  const auto values = dialog.values();
+  if (const auto error = settingsService_.save(values)) {
+    dialogs_.showError(this, *error);
+    return;
+  }
+  const auto previousLanguage = settings_.language;
+  settings_ = values;
+  languageText_ = settingsService_.languageMap(settings_.language);
+  QString error;
+  if (!applySettings(settings_, &error)) {
+    dialogs_.showError(this, error);
+  }
+  if (previousLanguage != settings_.language) {
+    statusBar()->showMessage(
+        QStringLiteral("Language changes take effect after restart"), 5000);
+  } else {
+    statusBar()->showMessage(QStringLiteral("Preferences saved"), 3000);
+  }
+}
+
 void MainWindow::refreshEditor(int position) {
   const auto snapshot = session_.snapshot();
   editorText_ = project(sourceText(snapshot.source)).text;
@@ -340,6 +867,26 @@ void MainWindow::refreshEditor(int position) {
   refreshState();
 }
 
+void MainWindow::refreshToolbarIcons() {
+  auto* toolbar = findChild<QToolBar*>(QStringLiteral("mainToolBar"));
+  if (!toolbar) {
+    return;
+  }
+  const auto color = QApplication::palette().color(QPalette::ButtonText);
+  for (auto* action : toolbar->actions()) {
+    if (!action || action->isSeparator() || action->objectName().isEmpty()) {
+      continue;
+    }
+    const auto icon = toolbarIcon(action->objectName(), color);
+    if (!icon.isNull()) {
+      action->setIcon(icon);
+    }
+    if (action->toolTip().isEmpty()) {
+      action->setToolTip(action->text());
+    }
+  }
+}
+
 void MainWindow::refreshState() {
   const auto path = displayPath(session_.path());
   const auto name =
@@ -354,7 +901,8 @@ void MainWindow::refreshState() {
   cutAction_->setEnabled(cursor.hasSelection());
   copyAction_->setEnabled(cursor.hasSelection());
   markdownAction_->setChecked(!continuousMode_);
-  continuousAction_->setChecked(continuousMode_);
+  continuousAction_->setChecked(continuousMode_ && !pagedMode_);
+  pagedAction_->setChecked(continuousMode_ && pagedMode_);
   for (auto* action : headingActions_) {
     action->setEnabled(continuousMode_ &&
                        continuous_->headingNode().has_value());
@@ -371,14 +919,96 @@ void MainWindow::refreshState() {
     action->setChecked(continuousMode_ && state.checked);
     action->setToolTip(state.reason);
   }
-  statusBar()->showMessage(
-      QStringLiteral("%1 | Ln %2, Col %3 | %4")
-          .arg(continuousMode_ ? QStringLiteral("WYSIWYG (limited)")
-                               : QStringLiteral("Markdown"))
-          .arg(cursor.blockNumber() + 1)
-          .arg(cursor.positionInBlock() + 1)
-          .arg(session_.dirty() ? QStringLiteral("Modified")
-                                : QStringLiteral("Saved")));
+  const auto quoteState =
+      continuousMode_ ? continuous_->blockquoteState()
+                      : ContinuousEditor::StructuralState{};
+  blockquoteAction_->setEnabled(continuousMode_ &&
+                                quoteState.command.has_value());
+  blockquoteAction_->setToolTip(quoteState.reason);
+  const auto orderedState = continuousMode_
+                                ? continuous_->listState(true)
+                                : ContinuousEditor::StructuralState{};
+  orderedListAction_->setEnabled(continuousMode_ &&
+                                 orderedState.command.has_value());
+  orderedListAction_->setToolTip(orderedState.reason);
+  const auto unorderedState = continuousMode_
+                                  ? continuous_->listState(false)
+                                  : ContinuousEditor::StructuralState{};
+  unorderedListAction_->setEnabled(continuousMode_ &&
+                                   unorderedState.command.has_value());
+  unorderedListAction_->setToolTip(unorderedState.reason);
+  const bool blockInsertion =
+      continuousMode_ && continuous_->blockInsertionEnabled();
+  tableAction_->setEnabled(blockInsertion);
+  tableAction_->setToolTip(
+      blockInsertion
+          ? QStringLiteral("Insert a 2-column table after the current block")
+          : QStringLiteral("Table creation requires continuous WYSIWYG mode"));
+  codeAction_->setEnabled(blockInsertion);
+  codeAction_->setToolTip(
+      blockInsertion
+          ? QStringLiteral("Insert a fenced code block after the current block")
+          : QStringLiteral("Code insertion requires continuous WYSIWYG mode"));
+  horizontalLineAction_->setEnabled(blockInsertion);
+  horizontalLineAction_->setToolTip(
+      blockInsertion
+          ? QStringLiteral("Insert a horizontal rule after the current block")
+          : QStringLiteral(
+                "Horizontal rule insertion requires continuous WYSIWYG mode"));
+  const bool linkCreation =
+      continuousMode_ && continuous_->linkCreationEnabled();
+  linkAction_->setEnabled(linkCreation);
+  linkAction_->setToolTip(
+      linkCreation
+          ? QStringLiteral("Create a link from the selected text")
+          : QStringLiteral("Select text inside one editable run to create a "
+                           "link"));
+  const bool imageCreation =
+      continuousMode_ && continuous_->imageCreationEnabled();
+  imageAction_->setEnabled(imageCreation);
+  imageAction_->setToolTip(
+      imageCreation
+          ? QStringLiteral("Insert an image using the selected text as alt")
+          : QStringLiteral("Select alt text inside one editable run to insert "
+                           "an image"));
+  if (tableMenu_) {
+    tableMenu_->menuAction()->setEnabled(continuousMode_);
+    for (auto* tableAction : tableMenu_->actions()) {
+      if (!tableAction || tableAction->isSeparator()) {
+        continue;
+      }
+      const auto kind = tableActionKind(tableAction->objectName());
+      tableAction->setEnabled(continuousMode_ && kind.has_value() &&
+                              continuous_->tableActionEnabled(*kind));
+    }
+  }
+  const auto documentText = sourceText(session_.snapshot().source);
+  int words = 0;
+  bool inWord = false;
+  for (const auto character : documentText) {
+    if (character.isSpace()) {
+      inWord = false;
+    } else if (!inWord) {
+      ++words;
+      inWord = true;
+    }
+  }
+  const int lines =
+      documentText.isEmpty() ? 0 : int(documentText.count(QChar('\n')) + 1);
+  QString status =
+      QStringLiteral("Chars %1 | Words %2 | Lines %3")
+          .arg(documentText.size())
+          .arg(words)
+          .arg(lines);
+  if (pagedMode_) {
+    status += QStringLiteral(" | Page %1 of %2")
+                  .arg(continuous_->currentPage() + 1)
+                  .arg(std::max(1, continuous_->pageCount()));
+    if (!continuous_->layoutWarning().isEmpty()) {
+      status += QStringLiteral(" | Overflow warning");
+    }
+  }
+  statusBar()->showMessage(status);
 }
 
 bool MainWindow::applySource(const std::string& source, int cursor) {
@@ -395,6 +1025,10 @@ bool MainWindow::setContinuousMode(bool enabled) {
   if (continuousMode_ == enabled) {
     refreshState();
     return true;
+  }
+  if (!enabled) {
+    pagedMode_ = false;
+    continuous_->setPaged(false);
   }
   const auto snapshot = session_.snapshot();
   const auto raw = sourceText(snapshot.source);
@@ -466,6 +1100,27 @@ bool MainWindow::setContinuousMode(bool enabled) {
     statusBar()->showMessage(
         QStringLiteral("Markdown | Cursor/selection retained: protected "
                        "fragment has no exact source mapping."));
+  }
+  return true;
+}
+
+bool MainWindow::setPagedMode(bool enabled) {
+  if (enabled) {
+    if (!continuousMode_ && !setContinuousMode(true)) {
+      return false;
+    }
+    pagedMode_ = true;
+  } else {
+    pagedMode_ = false;
+  }
+  continuous_->setPaged(enabled);
+  continuous_->setPageSetup(settings_.page);
+  refreshState();
+  if (enabled && !continuous_->layoutWarning().isEmpty()) {
+    statusBar()->showMessage(continuous_->layoutWarning(), 10000);
+  }
+  if (continuousMode_) {
+    continuous_->editor()->setFocus();
   }
   return true;
 }

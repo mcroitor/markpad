@@ -7,7 +7,9 @@
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QInputDialog>
+#include <QLineEdit>
 #include <QMessageBox>
+#include <QSpinBox>
 
 namespace markpad {
 namespace {
@@ -38,7 +40,7 @@ QString displayPath(const std::filesystem::path& path) {
 
 QString DocumentDialogs::chooseOpen(QWidget* parent) {
   return QFileDialog::getOpenFileName(
-      parent, QStringLiteral("Open Markdown"), {},
+      parent, QStringLiteral("Open Markdown"), defaultLocation_,
       QStringLiteral("Markdown (*.md *.markdown);;All files (*)"));
 }
 
@@ -46,7 +48,8 @@ std::optional<SaveSelection> DocumentDialogs::chooseSave(QWidget* parent,
                                                          const QString& path,
                                                          FileFormat format) {
   const auto selected = QFileDialog::getSaveFileName(
-      parent, QStringLiteral("Save Markdown"), path,
+      parent, QStringLiteral("Save Markdown"),
+      path.isEmpty() ? defaultLocation_ : path,
       QStringLiteral("Markdown (*.md);;All files (*)"));
   if (selected.isEmpty()) {
     return std::nullopt;
@@ -88,6 +91,54 @@ std::optional<Encoding> DocumentDialogs::chooseEncoding(QWidget* parent) {
     return std::nullopt;
   }
   return static_cast<Encoding>(names.indexOf(selected));
+}
+
+std::optional<QString> DocumentDialogs::chooseLink(QWidget* parent) {
+  bool accepted = false;
+  const auto value = QInputDialog::getText(
+      parent, QStringLiteral("Insert link"), QStringLiteral("URL"),
+      QLineEdit::Normal, {}, &accepted);
+  if (!accepted || value.trimmed().isEmpty()) {
+    return std::nullopt;
+  }
+  return value.trimmed();
+}
+
+std::optional<QString> DocumentDialogs::chooseImage(QWidget* parent) {
+  bool accepted = false;
+  const auto value = QInputDialog::getText(
+      parent, QStringLiteral("Insert image"), QStringLiteral("Image URL"),
+      QLineEdit::Normal, {}, &accepted);
+  if (!accepted || value.trimmed().isEmpty()) {
+    return std::nullopt;
+  }
+  return value.trimmed();
+}
+
+std::optional<TableSelection> DocumentDialogs::chooseTableSize(
+    QWidget* parent) {
+  QDialog dialog(parent);
+  dialog.setWindowTitle(QStringLiteral("Insert table"));
+  auto* layout = new QFormLayout(&dialog);
+  auto* columns = new QSpinBox(&dialog);
+  columns->setRange(1, 50);
+  columns->setValue(2);
+  auto* rows = new QSpinBox(&dialog);
+  rows->setRange(0, 100);
+  rows->setValue(1);
+  auto* buttons = new QDialogButtonBox(
+      QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+  layout->addRow(QStringLiteral("Columns"), columns);
+  layout->addRow(QStringLiteral("Body rows"), rows);
+  layout->addRow(buttons);
+  QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog,
+                   &QDialog::accept);
+  QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog,
+                   &QDialog::reject);
+  if (dialog.exec() != QDialog::Accepted) {
+    return std::nullopt;
+  }
+  return TableSelection{columns->value(), rows->value()};
 }
 
 CloseChoice DocumentDialogs::confirmClose(QWidget* parent,

@@ -1448,6 +1448,615 @@ class Md4cSourceTest : public QObject {
     QCOMPARE(doc.revision, quint64(0));
   }
 
+  void wrapInList_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<bool>("ordered");
+    QTest::addColumn<int>("start");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("unordered") << QByteArray("alpha\n") << false << 0
+                               << QByteArray("- alpha\n");
+    QTest::newRow("ordered") << QByteArray("alpha\n") << true << 1
+                             << QByteArray("1. alpha\n");
+    QTest::newRow("ordered-start") << QByteArray("alpha\n") << true << 3
+                                   << QByteArray("3. alpha\n");
+    QTest::newRow("multiline") << QByteArray("alpha\nbeta\n") << false << 0
+                               << QByteArray("- alpha\n  beta\n");
+    QTest::newRow("multiline-ordered")
+        << QByteArray("alpha\nbeta\n") << true << 1
+        << QByteArray("1. alpha\n   beta\n");
+    QTest::newRow("crlf") << QByteArray("alpha\r\nbeta\r\n") << true << 1
+                          << QByteArray("1. alpha\r\n   beta\r\n");
+    QTest::newRow("eof") << QByteArray("alpha") << false << 0
+                         << QByteArray("- alpha");
+    QTest::newRow("reference")
+        << QByteArray("[x][id]\n\n[id]: /keep \"K\"\n") << false << 0
+        << QByteArray("- [x][id]\n\n[id]: /keep \"K\"\n");
+  }
+
+  void wrapInList() {
+    QFETCH(QByteArray, source);
+    QFETCH(bool, ordered);
+    QFETCH(int, start);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY2(parsed.document, qPrintable(parsed.error));
+    const auto& doc = *parsed.document;
+    QVERIFY(!doc.nodes[0].children.empty());
+    const auto result = editBytes(doc, WrapInList{0, 0, ordered, start});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+    const auto reparsed = parse(*result.source);
+    QVERIFY(reparsed.document);
+    const auto& root = reparsed.document->nodes[0];
+    QCOMPARE(root.children.size(), size_t(1));
+    const auto& list = reparsed.document->nodes[root.children.front()];
+    QCOMPARE(int(list.type), ordered ? MD_BLOCK_OL : MD_BLOCK_UL);
+    QCOMPARE(list.children.size(), size_t(1));
+    QVERIFY(list.attributes["tight"].toBool());
+    if (ordered) {
+      QCOMPARE(list.attributes["start"].toInt(), start);
+    }
+    const auto& item = reparsed.document->nodes[list.children.front()];
+    QCOMPARE(int(item.type), MD_BLOCK_LI);
+    QVERIFY(!item.children.empty());
+
+    const auto foreign = parse("other\n");
+    QVERIFY(foreign.document);
+    const auto rejected =
+        applyEdit(doc, snapshotToken(*foreign.document),
+                  WrapInList{0, 0, ordered, start});
+    QVERIFY(!rejected.document);
+    QVERIFY(!rejected.error.isEmpty());
+  }
+
+  void replaceInlineCode_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<QByteArray>("text");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("basic") << QByteArray("`old`\n") << QByteArray("new")
+                           << QByteArray("`new`\n");
+    QTest::newRow("outside")
+        << QByteArray("pre `old` post\n") << QByteArray("new")
+        << QByteArray("pre `new` post\n");
+    QTest::newRow("unicode")
+        << QStringLiteral("`\u0430`\n").toUtf8()
+        << QStringLiteral("\U0001f600").toUtf8()
+        << QStringLiteral("`\U0001f600`\n").toUtf8();
+    QTest::newRow("crlf") << QByteArray("`old`\r\n") << QByteArray("new")
+                          << QByteArray("`new`\r\n");
+  }
+
+  void replaceInlineCode() {
+    QFETCH(QByteArray, source);
+    QFETCH(QByteArray, text);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto node =
+        find(*parsed.document, NodeKind::kText, MD_TEXT_CODE);
+    QVERIFY(node < parsed.document->nodes.size());
+    const auto result =
+        editBytes(*parsed.document, ReplaceInlineCode{node, text});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+  }
+
+  void replaceInlineCodeRejected() {
+    const auto parsed = parse("`old`\n");
+    QVERIFY(parsed.document);
+    const auto node =
+        find(*parsed.document, NodeKind::kText, MD_TEXT_CODE);
+    QVERIFY(node < parsed.document->nodes.size());
+    for (const auto& command :
+         std::vector<EditCommand>{
+             ReplaceInlineCode{node, ""},
+             ReplaceInlineCode{node, "two\nlines"},
+             ReplaceInlineCode{node, QByteArray("a\0b", 3)},
+             ReplaceInlineCode{node, QByteArray("\xFF", 1)},
+             ReplaceInlineCode{node, "a`b"}}) {
+      QVERIFY(!editBytes(*parsed.document, command).source);
+    }
+    const auto normal = find(*parsed.document, NodeKind::kText, MD_TEXT_NORMAL);
+    QVERIFY(!editBytes(*parsed.document, ReplaceInlineCode{normal, "new"}).source);
+  }
+
+  void replaceInlineCodeNoopAndStale() {
+    const auto parsed = parse("`old`\n");
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    const auto node = find(doc, NodeKind::kText, MD_TEXT_CODE);
+    const auto noop =
+        applyEdit(doc, snapshotToken(doc), ReplaceInlineCode{node, "old"});
+    QVERIFY(noop.document);
+    QCOMPARE(noop.document->source, doc.source);
+    QCOMPARE(noop.document->revision, doc.revision);
+    const auto foreign = parse("`other`\n");
+    QVERIFY(foreign.document);
+    QVERIFY(!applyEdit(doc, snapshotToken(*foreign.document),
+                       ReplaceInlineCode{node, "new"})
+                 .document);
+  }
+
+  void replaceCodeBody_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<QByteArray>("body");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("basic") << QByteArray("```\nold\n```\n")
+                           << QByteArray("new\n")
+                           << QByteArray("```\nnew\n```\n");
+    QTest::newRow("info") << QByteArray("```js\nold\n```\n")
+                          << QByteArray("new\n")
+                          << QByteArray("```js\nnew\n```\n");
+    QTest::newRow("crlf") << QByteArray("~~~\r\nold\r\n~~~\r\n")
+                          << QByteArray("new\n")
+                          << QByteArray("~~~\r\nnew\r\n~~~\r\n");
+    QTest::newRow("append-eol") << QByteArray("```\nold\n```\n")
+                                << QByteArray("new")
+                                << QByteArray("```\nnew\n```\n");
+    QTest::newRow("empty-body") << QByteArray("```\nold\n```\n")
+                                << QByteArray("")
+                                << QByteArray("```\n```\n");
+    QTest::newRow("unclosed") << QByteArray("```\nold\n")
+                              << QByteArray("new\n")
+                              << QByteArray("```\nnew\n");
+    QTest::newRow("outside") << QByteArray(
+                                    "before\n\n```\nold\n```\n\nafter\n")
+                             << QByteArray("new\n")
+                             << QByteArray(
+                                    "before\n\n```\nnew\n```\n\nafter\n");
+    QTest::newRow("shorter-fence-in-body")
+        << QByteArray("````\nold\n```\n````\n") << QByteArray("new\n")
+        << QByteArray("````\nnew\n````\n");
+    QTest::newRow("longer-close") << QByteArray("```\nold\n`````\n")
+                                  << QByteArray("new\n")
+                                  << QByteArray("```\nnew\n`````\n");
+    QTest::newRow("blank-lines") << QByteArray("```\nold\n```\n")
+                                 << QByteArray("one\n\ntwo\n")
+                                 << QByteArray("```\none\n\ntwo\n```\n");
+  }
+
+  void replaceCodeBody() {
+    QFETCH(QByteArray, source);
+    QFETCH(QByteArray, body);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY2(parsed.document, qPrintable(parsed.error));
+    const auto& doc = *parsed.document;
+    const auto code = find(doc, NodeKind::kBlock, MD_BLOCK_CODE);
+    QVERIFY(code < doc.nodes.size());
+    QString mapError;
+    const auto mapped = mapFencedCodeBody(doc, code, mapError);
+    QVERIFY2(mapped, qPrintable(mapError));
+    QVERIFY(mapped->body.offset >= mapped->block.offset);
+    QVERIFY(mapped->body.offset + mapped->body.size <=
+            mapped->block.offset + mapped->block.size);
+    const auto result = editBytes(doc, ReplaceCodeBody{code, body});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+  }
+
+  void replaceCodeBodyRejected_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<QByteArray>("body");
+    QTest::addColumn<QString>("error");
+    QTest::newRow("non-code") << QByteArray("alpha\n") << QByteArray("new\n")
+                              << QStringLiteral("fenced code target");
+    QTest::newRow("nested") << QByteArray("> ```\n> old\n> ```\n")
+                            << QByteArray("new\n")
+                            << QStringLiteral("top-level");
+    QTest::newRow("indented") << QByteArray("    old\n") << QByteArray("new\n")
+                              << QStringLiteral("fenced code source map");
+    QTest::newRow("invalid-utf8")
+        << QByteArray("```\nold\n```\n") << QByteArray("\xFF", 1)
+        << QStringLiteral("Invalid fenced code body");
+    QTest::newRow("nul") << QByteArray("```\nold\n```\n")
+                         << QByteArray("new\0old", 7)
+                         << QStringLiteral("Invalid fenced code body");
+    QTest::newRow("early-close") << QByteArray("```\nold\n```\n")
+                                 << QByteArray("new\n```\n")
+                                 << QStringLiteral("Structural fenced code");
+  }
+
+  void replaceCodeBodyRejected() {
+    QFETCH(QByteArray, source);
+    QFETCH(QByteArray, body);
+    QFETCH(QString, error);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    auto code = find(doc, NodeKind::kBlock, MD_BLOCK_CODE);
+    if (code >= doc.nodes.size()) {
+      code = 0;
+    }
+    const auto result = editBytes(doc, ReplaceCodeBody{code, body});
+    QVERIFY(!result.source);
+    QVERIFY2(result.error.contains(error), qPrintable(result.error));
+    QCOMPARE(doc.source, source);
+    QCOMPARE(doc.revision, quint64(0));
+  }
+
+  void replaceCodeBodyNoop() {
+    const QByteArray source = "```\nold\n```\n";
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    const auto code = find(doc, NodeKind::kBlock, MD_BLOCK_CODE);
+    QVERIFY(code < doc.nodes.size());
+    const auto result =
+        applyEdit(doc, snapshotToken(doc), ReplaceCodeBody{code, "old\n"});
+    QVERIFY2(result.document, qPrintable(result.error));
+    QCOMPARE(result.document->source, source);
+    QCOMPARE(result.document->revision, doc.revision);
+
+    const auto foreign = parse("```\nother\n```\n");
+    QVERIFY(foreign.document);
+    const auto rejected = applyEdit(doc, snapshotToken(*foreign.document),
+                                    ReplaceCodeBody{code, "new\n"});
+    QVERIFY(!rejected.document);
+    QVERIFY(!rejected.error.isEmpty());
+  }
+
+  void createdEmptyCodeSourceMap() {
+    const QByteArray source = "```\n```\n";
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto code = find(*parsed.document, NodeKind::kBlock, MD_BLOCK_CODE);
+    QVERIFY(code < parsed.document->nodes.size());
+    QString error;
+    const auto mapped = mapFencedCodeBody(*parsed.document, code, error);
+    QVERIFY2(mapped, qPrintable(error));
+    QCOMPARE(mapped->body.size, qsizetype(0));
+    QVERIFY(mapped->closed);
+  }
+
+  void createdTableSourceMap() {
+    const QByteArray source =
+        "| Column 1 | Column 2 |\n| --- | --- |\n|  |  |\n";
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto table = find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+    QVERIFY(table < parsed.document->nodes.size());
+    const auto mapped = mapTable(*parsed.document, table);
+    QVERIFY2(mapped.table, qPrintable(mapped.error));
+    QCOMPARE(mapped.table->columns, size_t(2));
+    QCOMPARE(mapped.table->body.size(), size_t(1));
+  }
+
+  void insertTable_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<size_t>("position");
+    QTest::addColumn<size_t>("columns");
+    QTest::addColumn<size_t>("bodyRows");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("empty") << QByteArray{} << size_t(0) << size_t(2)
+                           << size_t(1)
+                           << QByteArray("| Column 1 | Column 2 |\n"
+                                         "| --- | --- |\n|  |  |\n");
+    QTest::newRow("after") << QByteArray("alpha\n") << size_t(1) << size_t(2)
+                           << size_t(1)
+                           << QByteArray("alpha\n\n| Column 1 | Column 2 |\n"
+                                         "| --- | --- |\n|  |  |\n");
+    QTest::newRow("before") << QByteArray("beta\n") << size_t(0) << size_t(2)
+                            << size_t(1)
+                            << QByteArray("| Column 1 | Column 2 |\n"
+                                          "| --- | --- |\n|  |  |\n\nbeta\n");
+    QTest::newRow("middle") << QByteArray("a\n\nb\n") << size_t(1)
+                            << size_t(2) << size_t(1)
+                            << QByteArray("a\n\n| Column 1 | Column 2 |\n"
+                                          "| --- | --- |\n|  |  |\n\nb\n");
+    QTest::newRow("crlf") << QByteArray("alpha\r\n") << size_t(1)
+                          << size_t(2) << size_t(1)
+                          << QByteArray("alpha\r\n\r\n| Column 1 | Column 2 |"
+                                        "\r\n| --- | --- |\r\n|  |  |\r\n");
+    QTest::newRow("header-only") << QByteArray{} << size_t(0) << size_t(3)
+                                 << size_t(0)
+                                 << QByteArray("| Column 1 | Column 2 | "
+                                               "Column 3 |\n| --- | --- | --- |\n");
+  }
+
+  void insertTable() {
+    QFETCH(QByteArray, source);
+    QFETCH(size_t, position);
+    QFETCH(size_t, columns);
+    QFETCH(size_t, bodyRows);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto result =
+        editBytes(*parsed.document,
+                  InsertTable{position, columns, bodyRows});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+  }
+
+  void insertHorizontalRule_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<size_t>("position");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("empty") << QByteArray{} << size_t(0)
+                           << QByteArray("---\n");
+    QTest::newRow("after") << QByteArray("alpha\n") << size_t(1)
+                           << QByteArray("alpha\n\n---\n");
+    QTest::newRow("before") << QByteArray("beta\n") << size_t(0)
+                            << QByteArray("---\n\nbeta\n");
+    QTest::newRow("crlf") << QByteArray("alpha\r\n") << size_t(1)
+                          << QByteArray("alpha\r\n\r\n---\r\n");
+  }
+
+  void insertHorizontalRule() {
+    QFETCH(QByteArray, source);
+    QFETCH(size_t, position);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto result =
+        editBytes(*parsed.document, InsertHorizontalRule{position});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+    const auto reparsed = parse(*result.source);
+    QVERIFY(reparsed.document);
+    QVERIFY(find(*reparsed.document, NodeKind::kBlock, MD_BLOCK_HR) <
+            reparsed.document->nodes.size());
+  }
+
+  void insertFencedCode_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<size_t>("position");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("empty") << QByteArray{} << size_t(0)
+                           << QByteArray("```\n```\n");
+    QTest::newRow("after") << QByteArray("alpha\n") << size_t(1)
+                           << QByteArray("alpha\n\n```\n```\n");
+    QTest::newRow("before") << QByteArray("beta\n") << size_t(0)
+                            << QByteArray("```\n```\n\nbeta\n");
+    QTest::newRow("crlf") << QByteArray("alpha\r\n") << size_t(1)
+                          << QByteArray("alpha\r\n\r\n```\r\n```\r\n");
+  }
+
+  void insertFencedCode() {
+    QFETCH(QByteArray, source);
+    QFETCH(size_t, position);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto result = editBytes(*parsed.document, InsertFencedCode{position});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+    const auto reparsed = parse(*result.source);
+    QVERIFY(reparsed.document);
+    QVERIFY(find(*reparsed.document, NodeKind::kBlock, MD_BLOCK_CODE) <
+            reparsed.document->nodes.size());
+  }
+
+  void insertBlockRejected() {
+    const auto parsed = parse("alpha\n");
+    QVERIFY(parsed.document);
+    for (const auto& command :
+         std::vector<EditCommand>{InsertHorizontalRule{2},
+                                  InsertFencedCode{2}}) {
+      const auto result = editBytes(*parsed.document, command);
+      QVERIFY(!result.source);
+      QVERIFY(result.error.contains("position"));
+    }
+    const auto foreign = parse("beta\n");
+    QVERIFY(foreign.document);
+    QVERIFY(!applyEdit(*parsed.document, snapshotToken(*foreign.document),
+                       InsertHorizontalRule{1})
+                 .document);
+  }
+
+  void insertTableRejected_data() {
+    QTest::addColumn<size_t>("position");
+    QTest::addColumn<size_t>("columns");
+    QTest::addColumn<size_t>("bodyRows");
+    QTest::addColumn<QString>("error");
+    QTest::newRow("position") << size_t(2) << size_t(2) << size_t(1)
+                              << QStringLiteral("position");
+    QTest::newRow("columns") << size_t(0) << size_t(0) << size_t(1)
+                             << QStringLiteral("dimensions");
+    QTest::newRow("rows") << size_t(0) << size_t(2) << size_t(10001)
+                          << QStringLiteral("dimensions");
+  }
+
+  void insertTableRejected() {
+    QFETCH(size_t, position);
+    QFETCH(size_t, columns);
+    QFETCH(size_t, bodyRows);
+    QFETCH(QString, error);
+    const auto parsed = parse("alpha\n");
+    QVERIFY(parsed.document);
+    const auto result = editBytes(
+        *parsed.document, InsertTable{position, columns, bodyRows});
+    QVERIFY(!result.source);
+    QVERIFY2(result.error.contains(error), qPrintable(result.error));
+    QCOMPARE(parsed.document->source, QByteArray("alpha\n"));
+    QCOMPARE(parsed.document->revision, quint64(0));
+  }
+
+  void insertTableStale() {
+    const auto parsed = parse("alpha\n");
+    QVERIFY(parsed.document);
+    const auto foreign = parse("beta\n");
+    QVERIFY(foreign.document);
+    const auto result = applyEdit(*parsed.document,
+                                  snapshotToken(*foreign.document),
+                                  InsertTable{1, 2, 1});
+    QVERIFY(!result.document);
+    QVERIFY(!result.error.isEmpty());
+  }
+
+  void insertTableCellText_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<bool>("header");
+    QTest::addColumn<QByteArray>("text");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("body") << QByteArray("| h | i |\n| --- | --- |\n|  | b |\n")
+                          << false << QByteArray("a")
+                          << QByteArray("| h | i |\n| --- | --- |\n| a | b |\n");
+    QTest::newRow("header")
+        << QByteArray("|  | i |\n| --- | --- |\n| a | b |\n") << true
+        << QByteArray("h")
+        << QByteArray("| h | i |\n| --- | --- |\n| a | b |\n");
+    QTest::newRow("pipe")
+        << QByteArray("| h | i |\n| --- | --- |\n|  | b |\n") << false
+        << QByteArray("a|b")
+        << QByteArray("| h | i |\n| --- | --- |\n| a\\|b | b |\n");
+    QTest::newRow("markup")
+        << QByteArray("| h | i |\n| --- | --- |\n|  | b |\n") << false
+        << QByteArray("*x*")
+        << QByteArray("| h | i |\n| --- | --- |\n| \\*x\\* | b |\n");
+    QTest::newRow("outside")
+        << QByteArray("pre\n\n| h | i |\n| --- | --- |\n|  | b |\n\npost\n")
+        << false << QByteArray("a")
+        << QByteArray("pre\n\n| h | i |\n| --- | --- |\n| a | b |\n\npost\n");
+    QTest::newRow("crlf")
+        << QByteArray("| h | i |\r\n| --- | --- |\r\n|  | b |\r\n") << false
+        << QByteArray("a")
+        << QByteArray("| h | i |\r\n| --- | --- |\r\n| a | b |\r\n");
+  }
+
+  void insertTableCellText() {
+    QFETCH(QByteArray, source);
+    QFETCH(bool, header);
+    QFETCH(QByteArray, text);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    const auto tableNode = find(doc, NodeKind::kBlock, MD_BLOCK_TABLE);
+    const auto mapped = mapTable(doc, tableNode);
+    QVERIFY2(mapped.table, qPrintable(mapped.error));
+    const auto cell = header ? mapped.table->header.cells.front().node
+                             : mapped.table->body.front().cells.front().node;
+    const auto result = editBytes(doc, InsertTableCellText{cell, text});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+  }
+
+  void insertTableCellTextRejected_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<QByteArray>("text");
+    QTest::addColumn<QString>("error");
+    QTest::newRow("nonempty")
+        << QByteArray("| h | i |\n| --- | --- |\n| a | b |\n")
+        << QByteArray("x") << QStringLiteral("not empty");
+    QTest::newRow("nested") << QByteArray("> | h |\n> | --- |\n> |  |\n")
+                            << QByteArray("x") << QStringLiteral("top-level");
+    QTest::newRow("empty") << QByteArray("| h |\n| --- |\n|  |\n")
+                           << QByteArray("") << QStringLiteral("nonempty");
+    QTest::newRow("newline") << QByteArray("| h |\n| --- |\n|  |\n")
+                             << QByteArray("a\nb") << QStringLiteral("single-line");
+    QTest::newRow("nul") << QByteArray("| h |\n| --- |\n|  |\n")
+                         << QByteArray("a\0b", 3)
+                         << QStringLiteral("single-line");
+    QTest::newRow("invalid-utf8") << QByteArray("| h |\n| --- |\n|  |\n")
+                                  << QByteArray("\xFF", 1)
+                                  << QStringLiteral("UTF-8");
+    QTest::newRow("whitespace") << QByteArray("| h |\n| --- |\n|  |\n")
+                                << QByteArray(" a")
+                                << QStringLiteral("single-line");
+  }
+
+  void insertTableCellTextRejected() {
+    QFETCH(QByteArray, source);
+    QFETCH(QByteArray, text);
+    QFETCH(QString, error);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    const auto tableNode = find(doc, NodeKind::kBlock, MD_BLOCK_TABLE);
+    const auto mapped = mapTable(doc, tableNode);
+    QVERIFY2(mapped.table, qPrintable(mapped.error));
+    size_t cell = mapped.table->header.cells.front().node;
+    if (!mapped.table->body.empty() && !mapped.table->body.front().cells.empty()) {
+      cell = mapped.table->body.front().cells.front().node;
+    }
+    const auto result = editBytes(doc, InsertTableCellText{cell, text});
+    QVERIFY(!result.source);
+    QVERIFY2(result.error.contains(error), qPrintable(result.error));
+    QCOMPARE(doc.source, source);
+    QCOMPARE(doc.revision, quint64(0));
+  }
+
+  void insertTableCellTextStale() {
+    const QByteArray source = "| h |\n| --- |\n|  |\n";
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    const auto mapped = mapTable(doc, find(doc, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY(mapped.table);
+    const auto cell = mapped.table->body.front().cells.front().node;
+    const auto foreign = parse("| h |\n| --- |\n| x |\n");
+    QVERIFY(foreign.document);
+    const auto result = applyEdit(doc, snapshotToken(*foreign.document),
+                                  InsertTableCellText{cell, "x"});
+    QVERIFY(!result.document);
+    QVERIFY(!result.error.isEmpty());
+  }
+
+  void wrapInListSecondBlock() {
+    const QByteArray source = "before\n\nafter\n";
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    QCOMPARE(doc.nodes[0].children.size(), size_t(2));
+    const auto result = editBytes(doc, WrapInList{0, 1, false, 0});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, QByteArray("before\n\n- after\n"));
+    const auto reparsed = parse(*result.source);
+    QVERIFY(reparsed.document);
+    const auto& root = reparsed.document->nodes[0];
+    QCOMPARE(root.children.size(), size_t(2));
+    QCOMPARE(int(reparsed.document->nodes[root.children.front()].type),
+             MD_BLOCK_P);
+    QCOMPARE(int(reparsed.document->nodes[root.children.back()].type),
+             MD_BLOCK_UL);
+  }
+
+  void wrapInListRejected_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<size_t>("parent");
+    QTest::addColumn<size_t>("first");
+    QTest::addColumn<bool>("ordered");
+    QTest::addColumn<int>("start");
+    QTest::addColumn<QString>("error");
+    QTest::newRow("non-root") << QByteArray("alpha\n") << size_t(1) << size_t(0)
+                              << false << 0 << QStringLiteral("root");
+    QTest::newRow("position") << QByteArray("alpha\n") << size_t(0) << size_t(1)
+                              << false << 0 << QStringLiteral("selection");
+    QTest::newRow("heading") << QByteArray("# alpha\n") << size_t(0) << size_t(0)
+                             << false << 0 << QStringLiteral("paragraph");
+    QTest::newRow("list") << QByteArray("- alpha\n") << size_t(0) << size_t(0)
+                          << false << 0 << QStringLiteral("paragraph");
+    QTest::newRow("indented") << QByteArray("  alpha\n") << size_t(0)
+                              << size_t(0) << false << 0
+                              << QStringLiteral("unindented");
+    QTest::newRow("continuation") << QByteArray("alpha\n  beta\n") << size_t(0)
+                                  << size_t(0) << false << 0
+                                  << QStringLiteral("unindented");
+    QTest::newRow("ordered-start") << QByteArray("alpha\n") << size_t(0)
+                                   << size_t(0) << true << 0
+                                   << QStringLiteral("start");
+  }
+
+  void wrapInListRejected() {
+    QFETCH(QByteArray, source);
+    QFETCH(size_t, parent);
+    QFETCH(size_t, first);
+    QFETCH(bool, ordered);
+    QFETCH(int, start);
+    QFETCH(QString, error);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    const auto result =
+        editBytes(doc, WrapInList{parent, first, ordered, start});
+    QVERIFY(!result.source);
+    QVERIFY2(result.error.contains(error), qPrintable(result.error));
+    QCOMPARE(doc.source, source);
+    QCOMPARE(doc.revision, quint64(0));
+  }
+
   void listRemove_data() {
     QTest::addColumn<QByteArray>("source");
     QTest::addColumn<int>("item");
@@ -2631,6 +3240,1109 @@ class Md4cSourceTest : public QObject {
       QVERIFY(!result.source);
       QVERIFY2(result.error.contains("overflow"), qPrintable(result.error));
     }
+  }
+
+  void tableSourceRanges() {
+    const QByteArray source = "pre\n\n| h |\n| --- |\n| a |\n\npost\n";
+    auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    const auto table = find(doc, NodeKind::kBlock, MD_BLOCK_TABLE);
+    QVERIFY(table < doc.nodes.size());
+    const auto mapped = mapTable(doc, table);
+    QVERIFY2(mapped.table, qPrintable(mapped.error));
+    QCOMPARE(mapped.table->range.offset, qsizetype(5));
+    QCOMPARE(mapped.table->range.size, qsizetype(20));
+    QCOMPARE(mapped.table->columns, size_t(1));
+    QCOMPARE(mapped.table->header.range.offset, qsizetype(5));
+    QCOMPARE(mapped.table->header.range.size, qsizetype(6));
+    QCOMPARE(mapped.table->delimiterRange.offset, qsizetype(11));
+    QCOMPARE(mapped.table->delimiterRange.size, qsizetype(8));
+    QCOMPARE(mapped.table->body.size(), size_t(1));
+    QCOMPARE(mapped.table->body[0].range.offset, qsizetype(19));
+    QCOMPARE(mapped.table->body[0].range.size, qsizetype(6));
+    QCOMPARE(mapped.table->header.cells.size(), size_t(1));
+    QCOMPARE(mapped.table->header.cells[0].range.offset, qsizetype(7));
+    QCOMPARE(mapped.table->header.cells[0].range.size, qsizetype(1));
+    QCOMPARE(mapped.table->body[0].cells[0].range.offset, qsizetype(21));
+    QCOMPARE(mapped.table->body[0].cells[0].range.size, qsizetype(1));
+    QCOMPARE(doc.source.mid(mapped.table->header.cells[0].range.offset,
+                            mapped.table->header.cells[0].range.size),
+             QByteArray("h"));
+
+    const QByteArray headerOnly = "| h |\n| --- |\n";
+    auto headerParsed = parse(headerOnly);
+    QVERIFY(headerParsed.document);
+    const auto headerMap =
+        mapTable(*headerParsed.document,
+                 find(*headerParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(headerMap.table, qPrintable(headerMap.error));
+    QCOMPARE(headerMap.table->columns, size_t(1));
+    QCOMPARE(headerMap.table->body.size(), size_t(0));
+    QCOMPARE(headerMap.table->range.size, qsizetype(headerOnly.size()));
+    QCOMPARE(headerMap.table->delimiterCells.size(), size_t(1));
+    QCOMPARE(headerMap.table->delimiterCells[0].offset, qsizetype(8));
+    QCOMPARE(headerMap.table->delimiterCells[0].size, qsizetype(3));
+
+    const QByteArray noOuter = "a | b\n--- | ---\nx | y\n";
+    auto noOuterParsed = parse(noOuter);
+    QVERIFY(noOuterParsed.document);
+    const auto noOuterMap =
+        mapTable(*noOuterParsed.document,
+                 find(*noOuterParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(noOuterMap.table, qPrintable(noOuterMap.error));
+    QCOMPARE(noOuterMap.table->columns, size_t(2));
+    QCOMPARE(noOuterMap.table->body.size(), size_t(1));
+    QCOMPARE(noOuterMap.table->header.cells.size(), size_t(2));
+    QCOMPARE(noOuterMap.table->body[0].cells.size(), size_t(2));
+    QCOMPARE(noOuterParsed.document->source.mid(
+                 noOuterMap.table->header.cells[0].range.offset,
+                 noOuterMap.table->header.cells[0].range.size),
+             QByteArray("a"));
+    QCOMPARE(noOuterParsed.document->source.mid(
+                 noOuterMap.table->body[0].cells[1].range.offset,
+                 noOuterMap.table->body[0].cells[1].range.size),
+             QByteArray("y"));
+
+    const QByteArray code = "| h |\n| --- |\n| `a\\|b` |\n";
+    auto codeParsed = parse(code);
+    QVERIFY(codeParsed.document);
+    const auto codeMap =
+        mapTable(*codeParsed.document,
+                 find(*codeParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(codeMap.table, qPrintable(codeMap.error));
+    QCOMPARE(codeMap.table->body[0].cells.size(), size_t(1));
+    QCOMPARE(codeParsed.document->source.mid(
+                 codeMap.table->body[0].cells[0].range.offset,
+                 codeMap.table->body[0].cells[0].range.size),
+             QByteArray("`a\\|b`"));
+
+    const QByteArray inlineFragment =
+        "| h |\n| --- |\n| *x* [y](/url) &amp; <i>z</i> |\n";
+    auto inlineParsed = parse(inlineFragment);
+    QVERIFY(inlineParsed.document);
+    const auto inlineMap =
+        mapTable(*inlineParsed.document,
+                 find(*inlineParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(inlineMap.table, qPrintable(inlineMap.error));
+    QCOMPARE(inlineParsed.document->source.mid(
+                 inlineMap.table->body[0].cells[0].range.offset,
+                 inlineMap.table->body[0].cells[0].range.size),
+             QByteArray("*x* [y](/url) &amp; <i>z</i>"));
+
+    const QByteArray ragged =
+        "| h | i |\n| --- | --- |\n| a |\n";
+    auto raggedParsed = parse(ragged);
+    QVERIFY(raggedParsed.document);
+    const auto raggedMap =
+        mapTable(*raggedParsed.document,
+                 find(*raggedParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY(!raggedMap.table);
+    QVERIFY(raggedMap.error.contains("ragged"));
+
+    const QByteArray reference =
+        "[new]: /new \"N\"\n\n| h |\n| --- |\n| [cell][new] |\n";
+    auto referenceParsed = parse(reference);
+    QVERIFY(referenceParsed.document);
+    const auto referenceMap =
+        mapTable(*referenceParsed.document,
+                 find(*referenceParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(referenceMap.table, qPrintable(referenceMap.error));
+    QCOMPARE(referenceMap.table->range.offset, qsizetype(17));
+    QCOMPARE(referenceMap.table->range.size, qsizetype(30));
+    QCOMPARE(referenceParsed.document->source.mid(
+                 referenceMap.table->body[0].cells[0].range.offset,
+                 referenceMap.table->body[0].cells[0].range.size),
+             QByteArray("[cell][new]"));
+    const auto link =
+        find(*referenceParsed.document, NodeKind::kSpan, MD_SPAN_A);
+    QVERIFY(link < referenceParsed.document->nodes.size());
+    QCOMPARE(referenceParsed.document->nodes[link].attributes["href"].toString(),
+             QStringLiteral("/new"));
+
+    const QByteArray aligned = "| h |\n| :---: |\n";
+    auto alignedParsed = parse(aligned);
+    QVERIFY(alignedParsed.document);
+    const auto alignedMap =
+        mapTable(*alignedParsed.document,
+                 find(*alignedParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(alignedMap.table, qPrintable(alignedMap.error));
+    QCOMPARE(alignedMap.table->alignments.size(), size_t(1));
+    QCOMPARE(int(alignedMap.table->alignments[0]),
+             int(TableAlignment::kCenter));
+
+    const auto notTable = parse("| h |\nno delimiter\n");
+    QVERIFY(notTable.document);
+    const auto invalid = mapTable(*notTable.document, 0);
+    QVERIFY(!invalid.table);
+    QCOMPARE(invalid.error, QStringLiteral("Invalid table target"));
+
+    const QByteArray crlf =
+        "pre\r\n\r\n| h |\r\n| --- |\r\n| a |\r\n\r\npost\r\n";
+    auto crlfParsed = parse(crlf);
+    QVERIFY(crlfParsed.document);
+    const auto crlfMap =
+        mapTable(*crlfParsed.document,
+                 find(*crlfParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(crlfMap.table, qPrintable(crlfMap.error));
+    QCOMPARE(crlfMap.table->range.offset, qsizetype(7));
+    QCOMPARE(crlfMap.table->range.size, qsizetype(23));
+    QCOMPARE(crlfMap.table->header.cells[0].range.offset, qsizetype(9));
+    QCOMPARE(crlfMap.table->body[0].cells[0].range.offset, qsizetype(25));
+
+    const QByteArray eof = "| h |\n| --- |\n| a |";
+    auto eofParsed = parse(eof);
+    QVERIFY(eofParsed.document);
+    const auto eofMap =
+        mapTable(*eofParsed.document,
+                 find(*eofParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(eofMap.table, qPrintable(eofMap.error));
+    QCOMPARE(eofMap.table->range.offset, qsizetype(0));
+    QCOMPARE(eofMap.table->range.size, qsizetype(eof.size()));
+
+    const auto unicode = QStringLiteral("| h |\n| --- |\n| \u0430\U0001f600 |\n")
+                             .toUtf8();
+    auto unicodeParsed = parse(unicode);
+    QVERIFY(unicodeParsed.document);
+    const auto unicodeMap =
+        mapTable(*unicodeParsed.document,
+                 find(*unicodeParsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+    QVERIFY2(unicodeMap.table, qPrintable(unicodeMap.error));
+    QCOMPARE(unicodeParsed.document->source.mid(
+                 unicodeMap.table->body[0].cells[0].range.offset,
+                 unicodeMap.table->body[0].cells[0].range.size),
+             QStringLiteral("\u0430\U0001f600").toUtf8());
+
+    const QByteArray duplicate =
+        "| h |\n| --- |\n\n| h |\n| --- |\n";
+    auto duplicateParsed = parse(duplicate);
+    QVERIFY(duplicateParsed.document);
+    std::vector<size_t> tables;
+    for (size_t i = 0; i < duplicateParsed.document->nodes.size(); ++i) {
+      if (duplicateParsed.document->nodes[i].type == MD_BLOCK_TABLE) {
+        tables.push_back(i);
+      }
+    }
+    QCOMPARE(tables.size(), size_t(2));
+    const auto duplicateFirst =
+        mapTable(*duplicateParsed.document, tables[0]);
+    const auto duplicateSecond =
+        mapTable(*duplicateParsed.document, tables[1]);
+    QVERIFY(duplicateFirst.table);
+    QVERIFY(duplicateSecond.table);
+    QCOMPARE(duplicateFirst.table->range.offset, qsizetype(0));
+    QCOMPARE(duplicateSecond.table->range.offset, qsizetype(15));
+  }
+
+  void tableRowCommands() {
+    {
+      auto parsed = parse("| h |\n| --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result =
+          editBytes(*parsed.document,
+                    InsertTableRow{table, 0, {QByteArray("a")}});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("| h |\n| --- |\n| a |\n"));
+    }
+    {
+      auto parsed = parse("| h |\n| --- |\n| a |\n| b |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      for (const auto position : {size_t(0), size_t(1), size_t(2)}) {
+        const auto result = editBytes(
+            *parsed.document,
+            InsertTableRow{table, position, {QByteArray("x")}});
+        QVERIFY2(result.source, qPrintable(result.error));
+        QByteArray expected = "| h |\n| --- |\n";
+        if (position == 0) {
+          expected += "| x |\n| a |\n| b |\n";
+        } else if (position == 1) {
+          expected += "| a |\n| x |\n| b |\n";
+        } else {
+          expected += "| a |\n| b |\n| x |\n";
+        }
+        QCOMPARE(*result.source, expected);
+      }
+    }
+    {
+      auto parsed = parse("| h |\n| --- |\n| a |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result =
+          editBytes(*parsed.document, RemoveTableRow{table, 0});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("| h |\n| --- |\n"));
+    }
+    {
+      auto parsed = parse("| h |\n| --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result =
+          editBytes(*parsed.document, RemoveTableRow{table, 0});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("Invalid table row index"),
+               qPrintable(result.error));
+    }
+    {
+      auto parsed = parse("| h | i |\n| --- | --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      for (const auto& cells : {std::vector<QByteArray>{QByteArray("a")},
+                               std::vector<QByteArray>{
+                                   QByteArray("a"), QByteArray("b"),
+                                   QByteArray("c")}}) {
+        const auto result =
+            editBytes(*parsed.document, InsertTableRow{table, 0, cells});
+        QVERIFY(!result.source);
+        QVERIFY2(result.error.contains("Invalid table row payload"),
+                 qPrintable(result.error));
+      }
+    }
+    {
+      auto parsed = parse("| h |\n| --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto insert = [&](const QByteArray& value) {
+        return editBytes(*parsed.document,
+                         InsertTableRow{table, 0, {value}});
+      };
+      QCOMPARE(*insert("").source, QByteArray("| h |\n| --- |\n|  |\n"));
+      QCOMPARE(*insert("a b").source,
+               QByteArray("| h |\n| --- |\n| a b |\n"));
+      QCOMPARE(*insert("a|b").source,
+               QByteArray("| h |\n| --- |\n| a\\|b |\n"));
+      QCOMPARE(*insert("a\\b").source,
+               QByteArray("| h |\n| --- |\n| a\\\\b |\n"));
+      QCOMPARE(*insert("*x*").source,
+               QByteArray("| h |\n| --- |\n| \\*x\\* |\n"));
+      for (const auto& value : {QByteArray(" a"), QByteArray("a "),
+                                QByteArray(" "), QByteArray("a\tb"),
+                                QByteArray("a\nb"), QByteArray("a\rb")}) {
+        const auto result = insert(value);
+        QVERIFY(!result.source);
+        QVERIFY(!result.error.isEmpty());
+      }
+      QByteArray withNul("a");
+      withNul.append('\0');
+      QVERIFY(!insert(withNul).source);
+      QByteArray invalidUtf8("\xC3", 1);
+      QVERIFY(!insert(invalidUtf8).source);
+    }
+    {
+      const QByteArray source =
+          "| h | i |\n| --- | --- |\n| a | b |\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto left = editBytes(
+          *parsed.document,
+          SetTableAlignment{table, 0, TableAlignment::kLeft});
+      QVERIFY2(left.source, qPrintable(left.error));
+      QCOMPARE(*left.source,
+               QByteArray("| h | i |\n| :--- | --- |\n| a | b |\n"));
+      const auto center = editBytes(
+          *parsed.document,
+          SetTableAlignment{table, 1, TableAlignment::kCenter});
+      QVERIFY2(center.source, qPrintable(center.error));
+      QCOMPARE(*center.source,
+               QByteArray("| h | i |\n| --- | :---: |\n| a | b |\n"));
+      const auto right = editBytes(
+          *parsed.document,
+          SetTableAlignment{table, 1, TableAlignment::kRight});
+      QVERIFY2(right.source, qPrintable(right.error));
+      QCOMPARE(*right.source,
+               QByteArray("| h | i |\n| --- | ---: |\n| a | b |\n"));
+      const auto noop =
+          applyEdit(*parsed.document, snapshotToken(*parsed.document),
+                    SetTableAlignment{table, 0, TableAlignment::kNone});
+      QVERIFY(noop.document);
+      QCOMPARE(noop.document->source, source);
+      QCOMPARE(noop.document->revision, parsed.document->revision);
+    }
+    {
+      const QByteArray source =
+          "| h | i |\n| --- | --- |\n| `a\\|b` | *x* |\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result =
+          editBytes(*parsed.document,
+                    InsertTableRow{table, 1, {QByteArray("new"), QByteArray("r")}});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("| h | i |\n| --- | --- |\n| `a\\|b` | *x* |\n"
+                          "| new | r |\n"));
+    }
+    {
+      const QByteArray source =
+          "[new]: /new \"N\"\n\n| h |\n| --- |\n| [cell][new] |\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result =
+          editBytes(*parsed.document,
+                    InsertTableRow{table, 1, {QByteArray("x")}});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("[new]: /new \"N\"\n\n| h |\n| --- |\n"
+                          "| [cell][new] |\n| x |\n"));
+      QCOMPARE(result.source->left(16), source.left(16));
+      auto reparsed = parse(*result.source);
+      QVERIFY(reparsed.document);
+      const auto link =
+          find(*reparsed.document, NodeKind::kSpan, MD_SPAN_A);
+      QVERIFY(link < reparsed.document->nodes.size());
+      QCOMPARE(reparsed.document->nodes[link].attributes["href"].toString(),
+               QStringLiteral("/new"));
+    }
+    {
+      auto parsed = parse("| h |\r\n| --- |\r\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(
+          *parsed.document, InsertTableRow{table, 0, {QByteArray("a")}});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("| h |\r\n| --- |\r\n| a |\r\n"));
+    }
+    {
+      auto parsed = parse("| h |\n| --- |\n| a |");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(
+          *parsed.document, InsertTableRow{table, 1, {QByteArray("b")}});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("| h |\n| --- |\n| a |\n| b |"));
+    }
+  }
+
+  void tableCommandGuards() {
+    auto parsed = parse("| h |\n| --- |\n| a |\n", 4);
+    QVERIFY(parsed.document);
+    const auto& doc = *parsed.document;
+    const auto table = find(doc, NodeKind::kBlock, MD_BLOCK_TABLE);
+    QVERIFY(table < doc.nodes.size());
+    const auto token = snapshotToken(doc);
+    auto foreign = parse(doc.source, doc.revision);
+    QVERIFY(foreign.document);
+    for (const auto& command :
+         std::vector<EditCommand>{
+             InsertTableRow{table, 0, {QByteArray("x")}},
+             RemoveTableRow{table, 0},
+             SetTableAlignment{table, 0, TableAlignment::kCenter}}) {
+      QVERIFY(!applyEdit(doc, snapshotToken(*foreign.document), command)
+                   .document);
+      auto invalidDigest = token;
+      invalidDigest.digest[0] = char(invalidDigest.digest[0] ^ 1);
+      QVERIFY(!applyEdit(doc, invalidDigest, command).document);
+    }
+    QVERIFY(!applyEdit(doc, token,
+                       InsertTableRow{table, 2, {QByteArray("x")}})
+                 .document);
+    QVERIFY(!applyEdit(doc, token,
+                       RemoveTableRow{table, 1})
+                 .document);
+    QVERIFY(!applyEdit(doc, token,
+                       SetTableAlignment{table, 1, TableAlignment::kLeft})
+                 .document);
+    QVERIFY(!applyEdit(doc, token,
+                       InsertTableRow{doc.nodes.size(), 0,
+                                       {QByteArray("x")}})
+                 .document);
+    auto exhausted = parse(doc.source, std::numeric_limits<quint64>::max());
+    QVERIFY(exhausted.document);
+    auto overflow =
+        applyEdit(*exhausted.document, snapshotToken(*exhausted.document),
+                  InsertTableRow{
+                      find(*exhausted.document, NodeKind::kBlock,
+                           MD_BLOCK_TABLE),
+                      0, {QByteArray("x")}});
+    QVERIFY(!overflow.document);
+    QVERIFY(overflow.error.contains("overflow"));
+  }
+
+  void tableColumnCommands() {
+    {
+      const QByteArray source =
+          "| h | i |\n| --- | --- |\n| a | b |\n| c | d |\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const std::vector<QByteArray> expected{
+          "| x | h | i |\n| :---: | --- | --- |\n| p | a | b |\n"
+          "| q | c | d |\n",
+          "| h | x | i |\n| --- | :---: | --- |\n| a | p | b |\n"
+          "| c | q | d |\n",
+          "| h | i | x |\n| --- | --- | :---: |\n| a | b | p |\n"
+          "| c | d | q |\n"};
+      for (size_t position = 0; position < 3; ++position) {
+        const auto result = editBytes(
+            *parsed.document,
+            InsertTableColumn{table, position, QByteArray("x"),
+                              {QByteArray("p"), QByteArray("q")},
+                              TableAlignment::kCenter});
+        QVERIFY2(result.source, qPrintable(result.error));
+        QCOMPARE(*result.source, expected[position]);
+      }
+    }
+    {
+      auto parsed = parse("| h |\n| --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(
+          *parsed.document,
+          InsertTableColumn{table, 1, QByteArray("x"), {},
+                            TableAlignment::kNone});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("| h | x |\n| --- | --- |\n"));
+    }
+    {
+      auto parsed =
+          parse("| h | i |\n| --- | --- |\n| a | b |\n| c | d |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(
+          *parsed.document,
+          InsertTableColumn{table, 0, QByteArray("x"), {QByteArray("p")},
+                            TableAlignment::kNone});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("Invalid table column payload"),
+               qPrintable(result.error));
+    }
+    {
+      const QByteArray source = "| h | i |\n| --- | --- |\n| a | b |\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      QCOMPARE(*editBytes(*parsed.document,
+                          RemoveTableColumn{table, 0}).source,
+               QByteArray("| i |\n| --- |\n| b |\n"));
+      QCOMPARE(*editBytes(*parsed.document,
+                          RemoveTableColumn{table, 1}).source,
+               QByteArray("| h |\n| --- |\n| a |\n"));
+    }
+    {
+      auto parsed = parse("| h |\n| --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(*parsed.document,
+                                    RemoveTableColumn{table, 0});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("last table column"),
+               qPrintable(result.error));
+    }
+    {
+      auto parsed = parse("| h |\n| --- |\n| a |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(*parsed.document, RemoveTable{table});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QVERIFY(result.source->isEmpty());
+    }
+    {
+      const QByteArray source = "pre\n\n| h |\n| --- |\n\npost\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(*parsed.document, RemoveTable{table});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("pre\n\n\npost\n"));
+    }
+    {
+      const QByteArray source = "- a\n\n| h |\n| --- |\n\n- b\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(*parsed.document, RemoveTable{table});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("semantics"), qPrintable(result.error));
+    }
+    {
+      const QByteArray source =
+          "| h | i |\n| --- | --- |\n| `a\\|b` | *x* |\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(
+          *parsed.document,
+          InsertTableColumn{table, 1, QByteArray("new"),
+                            {QByteArray("r")}, TableAlignment::kNone});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("| h | new | i |\n| --- | --- | --- |\n"
+                          "| `a\\|b` | r | *x* |\n"));
+    }
+    {
+      auto parsed = parse("| h |\r\n| --- |\r\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(
+          *parsed.document,
+          InsertTableColumn{table, 1, QByteArray("x"), {},
+                            TableAlignment::kNone});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("| h | x |\r\n| --- | --- |\r\n"));
+    }
+  }
+
+  void nestedTableCommands() {
+    {
+      auto parsed = parse("> | h |\n> | --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result =
+          editBytes(*parsed.document,
+                    InsertTableRow{table, 0, {QByteArray("a")}});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("> | h |\n> | --- |\n> | a |\n"));
+      auto reparsed = parse(*result.source);
+      QVERIFY(reparsed.document);
+      const auto mapped = mapTable(
+          *reparsed.document,
+          find(*reparsed.document, NodeKind::kBlock, MD_BLOCK_TABLE));
+      QVERIFY2(mapped.table, qPrintable(mapped.error));
+      QCOMPARE(mapped.table->continuationPrefix, QByteArray("> "));
+    }
+    {
+      auto parsed = parse("- | h |\n  | --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result =
+          editBytes(*parsed.document,
+                    InsertTableRow{table, 0, {QByteArray("a")}});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("- | h |\n  | --- |\n  | a |\n"));
+    }
+    {
+      auto parsed = parse("- p\n\n  | h |\n  | --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(*parsed.document, RemoveTable{table});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("- p\n\n"));
+      auto reparsed = parse(*result.source);
+      QVERIFY(reparsed.document);
+      const auto list =
+          find(*reparsed.document, NodeKind::kBlock, MD_BLOCK_UL);
+      QVERIFY(list < reparsed.document->nodes.size());
+      QCOMPARE(reparsed.document->nodes[list].attributes["tight"].toBool(),
+               true);
+    }
+    {
+      auto parsed = parse("> p\n>\n> | h |\n> | --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(*parsed.document, RemoveTable{table});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("> p\n>\n"));
+    }
+    {
+      auto parsed = parse("- | h |\n  | --- |\n\n  p\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(*parsed.document, RemoveTable{table});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("marker line"), qPrintable(result.error));
+    }
+    {
+      auto parsed = parse("> | h |\n> | --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(*parsed.document, RemoveTable{table});
+      QVERIFY(!result.source);
+      QVERIFY2(result.error.contains("cascade"), qPrintable(result.error));
+    }
+    {
+      auto parsed = parse("> - p\n>\n>   | h |\n>   | --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result =
+          editBytes(*parsed.document,
+                    InsertTableRow{table, 0, {QByteArray("a")}});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("> - p\n>\n>   | h |\n>   | --- |\n"
+                          ">   | a |\n"));
+    }
+    {
+      auto parsed = parse("> - p\n>\n>   > | h |\n>   > | --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result =
+          editBytes(*parsed.document,
+                    InsertTableRow{table, 0, {QByteArray("a")}});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("> - p\n>\n>   > | h |\n>   > | --- |\n"
+                          ">   > | a |\n"));
+    }
+    {
+      auto parsed = parse("- | h |\n  | --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto alignment = editBytes(
+          *parsed.document,
+          SetTableAlignment{table, 0, TableAlignment::kCenter});
+      QVERIFY2(alignment.source, qPrintable(alignment.error));
+      QCOMPARE(*alignment.source,
+               QByteArray("- | h |\n  | :---: |\n"));
+      const auto column = editBytes(
+          *parsed.document,
+          InsertTableColumn{table, 1, QByteArray("x"), {},
+                            TableAlignment::kNone});
+      QVERIFY2(column.source, qPrintable(column.error));
+      QCOMPARE(*column.source,
+               QByteArray("- | h | x |\n  | --- | --- |\n"));
+    }
+    {
+      auto parsed = parse("- | h |\n  | --- |\n  | a |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(*parsed.document, RemoveTableRow{table, 0});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("- | h |\n  | --- |\n"));
+    }
+    {
+      auto parsed = parse("- | h | i |\n  | --- | --- |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(*parsed.document,
+                                    RemoveTableColumn{table, 0});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source, QByteArray("- | i |\n  | --- |\n"));
+    }
+    {
+      const QByteArray source =
+          "> | h | i |\n> | --- | --- |\n> | a | b |\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto alignment = editBytes(
+          *parsed.document,
+          SetTableAlignment{table, 0, TableAlignment::kCenter});
+      QVERIFY2(alignment.source, qPrintable(alignment.error));
+      QCOMPARE(*alignment.source,
+               QByteArray("> | h | i |\n> | :---: | --- |\n"
+                          "> | a | b |\n"));
+      const auto column = editBytes(
+          *parsed.document,
+          InsertTableColumn{table, 1, QByteArray("x"), {QByteArray("r")},
+                            TableAlignment::kNone});
+      QVERIFY2(column.source, qPrintable(column.error));
+      QCOMPARE(*column.source,
+               QByteArray("> | h | x | i |\n> | --- | --- | --- |\n"
+                          "> | a | r | b |\n"));
+      const auto removed = editBytes(*parsed.document,
+                                     RemoveTableColumn{table, 0});
+      QVERIFY2(removed.source, qPrintable(removed.error));
+      QCOMPARE(*removed.source,
+               QByteArray("> | i |\n> | --- |\n> | b |\n"));
+      const auto row = editBytes(
+          *parsed.document,
+          InsertTableRow{table, 1, {QByteArray("c"), QByteArray("d")}});
+      QVERIFY2(row.source, qPrintable(row.error));
+      QCOMPARE(*row.source,
+               QByteArray("> | h | i |\n> | --- | --- |\n"
+                          "> | a | b |\n> | c | d |\n"));
+      const auto rowRemoved = editBytes(*parsed.document,
+                                        RemoveTableRow{table, 0});
+      QVERIFY2(rowRemoved.source, qPrintable(rowRemoved.error));
+      QCOMPARE(*rowRemoved.source,
+               QByteArray("> | h | i |\n> | --- | --- |\n"));
+    }
+    {
+      auto parsed = parse("> | h |\r\n> | --- |\r\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result =
+          editBytes(*parsed.document,
+                    InsertTableRow{table, 0, {QByteArray("a")}});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("> | h |\r\n> | --- |\r\n> | a |\r\n"));
+    }
+    {
+      auto parsed = parse("> | h |\n> | --- |\n| a |\n");
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result =
+          editBytes(*parsed.document,
+                    InsertTableRow{table, 0, {QByteArray("x")}});
+      QVERIFY(!result.source);
+    }
+  }
+
+  void nestedTableReferences() {
+    {
+      const QByteArray source =
+          "[new]: /new \"N\"\n\n> | h |\n> | --- |\n> | [c][new] |\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result =
+          editBytes(*parsed.document,
+                    InsertTableRow{table, 1, {QByteArray("z")}});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("[new]: /new \"N\"\n\n> | h |\n> | --- |\n"
+                          "> | [c][new] |\n> | z |\n"));
+      QCOMPARE(result.source->left(16), source.left(16));
+      auto reparsed = parse(*result.source);
+      QVERIFY(reparsed.document);
+      const auto link =
+          find(*reparsed.document, NodeKind::kSpan, MD_SPAN_A);
+      QVERIFY(link < reparsed.document->nodes.size());
+      QCOMPARE(reparsed.document->nodes[link].attributes["href"].toString(),
+               QStringLiteral("/new"));
+    }
+    {
+      const QByteArray source =
+          "[new]: /new \"N\"\n\n- p\n\n  | h |\n  | --- |\n  | [c][new] |\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result =
+          editBytes(*parsed.document,
+                    InsertTableRow{table, 1, {QByteArray("z")}});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("[new]: /new \"N\"\n\n- p\n\n  | h |\n"
+                          "  | --- |\n  | [c][new] |\n  | z |\n"));
+    }
+    {
+      const QByteArray source =
+          "[new]: /new \"N\"\n\n- p\n\n  | h |\n  | --- |\n  | [c][new] |\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(*parsed.document, RemoveTable{table});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("[new]: /new \"N\"\n\n- p\n\n"));
+      auto reparsed = parse(*result.source);
+      QVERIFY(reparsed.document);
+      QVERIFY(find(*reparsed.document, NodeKind::kSpan, MD_SPAN_A) >=
+              reparsed.document->nodes.size());
+      const auto definitions = parse(*result.source);
+      QVERIFY(definitions.document);
+      QVERIFY(definitions.document->source.contains("[new]: /new"));
+    }
+    {
+      const QByteArray source =
+          "[new]: /new \"N\"\n\n> | h |\n> | --- |\n> | [c][new] |\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result = editBytes(
+          *parsed.document,
+          RemoveTableRow{table, 0});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               QByteArray("[new]: /new \"N\"\n\n> | h |\n> | --- |\n"));
+      QVERIFY(result.source->contains("[new]: /new"));
+    }
+    for (const QByteArray& reference :
+         {QByteArray("[c][]"), QByteArray("[c]"),
+          QByteArray("![alt][c]")}) {
+      const QByteArray source =
+          "[c]: /new \"N\"\n\n> | h |\n> | --- |\n> | " + reference + " |\n";
+      auto parsed = parse(source);
+      QVERIFY(parsed.document);
+      const auto table =
+          find(*parsed.document, NodeKind::kBlock, MD_BLOCK_TABLE);
+      const auto result =
+          editBytes(*parsed.document,
+                    InsertTableRow{table, 1, {QByteArray("z")}});
+      QVERIFY2(result.source, qPrintable(result.error));
+      QCOMPARE(*result.source,
+               "[c]: /new \"N\"\n\n> | h |\n> | --- |\n> | " + reference +
+                   " |\n> | z |\n");
+      auto reparsed = parse(*result.source);
+      QVERIFY(reparsed.document);
+      const auto span =
+          find(*reparsed.document, NodeKind::kSpan,
+               reference.startsWith("!") ? MD_SPAN_IMG : MD_SPAN_A);
+      QVERIFY(span < reparsed.document->nodes.size());
+      const auto& attributes = reparsed.document->nodes[span].attributes;
+      QCOMPARE(attributes["src"].toString().isEmpty()
+                   ? attributes["href"].toString()
+                   : attributes["src"].toString(),
+               QStringLiteral("/new"));
+    }
+  }
+
+  void imageAltEdits() {
+    const QByteArray inlineImage = "![before](/image \"T\")\n";
+    auto parsed = parse(inlineImage);
+    QVERIFY(parsed.document);
+    const auto before =
+        find(*parsed.document, NodeKind::kText, MD_TEXT_NORMAL, "before");
+    QVERIFY(before < parsed.document->nodes.size());
+    QVERIFY(!parsed.document->nodes[before].parent ||
+            parsed.document->nodes[*parsed.document->nodes[before].parent]
+                    .type == MD_SPAN_IMG);
+    auto edited = editBytes(*parsed.document, ReplaceText{before, "after"});
+    QVERIFY2(edited.source, qPrintable(edited.error));
+    QCOMPARE(*edited.source, QByteArray("![after](/image \"T\")\n"));
+    auto reparsed = parse(*edited.source);
+    QVERIFY(reparsed.document);
+    const auto image =
+        find(*reparsed.document, NodeKind::kSpan, MD_SPAN_IMG);
+    QVERIFY(image < reparsed.document->nodes.size());
+    QCOMPARE(reparsed.document->nodes[image].attributes["src"].toString(),
+             QStringLiteral("/image"));
+    QCOMPARE(reparsed.document->nodes[image].attributes["title"].toString(),
+             QStringLiteral("T"));
+
+    const QByteArray reference =
+        "![before][id]\n\n[id]: /img \"I\"\n";
+    auto referenceParsed = parse(reference);
+    QVERIFY(referenceParsed.document);
+    const auto referenceText =
+        find(*referenceParsed.document, NodeKind::kText, MD_TEXT_NORMAL,
+             "before");
+    QVERIFY(referenceText < referenceParsed.document->nodes.size());
+    auto referenceEdit =
+        editBytes(*referenceParsed.document, ReplaceText{referenceText, "after"});
+    QVERIFY2(referenceEdit.source, qPrintable(referenceEdit.error));
+    QCOMPARE(*referenceEdit.source,
+             QByteArray("![after][id]\n\n[id]: /img \"I\"\n"));
+    auto referenceReparsed = parse(*referenceEdit.source);
+    QVERIFY(referenceReparsed.document);
+    const auto referenceImage =
+        find(*referenceReparsed.document, NodeKind::kSpan, MD_SPAN_IMG);
+    QVERIFY(referenceImage < referenceReparsed.document->nodes.size());
+    QCOMPARE(referenceReparsed.document->nodes[referenceImage]
+                 .attributes["src"]
+                 .toString(),
+             QStringLiteral("/img"));
+    QCOMPARE(referenceReparsed.document->nodes[referenceImage]
+                 .attributes["title"]
+                 .toString(),
+             QStringLiteral("I"));
+
+    const QByteArray unsafe = "![alt](javascript:ignored)\n";
+    auto unsafeParsed = parse(unsafe);
+    QVERIFY(unsafeParsed.document);
+    const auto unsafeText =
+        find(*unsafeParsed.document, NodeKind::kText, MD_TEXT_NORMAL, "alt");
+    QVERIFY(unsafeText < unsafeParsed.document->nodes.size());
+    auto unsafeEdit = editBytes(*unsafeParsed.document,
+                                ReplaceText{unsafeText, "safe"});
+    QVERIFY2(unsafeEdit.source, qPrintable(unsafeEdit.error));
+    QCOMPARE(*unsafeEdit.source, QByteArray("![safe](javascript:ignored)\n"));
+
+    auto invalidImage = parse(inlineImage);
+    QVERIFY(invalidImage.document);
+    const auto invalidText = find(*invalidImage.document, NodeKind::kText,
+                                  MD_TEXT_NORMAL, "before");
+    for (const auto& value : {QByteArray{}, QByteArray("two\nlines"),
+                              QByteArray("two\rlines")}) {
+      const auto rejected = editBytes(*invalidImage.document,
+                                      ReplaceText{invalidText, value});
+      QVERIFY(!rejected.source);
+      QVERIFY(!rejected.error.isEmpty());
+    }
+  }
+
+  void wrapInLink_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<QByteArray>("text");
+    QTest::addColumn<int>("offset");
+    QTest::addColumn<int>("size");
+    QTest::addColumn<QByteArray>("url");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("full")
+        << QByteArray("alpha beta\n") << QByteArray("alpha beta") << 0 << 5
+        << QByteArray("https://example.test")
+        << QByteArray("[alpha](<https://example.test>) beta\n");
+    QTest::newRow("partial")
+        << QByteArray("alpha beta\n") << QByteArray("alpha beta") << 6 << 4
+        << QByteArray("https://example.test")
+        << QByteArray("alpha [beta](<https://example.test>)\n");
+    QTest::newRow("paren-url")
+        << QByteArray("alpha\n") << QByteArray("alpha") << 0 << 5
+        << QByteArray("https://example.test/a(b)")
+        << QByteArray("[alpha](<https://example.test/a(b)>)\n");
+    QTest::newRow("formatted")
+        << QByteArray("**alpha**\n") << QByteArray("alpha") << 0 << 5
+        << QByteArray("https://example.test")
+        << QByteArray("**[alpha](<https://example.test>)**\n");
+  }
+
+  void wrapInLink() {
+    QFETCH(QByteArray, source);
+    QFETCH(QByteArray, text);
+    QFETCH(int, offset);
+    QFETCH(int, size);
+    QFETCH(QByteArray, url);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto node =
+        find(*parsed.document, NodeKind::kText, MD_TEXT_NORMAL, text);
+    QVERIFY(node < parsed.document->nodes.size());
+    const auto result = editBytes(
+        *parsed.document,
+        WrapInLink{node, {offset, size}, url});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+  }
+
+  void insertImage_data() {
+    QTest::addColumn<QByteArray>("source");
+    QTest::addColumn<QByteArray>("text");
+    QTest::addColumn<int>("offset");
+    QTest::addColumn<int>("size");
+    QTest::addColumn<QByteArray>("src");
+    QTest::addColumn<QByteArray>("expected");
+    QTest::newRow("full")
+        << QByteArray("alpha beta\n") << QByteArray("alpha beta") << 0 << 5
+        << QByteArray("https://example.test/image.png")
+        << QByteArray("![alpha](<https://example.test/image.png>) beta\n");
+    QTest::newRow("partial")
+        << QByteArray("alpha beta\n") << QByteArray("alpha beta") << 6 << 4
+        << QByteArray("https://example.test/image.png")
+        << QByteArray("alpha ![beta](<https://example.test/image.png>)\n");
+    QTest::newRow("paren-src")
+        << QByteArray("alpha\n") << QByteArray("alpha") << 0 << 5
+        << QByteArray("https://example.test/a(b).png")
+        << QByteArray("![alpha](<https://example.test/a(b).png>)\n");
+    QTest::newRow("formatted")
+        << QByteArray("**alpha**\n") << QByteArray("alpha") << 0 << 5
+        << QByteArray("https://example.test/image.png")
+        << QByteArray("**![alpha](<https://example.test/image.png>)**\n");
+  }
+
+  void insertImage() {
+    QFETCH(QByteArray, source);
+    QFETCH(QByteArray, text);
+    QFETCH(int, offset);
+    QFETCH(int, size);
+    QFETCH(QByteArray, src);
+    QFETCH(QByteArray, expected);
+    const auto parsed = parse(source);
+    QVERIFY(parsed.document);
+    const auto node =
+        find(*parsed.document, NodeKind::kText, MD_TEXT_NORMAL, text);
+    QVERIFY(node < parsed.document->nodes.size());
+    const auto result =
+        editBytes(*parsed.document, InsertImage{node, {offset, size}, src});
+    QVERIFY2(result.source, qPrintable(result.error));
+    QCOMPARE(*result.source, expected);
+  }
+
+  void insertImageRejected() {
+    const auto parsed = parse("alpha [link](/keep)\n");
+    QVERIFY(parsed.document);
+    const auto linkText =
+        find(*parsed.document, NodeKind::kText, MD_TEXT_NORMAL, "link");
+    QVERIFY(linkText < parsed.document->nodes.size());
+    for (const auto& command :
+         std::vector<EditCommand>{
+             InsertImage{linkText, {0, 4}, "https://example.test/a.png"},
+             InsertImage{linkText, {0, 0}, "https://example.test/a.png"},
+             InsertImage{linkText, {0, 4}, ""},
+             InsertImage{linkText, {0, 4}, "bad src"},
+             InsertImage{linkText, {0, 4}, "bad<src"}}) {
+      QVERIFY(!editBytes(*parsed.document, command).source);
+    }
+    const auto image = parse("![alt](/keep)\n");
+    QVERIFY(image.document);
+    const auto alt =
+        find(*image.document, NodeKind::kText, MD_TEXT_NORMAL, "alt");
+    QVERIFY(alt < image.document->nodes.size());
+    QVERIFY(!editBytes(*image.document,
+                       InsertImage{alt, {0, 3}, "https://example.test/a.png"})
+                 .source);
+  }
+
+  void insertImageStale() {
+    const auto parsed = parse("alpha\n");
+    QVERIFY(parsed.document);
+    const auto node =
+        find(*parsed.document, NodeKind::kText, MD_TEXT_NORMAL, "alpha");
+    const auto foreign = parse("beta\n");
+    QVERIFY(foreign.document);
+    QVERIFY(!applyEdit(*parsed.document, snapshotToken(*foreign.document),
+                       InsertImage{node, {0, 5}, "https://example.test/a.png"})
+                 .document);
+  }
+
+  void wrapInLinkRejected() {
+    const auto parsed = parse("alpha [link](/keep)\n");
+    QVERIFY(parsed.document);
+    const auto linkText =
+        find(*parsed.document, NodeKind::kText, MD_TEXT_NORMAL, "link");
+    QVERIFY(linkText < parsed.document->nodes.size());
+    for (const auto& command :
+         std::vector<EditCommand>{
+             WrapInLink{linkText, {0, 4}, "https://example.test"},
+             WrapInLink{linkText, {0, 0}, "https://example.test"},
+             WrapInLink{linkText, {0, 4}, ""},
+             WrapInLink{linkText, {0, 4}, "bad url"},
+             WrapInLink{linkText, {0, 4}, "bad<url"}}) {
+      QVERIFY(!editBytes(*parsed.document, command).source);
+    }
+    const auto image = parse("![alt](/keep)\n");
+    QVERIFY(image.document);
+    const auto alt = find(*image.document, NodeKind::kText, MD_TEXT_NORMAL, "alt");
+    QVERIFY(alt < image.document->nodes.size());
+    QVERIFY(!editBytes(*image.document,
+                       WrapInLink{alt, {0, 3}, "https://example.test"})
+                 .source);
+  }
+
+  void wrapInLinkStale() {
+    const auto parsed = parse("alpha\n");
+    QVERIFY(parsed.document);
+    const auto node =
+        find(*parsed.document, NodeKind::kText, MD_TEXT_NORMAL, "alpha");
+    const auto foreign = parse("beta\n");
+    QVERIFY(foreign.document);
+    QVERIFY(!applyEdit(*parsed.document, snapshotToken(*foreign.document),
+                       WrapInLink{node, {0, 5}, "https://example.test"})
+                 .document);
   }
 
   void unifiedCommandContract() {

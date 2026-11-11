@@ -71,104 +71,82 @@ flowchart TB
 
 ### Реализованный source/session слой (Task 003)
 
-- `markpad_document`: стандартный C++20, source UTF-8, value snapshot, process-local
-  identity и revision. Сессия не копируется; снимки копируются. Replace требует
-  актуальный token. Revision относится к изменениям source, open создаёт новую
-  identity с revision 0; save/save-as identity/revision не меняют.
-- Session владеет source/format, абсолютным path и saved checkpoint. Dirty
-  сравнивает source/format с checkpoint. No-op не повышает revision; возврат
-  содержимого снимает dirty без отката revision. Undo/redo source реализованы
-  в UI Task 004 поверх replaceSource.
-- `DocumentFileService` — небольшая boundary для synchronous read/write и
-  deterministic failure tests. Qt Core adapter не зависит от Widgets,
-  использует QSaveFile без fallback на прямую запись. Ошибка не меняет path,
-  format, checkpoint или token. Вызов open при dirty требует explicit discard.
-- UTF-8/16/32 LE/BE decode строгий: BOM/explicit encoding, затем conservative
-  heuristic для файлов без BOM. EOL сохраняется, NUL/invalid Unicode отклоняются.
-  Heuristic uncertainty — явная ошибка, не обещание универсального autodetect.
-  Save сохраняет исходную encoding/BOM; Save As может выбрать другие.
-- Markdown UI связан с Session через source projection; continuous UI разбирает
-  её snapshot через MD4C. Session token и MD4C UUID token — разные контракты;
-  адаптер связывает parser output с session snapshot, не позволяя
-  передавать индексы узлов между снимками. Source-map/UTF-16 cursor mapping —
-  не часть Task 003.
+- `markpad_document`: стандартный C++20, source UTF-8, value snapshot, process-local identity и revision. Сессия не копируется; снимки копируются. Replace требует актуальный token. Revision относится к изменениям source, open создаёт новую identity с revision 0; save/save-as identity/revision не меняют.
+- Session владеет source/format, абсолютным path и saved checkpoint. Dirty сравнивает source/format с checkpoint. No-op не повышает revision; возврат содержимого снимает dirty без отката revision. Undo/redo source реализованы в UI Task 004 поверх replaceSource.
+- `DocumentFileService` — небольшая boundary для synchronous read/write и deterministic failure tests. Qt Core adapter не зависит от Widgets, использует QSaveFile без fallback на прямую запись. Ошибка не меняет path, format, checkpoint или token. Вызов open при dirty требует explicit discard.
+- UTF-8/16/32 LE/BE decode строгий: BOM/explicit encoding, затем conservative heuristic для файлов без BOM. EOL сохраняется, NUL/invalid Unicode отклоняются. Heuristic uncertainty — явная ошибка, не обещание универсального autodetect. Save сохраняет исходную encoding/BOM; Save As может выбрать другие.
+- Markdown UI связан с Session через source projection; continuous UI разбирает её snapshot через MD4C. Session token и MD4C UUID token — разные контракты; адаптер связывает parser output с session snapshot, не позволяя передавать индексы узлов между снимками. Source-map/UTF-16 cursor mapping — не часть Task 003.
 
 Подробные правила и проверки — [Task 003](docs/tasks/task_003.md).
 
 ### Реализованный SDI/source UI (Task 004)
 
-- `ApplicationController` управляет отдельными окнами, CLI paths и локальными
-  `QFileOpenEvent`. New всегда создаёт окно; Open переиспользует только чистое
-  пустое безымянное окно, иначе создаёт новое. Ошибка Open не теряет текущую Session.
-- `MainWindow` владеет Session и source history; `QPlainTextEdit` отображает
-  UTF-16 projection. Диапазоны `QTextDocument::contentsChange` сопоставляются с
-  исходником, не затрагивая исходные EOL/Unicode вне правки. Новые LF используют
-  первый EOL исходника, иначе LF. Undo/redo хранят полные source snapshots;
-  большие документы и группировка ввода в слова пока не оптимизированы.
-- Qt-native undo отключён; меню, контекстное меню и клавиатурные undo/redo
-  направлены в одну историю. Dirty/checkpoint вычисляет только Session.
-- `DocumentDialogs` — injected boundary для native dialogs и ошибок. Save As
-  выбирает encoding/BOM; decode error допускает explicit encoding retry.
-  Close и Exit используют Save/Discard/Cancel; save error/cancel не закрывают
-  dirty окно. Exit закрывает окна последовательно: отмена не возвращает уже закрытые.
-- `MarkdownHighlighter` только визуальный и эвристический, без parser integration,
-  HTML execution или загрузки внешних ресурсов. UI пока English, без настроек.
-  File associations и single-instance IPC не реализованы.
+- `ApplicationController` управляет отдельными окнами, CLI paths и локальными `QFileOpenEvent`. New всегда создаёт окно; Open переиспользует только чистое пустое безымянное окно, иначе создаёт новое. Ошибка Open не теряет текущую Session.
+- `MainWindow` владеет Session и source history; `QPlainTextEdit` отображает UTF-16 projection. Диапазоны `QTextDocument::contentsChange` сопоставляются с исходником, не затрагивая исходные EOL/Unicode вне правки. Новые LF используют первый EOL исходника, иначе LF. Undo/redo хранят полные source snapshots; большие документы и группировка ввода в слова пока не оптимизированы.
+- Qt-native undo отключён; меню, контекстное меню и клавиатурные undo/redo направлены в одну историю. Dirty/checkpoint вычисляет только Session.
+- `DocumentDialogs` — injected boundary для native dialogs и ошибок. Save As выбирает encoding/BOM; decode error допускает explicit encoding retry. Close и Exit используют Save/Discard/Cancel; save error/cancel не закрывают dirty окно. Exit закрывает окна последовательно: отмена не возвращает уже закрытые.
+- `MarkdownHighlighter` только визуальный и эвристический, без parser integration, HTML execution или загрузки внешних ресурсов. UI пока English, без настроек. File associations и single-instance IPC не реализованы.
 
 Проверки и ограничения — [Task 004](docs/tasks/task_004.md).
 
 ### Первый continuous WYSIWYG-срез (Task 026)
 
-- Проверенное MD4C API 013 перенесено без копирования в `markpad_markdown`
-  (`src/markdown_document.{h,cc}`, namespace `markpad::markdown`).
-  Старые experiment fixtures тестируют тот же target. Зависимость MD4C теперь
-  обязательна; pinned commit/hash прежние, сборка сохраняет MIT notice.
-- `ContinuousEditor` строит QTextDocument вручную через QTextCursor, не через
-  HTML/Markdown importer/exporter. Это projection, не canonical source.
-  Текстовые runs привязаны к callback node/source range. Маппинг UTF-16/UTF-8
-  учитывает Unicode/EOL; edit ограничен одним source-backed normal text run.
-- ReplaceText/heading/task вызывают единое `applyEdit`, повторный parse и
-  проверку ожидаемой сигнатуры. MainWindow сверяет Session token projection
-  с текущей Session перед записью результата в общую source history.
-- Необеспеченные операции явно отклоняются, projection восстанавливается;
-  неподдержанные элементы/границы защищены и помечены. Links/images/code/
-  HTML/tables пока placeholders. Enter, пустой результат run и cross-run edits
-  выполняются в Markdown. Native rich undo/HTML paste/resources отключены.
-- Переключение режима не меняет source/revision/dirty/history. Selection
-  переносится для mapped текста; немаппируемые позиции сопровождаются пояснением.
-  При switch-back без правок/перемещения выделение восстанавливается точно.
-- Heading/task commands контекстные; создание inline formatting и сложные
-  структурные операции не включены в Task 026. Полная Task 005 остаётся In Progress.
+- Проверенное MD4C API 013 перенесено без копирования в `markpad_markdown` (`src/markdown_document.{h,cc}`, namespace `markpad::markdown`). Старые experiment fixtures тестируют тот же target. Зависимость MD4C теперь обязательна; pinned commit/hash прежние, сборка сохраняет MIT notice.
+- `ContinuousEditor` строит QTextDocument вручную через QTextCursor, не через HTML/Markdown importer/exporter. Это projection, не canonical source. Текстовые runs привязаны к callback node/source range. Маппинг UTF-16/UTF-8 учитывает Unicode/EOL; edit ограничен одним source-backed normal text run.
+- ReplaceText/heading/task вызывают единое `applyEdit`, повторный parse и проверку ожидаемой сигнатуры. MainWindow сверяет Session token projection с текущей Session перед записью результата в общую source history.
+- Необеспеченные операции явно отклоняются, projection восстанавливается; неподдержанные элементы/границы защищены и помечены. HTML и nested/unsupported tables пока placeholders; top-level table cell text рендерится и редактируется (Task 033); fenced code body редактируется в continuous (Task 031); image alt labels редактируются как inert текст (Task 029). Enter, пустой результат normal text run и cross-run edits выполняются в Markdown. Native rich undo/HTML paste/resources отключены.
+- Переключение режима не меняет source/revision/dirty/history. Selection переносится для mapped текста; немаппируемые позиции сопровождаются пояснением. При switch-back без правок/перемещения выделение восстанавливается точно.
+- Heading/task commands контекстные; создание inline formatting и сложные структурные операции не входили в Task 026. Полная Task 005 принята позже через Tasks 026–042 для реализованного top-level scope.
 
 ### Inline-форматирование выделения (Task 027)
 
-- `ToggleInlineStyle` использует node id и UTF-8 range внутри source-backed
-  normal text. Bold/Italic/Strikethrough добавляют delimiters только вокруг
-  выделенных bytes. Новый expected AST строится split/wrap из входного дерева;
-  повторный parse обязан совпасть с полной expected signature.
-- Снятие стиля разрешено только для целиком выделенного простого span с одним
-  text child. Проверяются прилегающие delimiters, expected AST unwrap и
-  окружающая семантика. Частичное/сложное снятие, protected nodes и неверные
-  Unicode boundaries отклоняются. Соседние исходные bytes не пересериализуются.
-- Menu state и Bold/Italic shortcuts используют ту же проверяемую команду.
-  Нативное rich formatting не включается; checked state зависит от AST,
-  а не от жирного heading font. После команды выделение/направление сохранены,
-  command записывается в общую историю через Session snapshot guard.
-- Нет форматирования будущего ввода и межузловых selection edits. Конфликт
-  delimiters может делать команду недоступной с объяснением; нет guessed fallback.
+- `ToggleInlineStyle` использует node id и UTF-8 range внутри source-backed normal text. Bold/Italic/Strikethrough добавляют delimiters только вокруг выделенных bytes. Новый expected AST строится split/wrap из входного дерева; повторный parse обязан совпасть с полной expected signature.
+- Снятие стиля разрешено только для целиком выделенного простого span с одним text child. Проверяются прилегающие delimiters, expected AST unwrap и окружающая семантика. Частичное/сложное снятие, protected nodes и неверные Unicode boundaries отклоняются. Соседние исходные bytes не пересериализуются.
+- Menu state и Bold/Italic shortcuts используют ту же проверяемую команду. Нативное rich formatting не включается; checked state зависит от AST, а не от жирного heading font. После команды выделение/направление сохранены, command записывается в общую историю через Session snapshot guard.
+- Нет форматирования будущего ввода и межузловых selection edits. Конфликт delimiters может делать команду недоступной с объяснением; нет guessed fallback.
 
 ### Инертные ссылки и подписи (Task 028)
 
-- MD4C `is_autolink` сохраняется в attributes/signature; UI не угадывает
-  автоссылку по URL. Link children отображаются через QTextCursor без anchors,
-  href в QTextCharFormat, HTML import или resource loading.
-- Inline/full-reference mapped label text редактируется прежним ReplaceText.
-  Ожидаемые href/title/autolink/всё окружающее дерево неизменны; потеря binding
-  у shortcut/collapsed labels отвергается общей semantic verification.
-- Autolink text read-only, поскольку он задаёт адрес; nested image/code/HTML
-  fragments остаются protected. Link inline formatting и адрес/definition edits
-  не добавлены. Навигация click/Ctrl+click/keyboard отсутствует для любых схем.
+- MD4C `is_autolink` сохраняется в attributes/signature; UI не угадывает автоссылку по URL. Link children отображаются через QTextCursor без anchors, href в QTextCharFormat, HTML import или resource loading.
+- Inline/full-reference mapped label text редактируется прежним ReplaceText. Ожидаемые href/title/autolink/всё окружающее дерево неизменны; потеря binding у shortcut/collapsed labels отвергается общей semantic verification.
+- Autolink text read-only, поскольку он задаёт адрес; nested image/code/HTML fragments остаются protected. Link inline formatting и адрес/definition edits не добавлены. Навигация click/Ctrl+click/keyboard отсутствует для любых схем.
 - Session/history/cursor mapping прежние; нет отдельного link serializer.
+
+### Инертные изображения и alt-подписи (Task 029)
+
+- Image children рендерятся вручную QTextCursor как styled inert label; image/anchor formats, href и resource loading не создаются. Src/title остаются source-backed attributes и не меняются.
+- Normal mapped alt runs редактируются прежним ReplaceText/Session. Inline/full-reference image alt сохраняет spelling/definition binding; unsafe schemes остаются инертными.
+- Formatting spans внутри alt отображаются, но новые format commands внутри image alt не открыты; code/HTML/entity fragments protected. Cross-run/empty/newline/stale edits отклоняются, projection восстанавливается.
+- Создание/удаление images и изменение src/title не входили в Task 029; scoped Task 005 принята через Task 042, native/manual release QA остаётся в Task 011.
+
+### Blockquote и списки в continuous (Task 030)
+
+- `ContinuousEditor` context хранит текущий block и ближайшие enclosing list/quote. Blockquote использует существующие `WrapInQuote`/`UnwrapQuote`; для tight LI оборачивается содержащий список, для loose paragraph/heading/code — сам блок.
+- `WrapInList` — новый source-preserving engine command для одного top-level paragraph: marker `- ` или `<start>. `, continuation indent для soft line breaks, сохранение EOL и байтов вне диапазона. Reference bindings проверяются через `parseListContext` и общий AST guard.
+- Ordered/Unordered actions вызывают `WrapInList` для top-level paragraph и `SetListKind` для существующего списка; tooltip/enabled state пересчитываются по контексту. Multi-block selection, list removal и list item insert/remove/indent/outdent UI не добавлены.
+- Structural actions идут через тот же `commandRequested`/Session/history path, что text/inline commands; direct source replacement и глобальная сериализация не используются.
+
+### Редактируемые fenced code blocks (Task 031)
+
+- Public `mapFencedCodeBody` возвращает full block range, body range, EOL и closed flag для top-level fenced code; fences и info string остаются вне body. Indented/nested code явно отвергаются.
+- `ReplaceCodeBody` нормализует line endings к EOL блока, сохраняет fence marker/count, indentation и info string, добавляет EOL перед закрывающим fence при необходимости и не создаёт closing fence для unclosed block. Кандидат парсится отдельно, expected subtree копируется через `copySubtree`, затем полный `apply` проверяет AST.
+- `ContinuousEditor` рендерит body monospace с CodeRun mapping; изменения внутри body, включая Enter и plain paste, отправляются единой командой. Fences остаются protected, code body не получает inline format commands, reject восстанавливает projection.
+- Точный cursor mapping code body в Markdown остаётся approximate; syntax highlighting, nested/indented code и изменение info/fence не входят в срез.
+
+### Визуальные таблицы в continuous (Task 033)
+
+- `ContinuousEditor::renderTable` строит QTextTable для top-level tables с успешным `mapTable`: header/body rows, column count, header bold/background, alignment из delimiter row и базовый border/padding.
+- Cell content рендерится существующим `renderInline`; normal mapped text runs входят в общий `runs_`/ReplaceText path и проверяются полным AST guard. Delimiter row, column count, definitions и байты вне таблицы не меняются.
+- Nested/ragged/failed-map tables остаются opaque placeholder. Пустые cells и table creation пока не имеют continuous UI.
+- Task 034 добавляет continuous context menu для insert/remove row/column, column alignment и Delete Table. QTextTable маппится обратно к markdown node/current cell; header row-above/delete-row и last-column removal недоступны. Команды идут через существующие table engine commands и общий history path.
+- Task 035 добавляет `InsertTableCellText` для пустых top-level outer-piped cells: zero-length empty-cell targets, plain single-line text, cell punctuation escaping, `parseTableContext`/graft и полный AST guard. Новые row/column cells сразу принимают текст.
+- Task 036 добавляет `InsertTable`: default 2-column × 1-body-row table с `Column N` header и пустыми body cells, EOL из документа, blank-line separation и insertion после текущего top-level block/table или в конец. Format > Table/toolbar Table активны только в continuous mode.
+- Task 037 добавляет `InsertHorizontalRule`/`InsertFencedCode` через общий top-level insertion helper: `---` и пустой fenced code block после текущего block/table или в конец. HR рендерится protected визуальной линией, code body использует существующий CodeRun editing; actions доступны только в continuous mode.
+- Task 038 добавляет `WrapInLink` для selection внутри одного mapped normal run: URL prompt через DocumentDialogs, inline `[label](<url>)`, parse/graft/apply и reject nested link/image/invalid URL. Link action enabled только при валидном selection.
+- Task 039 добавляет `InsertImage` по тому же selection contract: selected text становится alt, source prompt через DocumentDialogs, inline `![alt](<src>)`, inert rendering и reject nested link/image/invalid src.
+- Task 040 добавляет size prompt для table creation: `TableSelection` columns/body rows через DocumentDialogs, затем existing `InsertTable`; cancel не создаёт command.
+- Task 041 добавляет `ReplaceInlineCode` и `CodeSpanRun`: inline code content рендерится monospace и локально редактируется через patch content range с delimiter/AST guard; code spans внутри link/image/autolink остаются protected.
+- QTextTable — projection, не canonical source; cell edits не пересериализуют таблицу и не меняют table delimiter.
 
 ### Исследовательский GFM слой
 
@@ -178,92 +156,37 @@ flowchart TB
 
 **Подтверждение MD4C spike:** собственное дерево callbacks и локальные text/task edits проверены на Windows/Linux, включая ASan/UBSan. MD4C даёт task-marker offsets, но не общие start/end ranges блоков. Прототип допускает правки только проверенных исходных диапазонов и сверяет повторный parse с ожидаемым деревом; блоки целиком не сериализует. Для production необходимы отдельный block/source-map слой и операции над версионированным снимком; UTF-8 byte offsets нельзя напрямую передавать в QTextCursor. Подробные ограничения — в [Task 002](docs/tasks/task_002.md#md4c-подтверждённые-границы).
 
-**Следующий прототип — Task 012:** проверены частичные диапазоны top-level
-однострочных абзацев/ATX headings и преобразование paragraph ↔ heading с сохранением
-inline-фрагмента и всех bytes вне блока. Диапазон подтверждается изолированным
-parse, результат — сравнением всего дерева. Команда принимает revision + digest
-исходника и возвращает новый снимок; no-op не увеличивает версию. Политика
-DocumentSession должна дополнительно обеспечивать identity документа и единую
-версию для всех edit operations. Остальные типы блоков остаются неподдержанными
-для этой структурной операции, а не теряются молча; см. [Task 012](docs/tasks/task_012.md).
+**Следующий прототип — Task 012:** проверены частичные диапазоны top-level  однострочных абзацев/ATX headings и преобразование paragraph ↔ heading с сохранением  inline-фрагмента и всех bytes вне блока. Диапазон подтверждается изолированным  parse, результат — сравнением всего дерева. Команда принимает revision + digest  исходника и возвращает новый снимок; no-op не увеличивает версию. Политика  DocumentSession должна дополнительно обеспечивать identity документа и единую  версию для всех edit operations. Остальные типы блоков остаются неподдержанными  для этой структурной операции, а не теряются молча; см. [Task 012](docs/tasks/task_012.md).
 
-**Общий контракт — Task 013:** `applyEdit(document, token, command)` объединяет
-text/task/heading edits. Token содержит identity (UUID отдельного parse), revision
-и SHA256 source; независимые документы с одинаковым содержимым не принимают чужие
-команды. Изменение сохраняет identity и повышает revision, no-op сохраняет снимок;
-ошибки не возвращают новый документ. Индексы узлов действительны только в
-соответствующем снимке, после правки их надо получать заново. Публичные structs
-прототипа предполагаются результатом parse, не произвольно изменяемым деревом.
-Это optimistic snapshot guard, не механизм аутентификации и не реализованная
-DocumentSession/undo history.
+**Общий контракт — Task 013:** `applyEdit(document, token, command)` объединяет  text/task/heading edits. Token содержит identity (UUID отдельного parse), revision  и SHA256 source; независимые документы с одинаковым содержимым не принимают чужие  команды. Изменение сохраняет identity и повышает revision, no-op сохраняет снимок;  ошибки не возвращают новый документ. Индексы узлов действительны только в  соответствующем снимке, после правки их надо получать заново. Публичные structs  прототипа предполагаются результатом parse, не произвольно изменяемым деревом.  Это optimistic snapshot guard, не механизм аутентификации и не реализованная  DocumentSession/undo history.
 
-Дерево содержит parent links; `evidenceEnvelopes` объединяет только известные
-source-backed bytes узла и потомков. Такие envelopes могут не включать markers,
-пустые строки/контейнерные префиксы и не являются границами пересериализации.
-`mapBlocks` отдельно доказывает точный диапазон однострочного P/ATX под цепочкой
-явных quote prefixes; правка оставляет prefixes вне заменяемого диапазона.
-Lazy/multiline quotes и таблицы не получают полных ownership ranges.
-Для canonical top-level списков [Task 016](docs/tasks/task_016.md) добавляет
-отдельный read-only `mapList`: exact ranges списка/LI и content lines без
-marker/continuation prefixes. Лексические границы подтверждаются изолированным
-parse с теми же attributes, деревом и абсолютными callback offsets. Это
-отличает одинаковые по тексту списки и не подменяет ownership evidence envelope.
-Trailing separator blanks исключены; внутренние separators принадлежат списку,
-но не соседним LI. Закрытый fenced code и inline HTML сохраняют literal bytes.
-Lazy continuations, structural TAB, nesting, indented code и внешние definition
-contexts вне поддержанной canonical формы дают explicit unsupported без range.
-Source-only definitions внутри canonical top-level list получают inventory и
-участвуют в reference checks, не становясь rendered children.
-Новых edit-команд этот read-only API сам по себе не добавляет.
-[Task 017](docs/tasks/task_017.md) реализует на его основе source-preserving
-InsertListItem/RemoveListItem/SetListKind/SetItemTask. Ordered start сохраняется,
-номера пересчитываются последовательно; task conversion не перенумеровывает;
-удаление последнего LI удаляет список. Definition labels сравниваются по pinned
-MD4C/GFM equivalence, collisions и binding changes отклоняются атомарно,
-used definition удалить нельзя, unused definition удаляется вместе с owner.
-UI-интеграция list-команд не входит в этот этап.
-[Task 018](docs/tasks/task_018.md) добавляет `mapQuote` с exact range для
-top-level цитат (explicit `>` на непустых строках, quoted blanks, multiline
-paragraphs, закрытый fenced code, inline HTML) и source-preserving
-WrapInQuote/UnwrapQuote для document parent. Lazy continuation отклоняется;
-unquoted blank line завершает quote. Wrap добавляет ровно один уровень, unwrap
-поднимает children без изменения остальных bytes. Nested quote/list parents —
-[Task 019](docs/tasks/task_019.md): mapping и те же команды работают для LI/QUOTE
-parents depth 1–3. Контент parent извлекается в prefix-free virtual source,
-парсится в document-global definition context, а patch переводится обратно в
-real offsets с восстановлением parent prefixes. Ancestor list tightness
-пересчитывается; каскадное удаление quote запрещено. [Task 020](docs/tasks/task_020.md)
-добавляет атомарные IndentListItem/OutdentListItem: один LI с поддеревом
-переносится в child list предыдущего LI или после enclosing LI; start
-сохраняется, перенумеровываются только затронутые ordered lists, пустой nested
-list удаляется без переноса siblings. UI-команд списков/цитат нет.
-Последовательность продолжения: [Task 013](docs/tasks/task_013.md) →
-[Task 014: списки/цитаты](docs/tasks/task_014.md) →
-[Task 015: таблицы](docs/tasks/task_015.md). UI/production-интеграция не включены.
+Дерево содержит parent links; `evidenceEnvelopes` объединяет только известные  source-backed bytes узла и потомков. Такие envelopes могут не включать markers,  пустые строки/контейнерные префиксы и не являются границами пересериализации.  `mapBlocks` отдельно доказывает точный диапазон однострочного P/ATX под цепочкой  явных quote prefixes; правка оставляет prefixes вне заменяемого диапазона.  Lazy/multiline quotes и таблицы не получают полных ownership ranges.  Для canonical top-level списков [Task 016](docs/tasks/task_016.md) добавляет  отдельный read-only `mapList`: exact ranges списка/LI и content lines без  marker/continuation prefixes. Лексические границы подтверждаются изолированным  parse с теми же attributes, деревом и абсолютными callback offsets. Это  отличает одинаковые по тексту списки и не подменяет ownership evidence envelope.  Trailing separator blanks исключены; внутренние separators принадлежат списку,  но не соседним LI. Закрытый fenced code и inline HTML сохраняют literal bytes.  Lazy continuations, structural TAB, nesting, indented code и внешние definition  contexts вне поддержанной canonical формы дают explicit unsupported без range.  Source-only definitions внутри canonical top-level list получают inventory и  участвуют в reference checks, не становясь rendered children.  Новых edit-команд этот read-only API сам по себе не добавляет.
 
-Контракты v2 Tasks 014/015 расширяют один `applyEdit`,
-а не создают отдельные pipeline. Для списков зафиксированы item insert/remove,
-kind/task conversion, indent/outdent и quote wrap/unwrap. Ordered start сохраняется,
-изменённый список нумеруется последовательно; последний удалённый LI удаляет список.
-Для таблиц определены body row/column insert/remove, alignment и явный RemoveTable.
-Удаление последней body row оставляет header-only, последней column запрещено.
-Новые table cells принимают plain text, существующие raw inline fragments сохраняются.
-Полные ownership ranges ещё предстоит реализовать и проверить; общий критерий —
-точные bytes вне patch range и ожидаемое дерево после parse одновременно.
-014/015 стали родительскими контрактами с дочерними этапами 016–020/021–024.
-Они Ready после согласования [025](docs/tasks/task_025.md): владелец выбрал
-document-global definitions с atomic reject conflicts и запретом удаления
-used definition. Метки сравниваются по pinned MD4C/GFM equivalence, включая
-Unicode case folding и whitespace. Новые definitions уникальны; сохранённые
-references/images и unresolved literal references не меняют binding/semantics.
-Никаких auto-rename/hoist/inline-link fallback. Source-only definition inventory
-и context-aware expected model для top-level list-команд реализованы в
-[Task 017](docs/tasks/task_017.md); nested формы остаются в [Task 019](docs/tasks/task_019.md).
-016/017 Done, следующий этап — 018.
-Новые table cells с краевыми ASCII spaces/любым TAB отклоняются (не trim),
-пустой literal разрешён. Tightness ожидается из input model и правил команды,
-не из output parse; каждая обязательная форма имеет один исход.
-Ready дочерней карточки означает готовность постановки, не наличие операции в коде.
+[Task 017](docs/tasks/task_017.md) реализует на его основе source-preserving  InsertListItem/RemoveListItem/SetListKind/SetItemTask. Ordered start сохраняется,  номера пересчитываются последовательно; task conversion не перенумеровывает;  удаление последнего LI удаляет список. Definition labels сравниваются по pinned  MD4C/GFM equivalence, collisions и binding changes отклоняются атомарно,  used definition удалить нельзя, unused definition удаляется вместе с owner.  UI-интеграция list-команд не входит в этот этап.
+
+[Task 018](docs/tasks/task_018.md) добавляет `mapQuote` с exact range для  top-level цитат (explicit `>` на непустых строках, quoted blanks, multiline  paragraphs, закрытый fenced code, inline HTML) и source-preserving  WrapInQuote/UnwrapQuote для document parent. Lazy continuation отклоняется;  unquoted blank line завершает quote. Wrap добавляет ровно один уровень, unwrap  поднимает children без изменения остальных bytes. Nested quote/list parents —  [Task 019](docs/tasks/task_019.md): mapping и те же команды работают для LI/QUOTE  parents depth 1–3. Контент parent извлекается в prefix-free virtual source,  парсится в document-global definition context, а patch переводится обратно в  real offsets с восстановлением parent prefixes. Ancestor list tightness  пересчитывается; каскадное удаление quote запрещено.
+
+[Task 020](docs/tasks/task_020.md)  добавляет атомарные IndentListItem/OutdentListItem: один LI с поддеревом  переносится в child list предыдущего LI или после enclosing LI; start  сохраняется, перенумеровываются только затронутые ordered lists, пустой nested  list удаляется без переноса siblings.
+
+[Task 021](docs/tasks/task_021.md)  добавляет read-only `mapTable`: exact table/header/delimiter/body-row ranges,  raw cell fragments с escaped pipes и inline spelling, dimensions/alignment и  context-aware reference validation.
+
+[Task 022](docs/tasks/task_022.md) добавляет  InsertTableRow/RemoveTableRow/SetTableAlignment с нормализованной table  serialization, plain-text payload и alignment no-op.
+
+[Task 023](docs/tasks/task_023.md)  добавляет InsertTableColumn/RemoveTableColumn/RemoveTable с last-column и  cascade guards.
+
+[Task 024](docs/tasks/task_024.md) распространяет эти шесть  команд и mapping на nested LI/QUOTE tables depth 1–3 с required RemoveTable  refusals и сохранением parent prefixes/references. Table-контракт 015 принят.
+
+[Task 007](docs/tasks/task_007.md) реализует безопасный HTML-экспорт из общего  GFM AST: headings, paragraphs, lists/tasks, tables, code, emphasis, links/images;  raw HTML экранируется, небезопасные URI схемы отклоняются, внешние ресурсы не  загружаются. Запись UTF-8 идёт через `QSaveFile` с explicit error.
+
+[Task 009](docs/tasks/task_009.md) добавляет Settings Service: versioned JSON в  `AppConfigLocation` Markpad, defaults/validation/fallback, theme/language/editor  preferences/default file location/shortcuts и глобальные page defaults (A4  portrait/20 мм). Language — English fallback + `lang/*.ini`; настройки  применяются после перезапуска. Menu bar/toolbar приведены к `sketch.md`;  Settings находится в Edit; PDF/Print/Format actions подключены или явно disabled по готовности этапов.
+
+[Task 006](docs/tasks/task_006.md) добавляет  editable paged WYSIWYG: независимый `PageLayoutEngine` (page size/orientation/  margins, block placement, page count, oversized-block overflow warning) и  page-guide surface в общем rich-text editor. [Task 008](docs/tasks/task_008.md) добавляет PDF export и печать через Qt PrintSupport с той же page geometry, safe HTML rendering и explicit write errors. Auto Save и per-document page metadata отложены; UI-команд списков/цитат/таблиц нет.
+
+Следующие крупные направления — финальная release-проверка и ручная визуальная/printer QA.
+
+Последовательность продолжения: [Task 013](docs/tasks/task_013.md) → [Task 014: списки/цитаты](docs/tasks/task_014.md) → [Task 015: таблицы](docs/tasks/task_015.md). UI/production-интеграция не включены.
+
+Контракты v2 Tasks 014/015 расширяют один `applyEdit`, а не создают отдельные pipeline. Для списков зафиксированы item insert/remove, kind/task conversion, indent/outdent и quote wrap/unwrap. Ordered start сохраняется, изменённый список нумеруется последовательно; последний удалённый LI удаляет список. Для таблиц определены body row/column insert/remove, alignment и явный RemoveTable. Удаление последней body row оставляет header-only, последней column запрещено. Новые table cells принимают plain text, существующие raw inline fragments сохраняются. Полные ownership ranges ещё предстоит реализовать и проверить; общий критерий — точные bytes вне patch range и ожидаемое дерево после parse одновременно. 014/015 стали родительскими контрактами с дочерними этапами 016–020/021–024. Они Ready после согласования [025](docs/tasks/task_025.md): владелец выбрал document-global definitions с atomic reject conflicts и запретом удаления used definition. Метки сравниваются по pinned MD4C/GFM equivalence, включая Unicode case folding и whitespace. Новые definitions уникальны; сохранённые references/images и unresolved literal references не меняют binding/semantics. Никаких auto-rename/hoist/inline-link fallback. Source-only definition inventory и context-aware expected model для top-level list-команд реализованы в [Task 017](docs/tasks/task_017.md); nested формы остаются в [Task 019](docs/tasks/task_019.md). 016/017 Done, следующий этап — 018. Новые table cells с краевыми ASCII spaces/любым TAB отклоняются (не trim), пустой literal разрешён. Tightness ожидается из input model и правил команды, не из output parse; каждая обязательная форма имеет один исход. Ready дочерней карточки означает готовность постановки, не наличие операции в коде.
 
 1. В Markdown-режиме пользователь редактирует исходный GFM-текст; в WYSIWYG-режимах пользователь редактирует его структурное представление. Все операции обновляют одну `Document Session`/`Document Model` и признак несохранённых изменений.
 2. GFM Pipeline преобразует снимок документа между исходным текстом и редактируемым деревом. Изменения WYSIWYG сериализуются в GFM; неподдерживаемые или невыразимые элементы форматирования нельзя молча терять или добавлять.

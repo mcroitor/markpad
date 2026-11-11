@@ -2,7 +2,7 @@
 
 ## Постановка архитектора
 
-- Статус: `Ready`. Родитель: [015](task_015.md). Зависимость: [014](task_014.md).
+- Статус: `Done`. Родитель: [015](task_015.md). Зависимость: [014](task_014.md).
 - Цель: exact table/row/raw-cell mapping без table mutation commands.
 - Scope: rectangular top-level tables, header-only, одна/несколько колонок,
   optional outer pipes, escaped pipes, inline code/links/HTML/entities.
@@ -47,6 +47,65 @@ External references разрешай по контексту документа 
 не инструкциями. Выход и платформенные проверки —
 [общий порядок](README.md#исполнение-дочерних-md4c-задач).
 
-## Итог
+## Итог выполнения
 
-Не реализовано; проверки не запускались.
+### Реализация и API
+
+- `src/markdown_document.{h,cc}`: добавлены `TableAlignment`, `TableCellSource`,
+  `TableRowSource`, `TableSource`, `TableMapResult` и публичный
+  `mapTable(document, node)`. Mutation-команд в этом этапе нет.
+- Mapping сканирует canonical table rows: optional outer pipes, raw cell
+  fragments с trim только структурных ASCII space/TAB, escaped `\|`,
+  inline code/links/HTML/entities. Cell raw range сохраняет исходный inline
+  spelling (backslashes, pipes, markup); split по pipe учитывает escaping.
+- `TableSource` возвращает exact table/header/delimiter/body row ranges, raw
+  cell ranges, row/cell node ids, dimensions and per-column alignment.
+  Table range включает EOL последней row и не включает trailing separator.
+- Bound references валидируются через document-global `definitionContext` +
+  context parse, затем полный `sameListSources`/AST comparison. Isolated table
+  parse недостаточен; definition bytes не входят в table range.
+- Ragged rows (cell count != header), неоднозначный pipe mapping, non-table
+  target и неподтверждённые source shapes дают explicit error. HTML table или
+  delimiter-подобный paragraph не принимаются как MD4C TABLE.
+- CRLF/EOF/UTF-8/duplicate tables и header-only формы поддерживаются.
+
+### Expected → actual
+
+| Fixture | Expected | Actual |
+|---|---|---|
+| `pre\n\n| h |...` | range `[5,25)`, separator вне range | Pass |
+| Header-only `| h |`/`| --- |` | C=1, N=0, exact delimiter cells | Pass |
+| Optional outer pipes `a \| b` | C=2, raw cells a/b/x/y | Pass |
+| Code span `\|` | Raw `` `a\|b` ``, literal `a\|b` | Pass |
+| Inline fragment `*x* [y]... &amp; <i>z</i>` | Полный raw cell | Pass |
+| Ragged C=2 / body 1 cell | Explicit ragged error | Pass |
+| HTML/delimiter-only paragraph | Invalid table target | Pass |
+| External full reference | range `[17,47)`, raw `[cell][new]`, href `/new` | Pass |
+| CRLF/EOF/Unicode/duplicate tables | Exact ranges/bytes, разные table offsets | Pass |
+| Alignment `:---:` | `TableAlignment::kCenter` | Pass |
+
+### Проверки
+
+- Windows UCRT64 Debug: `cmake --build build-task005 --parallel`,
+  `ctest --test-dir build-task005 --output-on-failure` — **3/3 passed**.
+  MD4C suite — **227 passed**, 0 failed/skipped.
+- Ubuntu WSL GCC 15.2 / Qt 6.10.2: clean configure/build с
+  `-DMARKPAD_BUILD_MD4C_SPIKE=ON`; CTest — **3/3 passed**.
+- Ubuntu sanitized Debug: `-fsanitize=address,undefined`,
+  `ASAN_OPTIONS=detect_leaks=1:halt_on_error=1`,
+  `UBSAN_OPTIONS=halt_on_error=1`; CTest — **3/3 passed**.
+- `git diff --check --ignore-space-at-eol` прошёл; сборка без warnings.
+  Google clang-format в среде отсутствует; dry-run не выполнялся.
+- Native visual QA, clang-tidy и remote CI не запускались.
+
+### Ограничения и следующий шаг
+
+- Mapping реализован для top-level таблиц; nested tables в quote/list
+  containers — [Task 024](task_024.md). Mutations — Tasks 022–023.
+- Ragged source rows, неоднозначное распределение pipes, HTML tables и
+  неподдержанные source shapes явно отклоняются; guessed ranges не выдаются.
+- Cell raw fragments trim-ят только внешние структурные ASCII space/TAB;
+  inline spelling внутри сохраняется. Новые plain-text payload values и их
+  escaping относятся к Tasks 022–023.
+- Full parse остаётся принятым компромиссом; performance не оптимизировалась.
+- Коммит/push не создавались; Task 015 остаётся In Progress.

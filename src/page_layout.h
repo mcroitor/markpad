@@ -1,0 +1,48 @@
+#ifndef MARKPAD_SRC_PAGE_LAYOUT_H_
+#define MARKPAD_SRC_PAGE_LAYOUT_H_
+
+#include <QRectF>
+#include <QSizeF>
+#include <QString>
+#include <vector>
+
+#include "settings.h"
+
+class QTextDocument;
+
+namespace markpad {
+
+struct PageGeometry {
+  QSizeF pageSize;
+  QRectF contentRect;
+};
+
+struct BlockPlacement {
+  int block = 0;
+  QRectF rect;  // Position within the page content area.
+  int page = 0;
+  bool overflow = false;
+};
+
+struct PageLayoutResult {
+  std::vector<PageGeometry> pages;
+  std::vector<BlockPlacement> placements;
+  bool overflow = false;
+  QString warning;
+};
+
+// Deterministic, window-independent page layout. Blocks are placed as units;
+// a block taller than the content area is allowed to overflow on its own page
+// and produces an explicit warning.
+class PageLayoutEngine final {
+ public:
+  static QSizeF pageSize(const PageSetup& setup);
+  static PageLayoutResult layout(const QTextDocument& document,
+                                 const PageSetup& setup);
+  static int pageForPosition(const QTextDocument& document,
+                             const PageSetup& setup, int position);
+};
+
+}  // namespace markpad
+
+#endif  // MARKPAD_SRC_PAGE_LAYOUT_H_

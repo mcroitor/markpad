@@ -86,9 +86,11 @@ switch/save/history/SDI и прежние suites на Windows/Linux. Выход 
 - `ContinuousEditor` вручную строит ограниченную formatted projection:
   headings/paragraphs, emphasis/strong/strike, list/quote content. Editable runs
   подсвечены, protected fragments/opaque placeholders помечены серым.
-- `MainWindow` добавляет View/Switch mode и контекстные Format/Heading/Task.
-  Source остаётся в единственной Session; shared undo/redo/Save/dirty,
-  текущий Session token проверяется перед применением команды.
+- `MainWindow` добавляет View/Switch Mode и Format/Heading. Task и Paragraph
+  остаются доступны через context menu: после Task 009 menu bar приведён к
+  `sketch.md`, где отдельного Task/Paragraph пункта нет. Source остаётся в
+  единственной Session; shared undo/redo/Save/dirty, текущий Session token
+  проверяется перед применением команды.
 - Native rich undo/HTML paste/resources отключены; clipboard принимает plain
   text. Изменения проверяются по точному contentsChange в пределах одного run
   и через applyEdit/reparse/signature, source bytes вне patch не меняются.

@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026, 027, 028)
+- Статус: `Done` (принято через срезы Tasks 026–042 для реализованного top-level scoped объёма)
 - Владелец: архитектор + C++ разработчик
 - Приоритет: P1
 
@@ -72,15 +72,61 @@ WYSIWYG continuous — полноценный редактируемый реж�
 - Добавлена [Task 028](task_028.md): реальные инертные link labels и локальное
   редактирование текста без изменения адресов/definitions. Создание/удаление
   ссылок и редактирование href/title не включены.
+- Реализована [Task 029](task_029.md): inert images с реальными alt-подписями и
+  локальным редактированием alt без изменения src/title/definitions и без
+  загрузки ресурсов. Создание/удаление изображений не включено.
+- Реализована [Task 030](task_030.md): контекстные Blockquote/Ordered/Unordered
+  actions, WrapInList для top-level paragraph и SetListKind для существующих
+  списков. Multi-block selection, list removal и list item operations остаются
+  вне среза.
+- Реализована [Task 031](task_031.md): top-level fenced code body отображается
+  и редактируется в continuous через `ReplaceCodeBody`; fences/info и байты вне
+  body сохраняются. Indented/nested code и syntax highlighting не включены.
+- Реализована [Task 033](task_033.md): top-level tables рендерятся как
+  QTextTable с header/alignment, normal cell text редактируется через
+  ReplaceText. Nested tables и empty-cell insertion остаются вне среза.
+- Реализована [Task 034](task_034.md): контекстные table actions для
+  insert/remove row/column, alignment и RemoveTable через существующие engine
+  commands. Table creation не включён.
+- Реализована [Task 035](task_035.md): пустые top-level outer-piped table cells
+  принимают plain single-line text через `InsertTableCellText`; новые
+  row/column cells сразу редактируемы.
+- Реализована [Task 036](task_036.md): Format > Table/toolbar Table вставляют
+  default 2×1 table (`Column N` header, пустые body cells) после текущего
+  top-level block или в конец документа. Table creation доступен только в
+  continuous mode.
+- Реализована [Task 037](task_037.md): Format > Code/Horizontal Line вставляют
+  пустой fenced code block или `---` после текущего блока/в конец; HR
+  отображается protected линией, code body редактируется.
+- Реализована [Task 038](task_038.md): Format > Link создаёт inline-link вокруг
+  selection одного normal run через URL dialog. Titles/reference links не
+  включены.
+- Реализована [Task 039](task_039.md): Format > Image создаёт inline image с
+  selected alt-text через source dialog. Image titles/reference/style не
+  включены.
+- Реализована [Task 040](task_040.md): Table action запрашивает columns/body
+  rows перед вставкой; cancel не меняет Session.
+- Реализована [Task 041](task_041.md): inline code spans рендерятся и
+  редактируются в continuous; link/image/autolink code spans остаются
+  protected.
+- [Task 042](task_042.md) добавляет acceptance matrix смешанного документа:
+  все поддерживаемые top-level блоки и inline spans, protected HTML/nested
+  table placeholders, source-preserving mode switch. Task 005 принята для
+  реализованного scope.
+- Осознанно оставлены ограничения: nested code/table editing, HTML rendering,
+  link/image address/title editing, rich/multiline table cells и syntax
+  highlighting. Native visual/PDF/printer QA вынесен в Task 011.
 - Выполнена зависимая подготовка структурных команд:
   [Task 016](task_016.md) — exact source-map top-level списков/пунктов.
 - Реализована [Task 017](task_017.md): source-preserving InsertListItem,
   RemoveListItem, SetListKind и SetItemTask, definition inventory/conflict/use
-  checks и context-aware AST guard. UI-команды списков ещё не добавлены.
+  checks и context-aware AST guard. UI-команды списков добавлены в Task 030.
 - Реализована [Task 018](task_018.md): exact top-level quote ranges и
-  WrapInQuote/UnwrapQuote для document parent. UI-команд цитат ещё нет.
+  WrapInQuote/UnwrapQuote для document parent. UI-команды цитат добавлены в
+  Task 030.
 - Реализована [Task 019](task_019.md): nested LI/QUOTE mapping и list/quote
-  команды с virtual content/prefix rendering. UI-интеграции пока нет.
+  команды с virtual content/prefix rendering. UI-интеграция добавлена в Task
+  030.
 - Реализована [Task 020](task_020.md): атомарные IndentListItem/OutdentListItem
   для mapped list-контейнеров. UI-интеграции пока нет.
 - В [Task 025](task_025.md) согласована policy definitions: atomic reject

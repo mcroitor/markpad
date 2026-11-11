@@ -10,9 +10,15 @@
 #include <QTextBlockFormat>
 #include <QTextCursor>
 #include <QTextEdit>
+#include <QTextTable>
+#include <QTextTableCell>
+#include <QTextTableCellFormat>
+#include <QTextTableFormat>
 #include <QVBoxLayout>
 #include <algorithm>
 #include <limits>
+
+#include "page_text_edit.h"
 
 namespace markpad {
 namespace {
@@ -20,11 +26,12 @@ namespace {
 const QString kNotice = QStringLiteral(
     "Limited WYSIWYG: edit within a highlighted text run. Grey fragments and "
     "run/block boundaries are protected; use Markdown for other changes. "
-    "Links are inert: edit their labels only; use Markdown for addresses.");
+    "Links and images are inert: edit their labels/alt text only; use Markdown "
+    "for addresses, sources and titles.");
 
-class PlainTextOnlyEdit final : public QTextEdit {
+class PlainTextOnlyEdit final : public PageTextEdit {
  public:
-  explicit PlainTextOnlyEdit(QWidget* parent) : QTextEdit(parent) {
+  explicit PlainTextOnlyEdit(QWidget* parent) : PageTextEdit(parent) {
     setAcceptRichText(false);
     setAcceptDrops(false);
     setUndoRedoEnabled(false);
@@ -49,6 +56,34 @@ QString literal(const QByteArray& bytes) {
   QStringDecoder decoder(QStringConverter::Utf8,
                          QStringConverter::Flag::ConvertInitialBom);
   return decoder(bytes);
+}
+
+std::optional<QString> codeDisplay(const QByteArray& bytes) {
+  QStringDecoder decoder(QStringConverter::Utf8);
+  QString text = decoder(bytes);
+  if (decoder.hasError()) {
+    return std::nullopt;
+  }
+  text.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+  text.replace(QChar('\r'), QChar('\n'));
+  if (text.endsWith(QChar('\n'))) {
+    text.chop(1);
+  }
+  return text;
+}
+
+Qt::Alignment tableAlignment(markdown::TableAlignment alignment) {
+  switch (alignment) {
+    case markdown::TableAlignment::kLeft:
+      return Qt::AlignLeft;
+    case markdown::TableAlignment::kCenter:
+      return Qt::AlignHCenter;
+    case markdown::TableAlignment::kRight:
+      return Qt::AlignRight;
+    case markdown::TableAlignment::kNone:
+    default:
+      return Qt::AlignLeft;
+  }
 }
 
 bool editable(const markdown::Document& document, const markdown::Node& node) {
@@ -94,6 +129,10 @@ QString ContinuousEditor::render(const DocumentSnapshot& snapshot) {
                                 snapshot.token.revision);
   document_ = std::move(parsed.document);
   runs_.clear();
+  codeRuns_.clear();
+  codeSpanRuns_.clear();
+  tableRuns_.clear();
+  emptyCellRuns_.clear();
   contexts_.clear();
   mappedBlocks_.clear();
   editor_->clear();
@@ -133,16 +172,138 @@ void ContinuousEditor::beginBlock(QTextCursor& cursor, int depth) {
 }
 
 void ContinuousEditor::opaque(QTextCursor& cursor, const QString& label,
-                              int depth) {
+                              int depth, std::optional<size_t> block,
+                              std::optional<size_t> list,
+                              std::optional<size_t> quote) {
   beginBlock(cursor, depth);
+  const int start = cursor.position();
   QTextCharFormat format;
   format.setForeground(QColor(100, 100, 100));
   format.setBackground(QColor(235, 235, 235));
   cursor.insertText(QStringLiteral("[Read-only: ") + label + ']', format);
+  if (block) {
+    contexts_.push_back(
+        {start, cursor.position(), {}, {}, *block, list, quote});
+  }
+}
+
+void ContinuousEditor::renderCodeBlock(size_t index, QTextCursor& cursor,
+                                       int depth, std::optional<size_t> list,
+                                       std::optional<size_t> quote) {
+  QString error;
+  const auto mapped = markdown::mapFencedCodeBody(*document_, index, error);
+  const auto display =
+      mapped ? codeDisplay(document_->source.mid(mapped->body.offset,
+                                                 mapped->body.size))
+             : std::nullopt;
+  if (!mapped || !display) {
+    opaque(cursor, QStringLiteral("code - edit in Markdown"), depth, index,
+           list, quote);
+    return;
+  }
+  beginBlock(cursor, depth);
+  const int start = cursor.position();
+  QTextCharFormat format;
+  auto font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+  font.setStyleHint(QFont::Monospace);
+  format.setFont(font);
+  format.setForeground(QColor(40, 40, 40));
+  format.setBackground(QColor(245, 245, 245));
+  format.setToolTip(QStringLiteral(
+      "Editable fenced code body; fences and info string are protected."));
+  cursor.insertText(*display, format);
+  codeRuns_.push_back({index, start, int(display->size())});
+  contexts_.push_back(
+      {start, cursor.position(), {}, {}, index, list, quote});
+}
+
+void ContinuousEditor::renderTable(size_t index, QTextCursor& cursor, int depth) {
+  if (document_->nodes[index].parent != std::optional<size_t>(0)) {
+    opaque(cursor, QStringLiteral("table - edit in Markdown"), depth);
+    return;
+  }
+  const auto mapped = markdown::mapTable(*document_, index);
+  if (!mapped.table) {
+    opaque(cursor, QStringLiteral("table - edit in Markdown"), depth);
+    return;
+  }
+  const auto& source = *mapped.table;
+  const auto rows = source.body.size() + 1;
+  if (source.columns == 0 || source.columns > 1000 || rows > 10000 ||
+      source.alignments.size() != source.columns ||
+      source.header.cells.size() != source.columns) {
+    opaque(cursor, QStringLiteral("table - edit in Markdown"), depth);
+    return;
+  }
+  for (const auto& row : source.body) {
+    if (row.cells.size() != source.columns) {
+      opaque(cursor, QStringLiteral("table - edit in Markdown"), depth);
+      return;
+    }
+  }
+  QTextTableFormat tableFormat;
+  tableFormat.setBorder(1);
+  tableFormat.setBorderStyle(QTextFrameFormat::BorderStyle_Solid);
+  tableFormat.setCellSpacing(0);
+  tableFormat.setCellPadding(4);
+  tableFormat.setWidth(QTextLength(QTextLength::PercentageLength, 100));
+  auto* table =
+      cursor.insertTable(int(rows), int(source.columns), tableFormat);
+  const auto fillRow = [&](const markdown::TableRowSource& row, int rowIndex,
+                           bool header) {
+    for (size_t column = 0; column < row.cells.size(); ++column) {
+      auto cell = table->cellAt(rowIndex, int(column));
+      if (header) {
+        QTextTableCellFormat cellFormat;
+        cellFormat.setBackground(QColor(235, 235, 235));
+        cell.setFormat(cellFormat);
+      }
+      auto cellCursor = cell.firstCursorPosition();
+      QTextBlockFormat blockFormat;
+      blockFormat.setAlignment(
+          tableAlignment(source.alignments[column]));
+      cellCursor.setBlockFormat(blockFormat);
+      QTextCharFormat format;
+      if (header) {
+        format.setFontWeight(QFont::Bold);
+      }
+      const auto cellNode = row.cells[column].node;
+      if (cellNode >= document_->nodes.size()) {
+        continue;
+      }
+      const auto cellStart = cellCursor.position();
+      for (auto child : document_->nodes[cellNode].children) {
+        renderInline(child, cellCursor, format);
+      }
+      if (document_->nodes[cellNode].children.empty()) {
+        emptyCellRuns_.push_back({cellNode, cellStart});
+      }
+    }
+  };
+  fillRow(source.header, 0, true);
+  for (size_t row = 0; row < source.body.size(); ++row) {
+    fillRow(source.body[row], int(row + 1), false);
+  }
+  tableRuns_.push_back({table, index});
+  firstBlock_ = false;
+  cursor = editor_->document()->rootFrame()->lastCursorPosition();
+}
+
+void ContinuousEditor::renderHorizontalRule(QTextCursor& cursor, int depth) {
+  beginBlock(cursor, depth);
+  QTextBlockFormat blockFormat;
+  blockFormat.setAlignment(Qt::AlignHCenter);
+  cursor.setBlockFormat(blockFormat);
+  QTextCharFormat format;
+  format.setForeground(QColor(120, 120, 120));
+  format.setToolTip(QStringLiteral("Horizontal rule - edit in Markdown"));
+  cursor.insertText(QString(40, QChar(0x2500)), format);
 }
 
 void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
-                                   QString prefix, std::optional<size_t> task) {
+                                   QString prefix, std::optional<size_t> task,
+                                   std::optional<size_t> list,
+                                   std::optional<size_t> quote) {
   const auto& node = document_->nodes[index];
   if (node.kind != markdown::NodeKind::kBlock) {
     return;
@@ -150,6 +311,12 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
   if (node.type == MD_BLOCK_DOC || node.type == MD_BLOCK_QUOTE ||
       node.type == MD_BLOCK_UL || node.type == MD_BLOCK_OL) {
     qint64 number = node.attributes["start"].toInteger(1);
+    const auto childList =
+        node.type == MD_BLOCK_UL || node.type == MD_BLOCK_OL
+            ? std::optional<size_t>(index)
+            : list;
+    const auto childQuote =
+        node.type == MD_BLOCK_QUOTE ? std::optional<size_t>(index) : quote;
     for (auto child : node.children) {
       QString marker;
       if (node.type == MD_BLOCK_UL) {
@@ -158,7 +325,7 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
         marker = QString::number(number++) + QStringLiteral(". ");
       }
       renderBlock(child, cursor, depth + (node.type == MD_BLOCK_QUOTE ? 1 : 0),
-                  marker);
+                  marker, {}, childList, childQuote);
     }
     return;
   }
@@ -176,7 +343,7 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
       bool first = true;
       for (auto child : node.children) {
         renderBlock(child, cursor, depth + (first ? 0 : 1),
-                    first ? prefix : QString{}, task);
+                    first ? prefix : QString{}, task, list, quote);
         first = false;
       }
       return;
@@ -205,19 +372,26 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
     if (mappedBlocks_[index]) {
       heading = index;
     }
-    contexts_.push_back({start, cursor.position(), heading, task});
+    contexts_.push_back({start, cursor.position(), heading, task, index, list,
+                         quote});
+    return;
+  }
+  if (node.type == MD_BLOCK_CODE) {
+    renderCodeBlock(index, cursor, depth, list, quote);
+    return;
+  }
+  if (node.type == MD_BLOCK_TABLE) {
+    renderTable(index, cursor, depth);
+    return;
+  }
+  if (node.type == MD_BLOCK_HR) {
+    renderHorizontalRule(cursor, depth);
     return;
   }
   QString label = QStringLiteral("unsupported block - edit in Markdown");
   switch (node.type) {
-    case MD_BLOCK_CODE:
-      label = QStringLiteral("code - edit in Markdown");
-      break;
     case MD_BLOCK_HTML:
       label = QStringLiteral("HTML - edit in Markdown");
-      break;
-    case MD_BLOCK_TABLE:
-      label = QStringLiteral("table - edit in Markdown");
       break;
     case MD_BLOCK_HR:
       label = QStringLiteral("horizontal rule - edit in Markdown");
@@ -232,6 +406,57 @@ void ContinuousEditor::renderInline(size_t index, QTextCursor& cursor,
                                     QTextCharFormat format, bool allowEditing) {
   const auto& node = document_->nodes[index];
   if (node.kind == markdown::NodeKind::kSpan) {
+    if (node.type == MD_SPAN_CODE) {
+      bool editable = allowEditing && node.children.size() == 1;
+      if (editable) {
+        auto ancestor = node.parent;
+        while (ancestor) {
+          const auto& parent = document_->nodes[*ancestor];
+          if (parent.kind == markdown::NodeKind::kSpan &&
+              (parent.type == MD_SPAN_A || parent.type == MD_SPAN_IMG)) {
+            editable = false;
+            break;
+          }
+          ancestor = parent.parent;
+        }
+      }
+      if (editable) {
+        const auto child = node.children.front();
+        const auto& text = document_->nodes[child];
+        if (text.kind == markdown::NodeKind::kText &&
+            text.type == MD_TEXT_CODE && text.source &&
+            text.source->offset >= 0 &&
+            text.source->offset <= document_->source.size() &&
+            text.source->size == text.text.size() &&
+            text.source->size <= document_->source.size() - text.source->offset &&
+            document_->source.mid(text.source->offset, text.source->size) ==
+                text.text &&
+            !text.text.contains('\n') && !text.text.contains('\r')) {
+          const auto value = literal(text.text);
+          if (!value.isEmpty() && !value.contains('\n') &&
+              !value.contains('\r') &&
+              !value.contains(QChar::ParagraphSeparator) &&
+              !value.contains(QChar::LineSeparator)) {
+            auto codeFormat = format;
+            auto font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+            font.setStyleHint(QFont::Monospace);
+            codeFormat.setFont(font);
+            codeFormat.setForeground(QColor(70, 70, 70));
+            codeFormat.setBackground(QColor(235, 235, 235));
+            codeFormat.setToolTip(QStringLiteral("Editable inline code"));
+            const int start = cursor.position();
+            cursor.insertText(value, codeFormat);
+            codeSpanRuns_.push_back({child, start, int(value.size())});
+            return;
+          }
+        }
+      }
+      QTextCharFormat protectedFormat;
+      protectedFormat.setForeground(QColor(100, 100, 100));
+      protectedFormat.setBackground(QColor(235, 235, 235));
+      cursor.insertText(QStringLiteral("[Read-only: code]"), protectedFormat);
+      return;
+    }
     if (node.type == MD_SPAN_EM) {
       format.setFontItalic(true);
     } else if (node.type == MD_SPAN_STRONG) {
@@ -249,6 +474,12 @@ void ContinuousEditor::renderInline(size_t index, QTextCursor& cursor,
             QStringLiteral("Read-only autolink - text determines the address. "
                            "Navigation disabled; edit in Markdown."));
       }
+    } else if (node.type == MD_SPAN_IMG) {
+      format.setForeground(QColor(40, 90, 140));
+      format.setBackground(QColor(225, 235, 245));
+      format.setToolTip(QStringLiteral(
+          "Image - resource loading disabled. Edit alt text only; use "
+          "Markdown for source, title and reference definitions."));
     } else {
       QTextCharFormat protectedFormat;
       protectedFormat.setForeground(QColor(100, 100, 100));
@@ -334,19 +565,117 @@ void ContinuousEditor::changed() {
     return;
   }
   const Run* target = nullptr;
+  const CodeRun* codeTarget = nullptr;
+  const CodeSpanRun* codeSpanTarget = nullptr;
+  const EmptyCellRun* emptyCellTarget = nullptr;
+  for (const auto& run : codeRuns_) {
+    const int offset = change->position - run.start;
+    if (offset < 0 || offset > run.length ||
+        change->removed > run.length - offset) {
+      continue;
+    }
+    if (target || codeTarget) {
+      restore(
+          QStringLiteral("This insertion is between text runs. Move inside a "
+                         "run or use Markdown."));
+      return;
+    }
+    codeTarget = &run;
+  }
   for (const auto& run : runs_) {
     const int offset = change->position - run.start;
     if (offset < 0 || offset > run.length ||
         change->removed > run.length - offset) {
       continue;
     }
-    if (target) {
+    if (target || codeTarget) {
       restore(
           QStringLiteral("This insertion is between text runs. Move inside a "
                          "run or use Markdown."));
       return;
     }
     target = &run;
+  }
+  for (const auto& run : emptyCellRuns_) {
+    if (change->position != run.start || change->removed != 0 ||
+        change->added <= 0) {
+      continue;
+    }
+    if (target || codeTarget || codeSpanTarget || emptyCellTarget) {
+      restore(
+          QStringLiteral("This insertion is between editable targets. Move "
+                         "inside one cell or use Markdown."));
+      return;
+    }
+    emptyCellTarget = &run;
+  }
+  for (const auto& run : codeSpanRuns_) {
+    const int offset = change->position - run.start;
+    if (offset < 0 || offset > run.length ||
+        change->removed > run.length - offset) {
+      continue;
+    }
+    if (target || codeTarget || codeSpanTarget || emptyCellTarget) {
+      restore(
+          QStringLiteral("This insertion is between editable targets. Move "
+                         "inside one cell or use Markdown."));
+      return;
+    }
+    codeSpanTarget = &run;
+  }
+  if (codeSpanTarget) {
+    auto replacement =
+        renderedText_.mid(codeSpanTarget->start, codeSpanTarget->length);
+    replacement.replace(change->position - codeSpanTarget->start,
+                        change->removed,
+                        text.mid(change->position, change->added));
+    if (replacement.isEmpty() || !replacement.isValidUtf16() ||
+        replacement.contains('\n') || replacement.contains('\r') ||
+        replacement.contains(QChar::ParagraphSeparator) ||
+        replacement.contains(QChar::LineSeparator) ||
+        replacement.contains(QChar(0))) {
+      restore(QStringLiteral(
+          "Inline code accepts nonempty single-line text. Use Markdown."));
+      return;
+    }
+    const auto command =
+        markdown::ReplaceInlineCode{codeSpanTarget->node,
+                                    replacement.toUtf8()};
+    emit commandRequested(token_, command, editor_->textCursor().position());
+    return;
+  }
+  if (emptyCellTarget) {
+    const auto replacement = text.mid(change->position, change->added);
+    if (replacement.isEmpty() || !replacement.isValidUtf16() ||
+        replacement.contains('\n') || replacement.contains('\r') ||
+        replacement.contains(QChar::ParagraphSeparator) ||
+        replacement.contains(QChar::LineSeparator) ||
+        replacement.contains(QChar(0))) {
+      restore(QStringLiteral(
+          "Empty table cells accept single-line plain text. Use Markdown."));
+      return;
+    }
+    const auto command = markdown::InsertTableCellText{
+        emptyCellTarget->node, replacement.toUtf8()};
+    emit commandRequested(token_, command, editor_->textCursor().position());
+    return;
+  }
+  if (codeTarget) {
+    auto replacement =
+        renderedText_.mid(codeTarget->start, codeTarget->length);
+    replacement.replace(change->position - codeTarget->start, change->removed,
+                        text.mid(change->position, change->added));
+    replacement.replace(QChar::LineSeparator, QChar('\n'));
+    replacement.replace(QChar::ParagraphSeparator, QChar('\n'));
+    if (!replacement.isValidUtf16() || replacement.contains(QChar(0))) {
+      restore(QStringLiteral(
+          "Code edits must be valid Unicode without NUL. Use Markdown."));
+      return;
+    }
+    const auto command =
+        markdown::ReplaceCodeBody{codeTarget->node, replacement.toUtf8()};
+    emit commandRequested(token_, command, editor_->textCursor().position());
+    return;
   }
   if (target) {
     auto replacement = renderedText_.mid(target->start, target->length);
@@ -518,6 +847,382 @@ void ContinuousEditor::toggleInlineStyle(markdown::InlineStyle style) {
                         editor_->textCursor().position());
 }
 
+std::optional<ContinuousEditor::LinkSelection>
+ContinuousEditor::linkSelection() const {
+  if (!document_) {
+    return std::nullopt;
+  }
+  const auto cursor = editor_->textCursor();
+  if (!cursor.hasSelection()) {
+    return std::nullopt;
+  }
+  for (const auto& run : runs_) {
+    if (cursor.selectionStart() < run.start ||
+        cursor.selectionEnd() > run.start + run.length) {
+      continue;
+    }
+    const auto& node = document_->nodes[run.node];
+    if (node.kind != markdown::NodeKind::kText ||
+        node.type != MD_TEXT_NORMAL) {
+      return std::nullopt;
+    }
+    const auto text = literal(node.text);
+    const auto first = cursor.selectionStart() - run.start;
+    const auto end = cursor.selectionEnd() - run.start;
+    if (first >= end ||
+        (first < text.size() && text[first].isLowSurrogate()) ||
+        (end < text.size() && text[end].isLowSurrogate())) {
+      return std::nullopt;
+    }
+    const auto offset = text.left(first).toUtf8().size();
+    const auto size = text.mid(first, end - first).toUtf8().size();
+    if (offset < 0 || size <= 0) {
+      return std::nullopt;
+    }
+    return LinkSelection{run.node, {offset, size}};
+  }
+  return std::nullopt;
+}
+
+bool ContinuousEditor::linkCreationEnabled() const {
+  const auto selection = linkSelection();
+  if (!selection) {
+    return false;
+  }
+  return apply(markdown::WrapInLink{selection->node, selection->range,
+                                    "https://example.invalid"})
+      .document.has_value();
+}
+
+void ContinuousEditor::insertLink(const QString& url) {
+  const auto selection = linkSelection();
+  if (!selection) {
+    emit errorOccurred(
+        QStringLiteral("Select text inside one editable run to create a link."));
+    return;
+  }
+  if (url.trimmed().isEmpty()) {
+    emit errorOccurred(QStringLiteral("Link URL must not be empty."));
+    return;
+  }
+  const auto command = markdown::WrapInLink{
+      selection->node, selection->range, url.trimmed().toUtf8()};
+  emit commandRequested(token_, command, editor_->textCursor().position());
+}
+
+bool ContinuousEditor::imageCreationEnabled() const {
+  const auto selection = linkSelection();
+  if (!selection) {
+    return false;
+  }
+  return apply(markdown::InsertImage{selection->node, selection->range,
+                                     "https://example.invalid/image.png"})
+      .document.has_value();
+}
+
+void ContinuousEditor::insertImage(const QString& src) {
+  const auto selection = linkSelection();
+  if (!selection) {
+    emit errorOccurred(
+        QStringLiteral("Select alt text inside one editable run to insert an "
+                       "image."));
+    return;
+  }
+  if (src.trimmed().isEmpty()) {
+    emit errorOccurred(QStringLiteral("Image source must not be empty."));
+    return;
+  }
+  const auto command = markdown::InsertImage{
+      selection->node, selection->range, src.trimmed().toUtf8()};
+  emit commandRequested(token_, command, editor_->textCursor().position());
+}
+
+ContinuousEditor::StructuralState ContinuousEditor::blockquoteState() const {
+  const auto* value = context();
+  if (!document_ || !value) {
+    return {{},
+            false,
+            QStringLiteral("Blockquote requires the cursor inside one "
+                           "editable block.")};
+  }
+  if (value->quote) {
+    const auto command = markdown::UnwrapQuote{*value->quote};
+    const auto result = apply(command);
+    if (!result.document) {
+      return {{}, true, result.error};
+    }
+    return {command, true, {}};
+  }
+  auto target = value->block;
+  if (document_->nodes[target].type == MD_BLOCK_LI && value->list) {
+    target = *value->list;
+  }
+  const auto& block = document_->nodes[target];
+  const auto parent = block.parent.value_or(0);
+  if (parent >= document_->nodes.size()) {
+    return {{}, false, QStringLiteral("Invalid blockquote parent.")};
+  }
+  const auto& container = document_->nodes[parent];
+  if (container.kind != markdown::NodeKind::kBlock ||
+      (container.type != MD_BLOCK_DOC && container.type != MD_BLOCK_QUOTE &&
+       container.type != MD_BLOCK_LI)) {
+    return {{},
+            false,
+            QStringLiteral("Blockquote requires a paragraph, heading, list or "
+                           "code block; use Markdown for this block.")};
+  }
+  const auto position =
+      std::find(container.children.begin(), container.children.end(), target);
+  if (position == container.children.end()) {
+    return {{}, false, QStringLiteral("Invalid blockquote target.")};
+  }
+  const auto command = markdown::WrapInQuote{
+      parent, size_t(position - container.children.begin()), size_t{1}};
+  const auto result = apply(command);
+  if (!result.document) {
+    return {{}, false, result.error};
+  }
+  return {command, false, {}};
+}
+
+ContinuousEditor::StructuralState ContinuousEditor::listState(
+    bool ordered) const {
+  const auto* value = context();
+  if (!document_ || !value) {
+    return {{},
+            false,
+            QStringLiteral("Lists require the cursor inside one editable "
+                           "block.")};
+  }
+  if (value->list) {
+    const auto& list = document_->nodes[*value->list];
+    if (list.kind != markdown::NodeKind::kBlock ||
+        (list.type != MD_BLOCK_UL && list.type != MD_BLOCK_OL)) {
+      return {{}, false, QStringLiteral("Invalid list target.")};
+    }
+    const bool currentOrdered = list.type == MD_BLOCK_OL;
+    const int start =
+        ordered ? (currentOrdered ? list.attributes["start"].toInt() : 1) : 0;
+    const auto command = markdown::SetListKind{*value->list, ordered, start};
+    const auto result = apply(command);
+    if (!result.document) {
+      return {{}, currentOrdered == ordered, result.error};
+    }
+    return {command, currentOrdered == ordered, {}};
+  }
+  if (value->quote) {
+    return {{},
+            false,
+            QStringLiteral("List creation inside a blockquote is not "
+                           "supported yet; use Markdown.")};
+  }
+  const auto& block = document_->nodes[value->block];
+  if (block.kind != markdown::NodeKind::kBlock ||
+      block.type != MD_BLOCK_P ||
+      block.parent != std::optional<size_t>(0)) {
+    return {{},
+            false,
+            QStringLiteral("List creation requires a top-level paragraph; use "
+                           "Markdown for this block.")};
+  }
+  const auto& root = document_->nodes[0];
+  const auto position =
+      std::find(root.children.begin(), root.children.end(), value->block);
+  if (position == root.children.end()) {
+    return {{}, false, QStringLiteral("Invalid list target.")};
+  }
+  const auto command =
+      markdown::WrapInList{0, size_t(position - root.children.begin()), ordered,
+                           ordered ? 1 : 0};
+  const auto result = apply(command);
+  if (!result.document) {
+    return {{}, false, result.error};
+  }
+  return {command, false, {}};
+}
+
+void ContinuousEditor::toggleBlockquote() {
+  const auto state = blockquoteState();
+  if (!state.command) {
+    emit errorOccurred(state.reason);
+    return;
+  }
+  emit commandRequested(token_, *state.command,
+                        editor_->textCursor().position());
+}
+
+void ContinuousEditor::changeListKind(bool ordered) {
+  const auto state = listState(ordered);
+  if (!state.command) {
+    emit errorOccurred(state.reason);
+    return;
+  }
+  emit commandRequested(token_, *state.command,
+                        editor_->textCursor().position());
+}
+
+std::optional<ContinuousEditor::TableContext>
+ContinuousEditor::tableContext() const {
+  if (!document_ || !editor_) {
+    return std::nullopt;
+  }
+  auto* table = editor_->textCursor().currentTable();
+  if (!table) {
+    return std::nullopt;
+  }
+  for (const auto& run : tableRuns_) {
+    if (run.widget != table) {
+      continue;
+    }
+    const auto cell = table->cellAt(editor_->textCursor());
+    if (!cell.isValid()) {
+      return std::nullopt;
+    }
+    return TableContext{run.node, cell.row(), cell.column(), table->rows(),
+                        table->columns()};
+  }
+  return std::nullopt;
+}
+
+std::optional<markdown::EditCommand> ContinuousEditor::tableCommand(
+    const TableContext& context, TableAction action) const {
+  const auto emptyCells = [](int count) {
+    return std::vector<QByteArray>(size_t(std::max(0, count)));
+  };
+  switch (action) {
+    case TableAction::kInsertRowAbove:
+      if (context.row <= 0) {
+        return std::nullopt;
+      }
+      return markdown::InsertTableRow{
+          context.node, size_t(context.row - 1),
+          emptyCells(context.columns)};
+    case TableAction::kInsertRowBelow:
+      return markdown::InsertTableRow{
+          context.node, size_t(std::max(0, context.row)),
+          emptyCells(context.columns)};
+    case TableAction::kRemoveRow:
+      if (context.row <= 0) {
+        return std::nullopt;
+      }
+      return markdown::RemoveTableRow{context.node,
+                                      size_t(context.row - 1)};
+    case TableAction::kInsertColumnLeft:
+      return markdown::InsertTableColumn{
+          context.node, size_t(std::max(0, context.column)), {},
+          emptyCells(context.rows - 1), markdown::TableAlignment::kNone};
+    case TableAction::kInsertColumnRight:
+      return markdown::InsertTableColumn{
+          context.node, size_t(std::max(0, context.column + 1)), {},
+          emptyCells(context.rows - 1), markdown::TableAlignment::kNone};
+    case TableAction::kRemoveColumn:
+      if (context.columns <= 1) {
+        return std::nullopt;
+      }
+      return markdown::RemoveTableColumn{context.node,
+                                         size_t(context.column)};
+    case TableAction::kAlignLeft:
+      return markdown::SetTableAlignment{
+          context.node, size_t(context.column),
+          markdown::TableAlignment::kLeft};
+    case TableAction::kAlignCenter:
+      return markdown::SetTableAlignment{
+          context.node, size_t(context.column),
+          markdown::TableAlignment::kCenter};
+    case TableAction::kAlignRight:
+      return markdown::SetTableAlignment{
+          context.node, size_t(context.column),
+          markdown::TableAlignment::kRight};
+    case TableAction::kRemoveTable:
+      return markdown::RemoveTable{context.node};
+  }
+  return std::nullopt;
+}
+
+bool ContinuousEditor::tableActionEnabled(TableAction action) const {
+  const auto context = tableContext();
+  return context && tableCommand(*context, action).has_value();
+}
+
+void ContinuousEditor::applyTableAction(TableAction action) {
+  const auto context = tableContext();
+  if (!context) {
+    emit errorOccurred(
+        QStringLiteral("Place the cursor inside a rendered table first."));
+    return;
+  }
+  const auto command = tableCommand(*context, action);
+  if (!command) {
+    emit errorOccurred(
+        QStringLiteral("This table action is not available for the current "
+                       "cell."));
+    return;
+  }
+  emit commandRequested(token_, *command, editor_->textCursor().position());
+}
+
+bool ContinuousEditor::blockInsertionEnabled() const {
+  return document_ && !document_->nodes.empty();
+}
+
+bool ContinuousEditor::tableCreationEnabled() const {
+  return blockInsertionEnabled();
+}
+
+size_t ContinuousEditor::insertionPosition() const {
+  if (!document_ || document_->nodes.empty()) {
+    return 0;
+  }
+  const auto& root = document_->nodes[0];
+  size_t position = root.children.size();
+  std::optional<size_t> top;
+  if (const auto table = tableContext()) {
+    top = table->node;
+  } else if (const auto* value = context()) {
+    top = value->block;
+    while (top && document_->nodes[*top].parent &&
+           *document_->nodes[*top].parent != 0) {
+      top = document_->nodes[*top].parent;
+    }
+  }
+  if (top) {
+    const auto found =
+        std::find(root.children.begin(), root.children.end(), *top);
+    if (found != root.children.end()) {
+      position = size_t(found - root.children.begin()) + 1;
+    }
+  }
+  return position;
+}
+
+void ContinuousEditor::insertTable(size_t columns, size_t bodyRows) {
+  if (!blockInsertionEnabled()) {
+    emit errorOccurred(QStringLiteral("No document is available."));
+    return;
+  }
+  const auto command = markdown::InsertTable{insertionPosition(), columns,
+                                             bodyRows};
+  emit commandRequested(token_, command, editor_->textCursor().position());
+}
+
+void ContinuousEditor::insertHorizontalRule() {
+  if (!blockInsertionEnabled()) {
+    emit errorOccurred(QStringLiteral("No document is available."));
+    return;
+  }
+  const auto command = markdown::InsertHorizontalRule{insertionPosition()};
+  emit commandRequested(token_, command, editor_->textCursor().position());
+}
+
+void ContinuousEditor::insertFencedCode() {
+  if (!blockInsertionEnabled()) {
+    emit errorOccurred(QStringLiteral("No document is available."));
+    return;
+  }
+  const auto command = markdown::InsertFencedCode{insertionPosition()};
+  emit commandRequested(token_, command, editor_->textCursor().position());
+}
+
 void ContinuousEditor::explainCursorMapping(bool exact) {
   notice_->setText(
       kNotice + (exact
@@ -552,6 +1257,28 @@ bool ContinuousEditor::eventFilter(QObject* watched, QEvent* event) {
     }
   }
   return QWidget::eventFilter(watched, event);
+}
+
+void ContinuousEditor::setPaged(bool paged) {
+  paged_ = paged;
+  editor_->setPaged(paged);
+}
+
+void ContinuousEditor::setPageSetup(const PageSetup& setup) {
+  pageSetup_ = setup;
+  editor_->setPageSetup(setup);
+}
+
+int ContinuousEditor::pageCount() const {
+  return editor_ ? editor_->pageCount() : 0;
+}
+
+int ContinuousEditor::currentPage() const {
+  return editor_ ? editor_->currentPage() : 0;
+}
+
+QString ContinuousEditor::layoutWarning() const {
+  return editor_ ? editor_->layoutWarning() : QString{};
 }
 
 }  // namespace markpad

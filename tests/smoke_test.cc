@@ -5,13 +5,20 @@
 #include <QDir>
 #include <QFile>
 #include <QFileOpenEvent>
+#include <QIcon>
 #include <QLabel>
+#include <QMenu>
 #include <QMimeData>
 #include <QPlainTextEdit>
+#include <QStatusBar>
+#include <QStyle>
 #include <QTemporaryDir>
 #include <QTextBlock>
+#include <QTextCursor>
 #include <QTextEdit>
 #include <QTextLayout>
+#include <QTextTable>
+#include <QToolBar>
 #include <QUrl>
 #include <QtTest/QtTest>
 
@@ -51,15 +58,33 @@ class TestDialogs final : public DocumentDialogs {
   QString openPath;
   std::optional<SaveSelection> saveSelection;
   std::optional<Encoding> encoding;
+  std::optional<QString> linkUrl;
+  std::optional<QString> imageUrl;
+  std::optional<TableSelection> tableSelection = TableSelection{2, 1};
   CloseChoice closeChoice = CloseChoice::kCancel;
   QStringList errors;
   int closePrompts = 0;
+  int linkPrompts = 0;
+  int imagePrompts = 0;
+  int tablePrompts = 0;
   QString chooseOpen(QWidget*) override { return openPath; }
   std::optional<SaveSelection> chooseSave(QWidget*, const QString&,
                                           FileFormat) override {
     return saveSelection;
   }
   std::optional<Encoding> chooseEncoding(QWidget*) override { return encoding; }
+  std::optional<QString> chooseLink(QWidget*) override {
+    ++linkPrompts;
+    return linkUrl;
+  }
+  std::optional<QString> chooseImage(QWidget*) override {
+    ++imagePrompts;
+    return imageUrl;
+  }
+  std::optional<TableSelection> chooseTableSize(QWidget*) override {
+    ++tablePrompts;
+    return tableSelection;
+  }
   CloseChoice confirmClose(QWidget*, const QString&) override {
     ++closePrompts;
     return closeChoice;
@@ -416,7 +441,7 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(rich->isVisible());
     QVERIFY(rich->toPlainText().contains("Before bold after"));
     QVERIFY(rich->toPlainText().contains("[Read-only: HTML"));
-    QVERIFY(rich->toPlainText().contains("[Read-only: table"));
+    QVERIFY(rich->toPlainText().contains(QStringLiteral("x")));
     QCOMPARE(window->session().snapshot().token, initial.token);
     QVERIFY(!window->session().dirty());
     auto cursor = rich->document()->find("bold");
@@ -467,19 +492,11 @@ class MainWindowSmokeTest : public QObject {
     QTest::addColumn<QByteArray>("source");
     QTest::addColumn<QString>("selection");
     QTest::addColumn<QString>("replacement");
-    QTest::newRow("code") << QByteArray("```\ncode\n```\n")
-                          << QStringLiteral("Read-only") << QStringLiteral("x");
     QTest::newRow("autolink")
         << QByteArray("<https://invalid.test>\n")
         << QStringLiteral("https://invalid.test") << QStringLiteral("x");
-    QTest::newRow("image") << QByteArray("![alt](file:///private)\n")
-                           << QStringLiteral("Read-only")
-                           << QStringLiteral("x");
     QTest::newRow("html") << QByteArray("<script>bad()</script>\n")
                           << QStringLiteral("Read-only") << QStringLiteral("x");
-    QTest::newRow("table") << QByteArray("| A |\n| - |\n| x |\n")
-                           << QStringLiteral("Read-only")
-                           << QStringLiteral("x");
     QTest::newRow("delete-run")
         << QByteArray("word\n") << QStringLiteral("word") << QString{};
     QTest::newRow("newline") << QByteArray("word\n") << QStringLiteral("word")
@@ -833,7 +850,8 @@ class MainWindowSmokeTest : public QObject {
     TestDialogs dialogs;
     ApplicationController controller(dialogs);
     auto* window = controller.newDocument();
-    window->editor()->insertPlainText("a **word** z\n\n[link](/keep)\n");
+    window->editor()->insertPlainText(
+        "a **word** z\n\n[link](/keep)\n\n![alt](/image)\n");
     window->setContinuousMode(true);
     auto* rich = window->continuousEditor()->editor();
     auto* bold = action(window, "boldAction");
@@ -856,6 +874,13 @@ class MainWindowSmokeTest : public QObject {
     cursor = rich->document()->find("link");
     rich->setTextCursor(cursor);
     QVERIFY(!bold->isEnabled());
+    cursor = rich->document()->find("alt");
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    QVERIFY(!bold->isEnabled());
+    window->continuousEditor()->toggleInlineStyle(markdown::InlineStyle::kBold);
+    QCOMPARE(window->session().snapshot().source, before.source);
+    QCOMPARE(window->session().snapshot().token, before.token);
     cursor = rich->document()->find(" z");
     rich->setTextCursor(cursor);
     QVERIFY(!bold->isEnabled());
@@ -991,9 +1016,6 @@ class MainWindowSmokeTest : public QObject {
     QTest::newRow("cross-runs")
         << QByteArray("[one **two**](/keep)\n") << QStringLiteral("one two")
         << QStringLiteral("after");
-    QTest::newRow("image-child")
-        << QByteArray("[![alt](file:///private)](/keep)\n")
-        << QStringLiteral("Read-only: image") << QStringLiteral("after");
     QTest::newRow("code-child")
         << QByteArray("[`code`](/keep)\n") << QStringLiteral("Read-only: code")
         << QStringLiteral("after");
@@ -1138,6 +1160,995 @@ class MainWindowSmokeTest : public QObject {
     QCOMPARE(window->session().snapshot().source,
              std::string("[before](/keep \"title\")\n"));
     QApplication::clipboard()->clear();
+  }
+
+  void pagedModeLayoutAndSettings() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    QByteArray source;
+    for (int i = 0; i < 120; ++i) {
+      source += "Paragraph " + QByteArray::number(i) + "\n\n";
+    }
+    window->editor()->setPlainText(QString::fromUtf8(source));
+    QVERIFY(window->setPagedMode(true));
+    QVERIFY(window->pagedMode());
+    QVERIFY(window->continuousMode());
+    const int firstCount = window->continuousEditor()->pageCount();
+    QVERIFY(firstCount >= 2);
+
+    Settings settings;
+    settings.page.marginTopMm = 80.0;
+    settings.page.marginBottomMm = 80.0;
+    settings.page.marginLeftMm = 50.0;
+    settings.page.marginRightMm = 50.0;
+    QString error;
+    QVERIFY2(window->applySettings(settings, &error), qPrintable(error));
+    const int secondCount = window->continuousEditor()->pageCount();
+    QVERIFY(secondCount >= firstCount);
+
+    window->continuousEditor()->editor()->moveCursor(QTextCursor::End);
+    QVERIFY(window->continuousEditor()->currentPage() >= 0);
+    QVERIFY(window->continuousEditor()->currentPage() <
+            window->continuousEditor()->pageCount());
+
+    QVERIFY(window->setContinuousMode(false));
+    QVERIFY(!window->continuousMode());
+    QVERIFY(!window->pagedMode());
+  }
+
+  void sketchMenuStructure() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    const auto names = [](QMenu* menu) {
+      QStringList result;
+      for (auto* action : menu->actions()) {
+        if (!action->isSeparator()) {
+          result.append(action->objectName());
+        }
+      }
+      return result;
+    };
+    auto* file = window->findChild<QMenu*>(QStringLiteral("fileMenu"));
+    QVERIFY(file);
+    QCOMPARE(names(file),
+             QStringList({QStringLiteral("newAction"),
+                          QStringLiteral("openAction"),
+                          QStringLiteral("saveAction"),
+                          QStringLiteral("saveAsAction"),
+                          QStringLiteral("exportAction"),
+                          QStringLiteral("printAction"),
+                          QStringLiteral("exitAction")}));
+    auto* exportMenu =
+        window->findChild<QMenu*>(QStringLiteral("exportMenu"));
+    QVERIFY(exportMenu);
+    QCOMPARE(names(exportMenu),
+             QStringList({QStringLiteral("exportPdfAction"),
+                          QStringLiteral("exportHtmlAction")}));
+    auto* edit = window->findChild<QMenu*>(QStringLiteral("editMenu"));
+    QVERIFY(edit);
+    QCOMPARE(names(edit),
+             QStringList({QStringLiteral("undoAction"),
+                          QStringLiteral("redoAction"),
+                          QStringLiteral("cutAction"),
+                          QStringLiteral("copyAction"),
+                          QStringLiteral("pasteAction"),
+                          QStringLiteral("settingsAction")}));
+    auto* format = window->findChild<QMenu*>(QStringLiteral("formatMenu"));
+    QVERIFY(format);
+    QCOMPARE(names(format),
+             QStringList({QStringLiteral("headingMenuAction"),
+                          QStringLiteral("boldAction"),
+                          QStringLiteral("italicAction"),
+                          QStringLiteral("strikethroughAction"),
+                          QStringLiteral("blockquoteAction"),
+                          QStringLiteral("codeAction"),
+                          QStringLiteral("horizontalLineAction"),
+                          QStringLiteral("linkAction"),
+                          QStringLiteral("imageAction"),
+                          QStringLiteral("tableAction"),
+                          QStringLiteral("listMenuAction")}));
+    auto* headingMenu =
+        window->findChild<QMenu*>(QStringLiteral("headingMenu"));
+    QVERIFY(headingMenu);
+    QCOMPARE(names(headingMenu),
+             QStringList({QStringLiteral("heading1Action"),
+                          QStringLiteral("heading2Action"),
+                          QStringLiteral("heading3Action"),
+                          QStringLiteral("heading4Action"),
+                          QStringLiteral("heading5Action"),
+                          QStringLiteral("heading6Action")}));
+    auto* listMenu = window->findChild<QMenu*>(QStringLiteral("listMenu"));
+    QVERIFY(listMenu);
+    QCOMPARE(names(listMenu),
+             QStringList({QStringLiteral("orderedListAction"),
+                          QStringLiteral("unorderedListAction")}));
+    auto* view = window->findChild<QMenu*>(QStringLiteral("viewMenu"));
+    QVERIFY(view);
+    QCOMPARE(names(view),
+             QStringList({QStringLiteral("fullScreenAction"),
+                          QStringLiteral("zoomInAction"),
+                          QStringLiteral("zoomOutAction"),
+                          QStringLiteral("resetZoomAction"),
+                          QStringLiteral("switchModeAction")}));
+    auto* modes =
+        window->findChild<QMenu*>(QStringLiteral("switchModeMenu"));
+    QVERIFY(modes);
+    QCOMPARE(names(modes),
+             QStringList({QStringLiteral("markdownModeAction"),
+                          QStringLiteral("continuousModeAction"),
+                          QStringLiteral("pagedModeAction")}));
+    auto* help = window->findChild<QMenu*>(QStringLiteral("helpMenu"));
+    QVERIFY(help);
+    QVERIFY(help->actions().isEmpty());
+
+    auto* toolbar =
+        window->findChild<QToolBar*>(QStringLiteral("mainToolBar"));
+    QVERIFY(toolbar);
+    const QStringList toolbarNames{
+        QStringLiteral("newAction"),
+        QStringLiteral("openAction"),
+        QStringLiteral("saveAction"),
+        QStringLiteral("undoAction"),
+        QStringLiteral("redoAction"),
+        QStringLiteral("settingsAction"),
+        QStringLiteral("headingMenuAction"),
+        QStringLiteral("boldAction"),
+        QStringLiteral("italicAction"),
+        QStringLiteral("strikethroughAction"),
+        QStringLiteral("blockquoteAction"),
+        QStringLiteral("codeAction"),
+        QStringLiteral("horizontalLineAction"),
+        QStringLiteral("linkAction"),
+        QStringLiteral("imageAction"),
+        QStringLiteral("tableAction"),
+        QStringLiteral("listMenuAction"),
+        QStringLiteral("orderedListAction"),
+        QStringLiteral("unorderedListAction"),
+        QStringLiteral("switchModeAction")};
+    QStringList actualToolbar;
+    for (auto* action : toolbar->actions()) {
+      if (!action->isSeparator()) {
+        actualToolbar.append(action->objectName());
+      }
+    }
+    QCOMPARE(actualToolbar, toolbarNames);
+    QVERIFY(window->statusBar()->currentMessage().contains(
+        QStringLiteral("Chars")));
+    QVERIFY(window->statusBar()->currentMessage().contains(
+        QStringLiteral("Words")));
+    QVERIFY(window->statusBar()->currentMessage().contains(
+        QStringLiteral("Lines")));
+  }
+
+  void toolbarIcons() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    auto* toolbar =
+        window->findChild<QToolBar*>(QStringLiteral("mainToolBar"));
+    QVERIFY(toolbar);
+    QCOMPARE(toolbar->toolButtonStyle(), Qt::ToolButtonIconOnly);
+    QCOMPARE(toolbar->iconSize(), QSize(20, 20));
+    int count = 0;
+    for (auto* value : toolbar->actions()) {
+      if (!value || value->isSeparator()) {
+        continue;
+      }
+      ++count;
+      QVERIFY(!value->objectName().isEmpty());
+      QVERIFY(!value->text().isEmpty());
+      QVERIFY(!value->toolTip().isEmpty());
+      QVERIFY(!value->icon().isNull());
+      QVERIFY(!value->icon().pixmap(20, QIcon::Normal).isNull());
+      QVERIFY(!value->icon().pixmap(20, QIcon::Disabled).isNull());
+    }
+    QCOMPARE(count, 20);
+    QVERIFY(!action(window, "codeAction")->icon().isNull());
+    QVERIFY(!action(window, "headingMenuAction")->icon().isNull());
+    QVERIFY(!action(window, "listMenuAction")->icon().isNull());
+    QVERIFY(!action(window, "switchModeAction")->icon().isNull());
+
+    Settings settings;
+    settings.theme = Theme::kDark;
+    QString error;
+    QVERIFY2(window->applySettings(settings, &error), qPrintable(error));
+    QVERIFY(!action(window, "boldAction")->icon().isNull());
+    QVERIFY(!action(window, "saveAction")->icon().isNull());
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousTableRenderingAndCellEdit() {
+    const QByteArray source =
+        "pre\n\n| L | C | R |\n| :--- | :---: | ---: |\n"
+        "| a | b | c |\n| d | e | f |\n\npost\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    const auto text = rich->document()->toRawText();
+    QVERIFY(text.contains(QStringLiteral("pre")));
+    QVERIFY(text.contains(QStringLiteral("L")));
+    QVERIFY(text.contains(QStringLiteral("a")));
+    QVERIFY(text.contains(QStringLiteral("post")));
+    QVERIFY(!text.contains(QStringLiteral("| L |")));
+    QTextTable* table = nullptr;
+    for (auto* frame : rich->document()->rootFrame()->childFrames()) {
+      if ((table = dynamic_cast<QTextTable*>(frame))) {
+        break;
+      }
+    }
+    QVERIFY(table);
+    QCOMPARE(table->rows(), 3);
+    QCOMPARE(table->columns(), 3);
+    auto header = table->cellAt(0, 0).firstCursorPosition();
+    QVERIFY(header.charFormat().fontWeight() >= QFont::Bold);
+    QCOMPARE(table->cellAt(0, 0).firstCursorPosition().blockFormat().alignment(),
+             Qt::AlignLeft);
+    QCOMPARE(table->cellAt(0, 1).firstCursorPosition().blockFormat().alignment(),
+             Qt::AlignHCenter);
+    QCOMPARE(table->cellAt(0, 2).firstCursorPosition().blockFormat().alignment(),
+             Qt::AlignRight);
+
+    auto cursor = rich->document()->find(QStringLiteral("a"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    rich->insertPlainText(QStringLiteral("x"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("pre\n\n| L | C | R |\n| :--- | :---: | ---: |\n"
+                         "| x | b | c |\n| d | e | f |\n\npost\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    cursor = rich->document()->find(QStringLiteral("b"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    rich->insertPlainText(QStringLiteral("b|c"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("pre\n\n| L | C | R |\n| :--- | :---: | ---: |\n"
+                         "| a | b\\|c | c |\n| d | e | f |\n\npost\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(window->setContinuousMode(false));
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousTableAtStart() {
+    const QByteArray source = "| h |\n| --- |\n| a |\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    QTextTable* table = nullptr;
+    for (auto* frame : rich->document()->rootFrame()->childFrames()) {
+      if ((table = dynamic_cast<QTextTable*>(frame))) {
+        break;
+      }
+    }
+    QVERIFY(table);
+    QCOMPARE(table->rows(), 2);
+    QCOMPARE(table->columns(), 1);
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(window->setContinuousMode(false));
+    QCOMPARE(window->session().snapshot().source, original.source);
+  }
+
+  void continuousTableStructureActions() {
+    const QByteArray source =
+        "| h | i |\n| --- | --- |\n| a | b |\n| c | d |\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    QVERIFY(window->setContinuousMode(true));
+    auto* editor = window->continuousEditor();
+    auto* rich = editor->editor();
+    const auto place = [&](const QString& text) {
+      auto cursor = rich->document()->find(text);
+      QVERIFY(!cursor.isNull());
+      rich->setTextCursor(cursor);
+    };
+    place(QStringLiteral("a"));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kInsertRowAbove));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kInsertRowBelow));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kRemoveRow));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kInsertColumnLeft));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kInsertColumnRight));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kRemoveColumn));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kAlignCenter));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kRemoveTable));
+    auto* removeRow = action(window, "tableRemoveRowAction");
+    QVERIFY(removeRow);
+    QVERIFY(removeRow->isEnabled());
+
+    editor->applyTableAction(ContinuousEditor::TableAction::kInsertRowAbove);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h | i |\n| --- | --- |\n|  |  |\n"
+                         "| a | b |\n| c | d |\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    place(QStringLiteral("a"));
+    editor->applyTableAction(ContinuousEditor::TableAction::kInsertRowBelow);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h | i |\n| --- | --- |\n| a | b |\n"
+                         "|  |  |\n| c | d |\n"));
+    window->undo();
+    place(QStringLiteral("a"));
+    editor->applyTableAction(ContinuousEditor::TableAction::kRemoveRow);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h | i |\n| --- | --- |\n| c | d |\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    place(QStringLiteral("a"));
+    editor->applyTableAction(ContinuousEditor::TableAction::kInsertColumnLeft);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("|  | h | i |\n| --- | --- | --- |\n"
+                         "|  | a | b |\n|  | c | d |\n"));
+    window->undo();
+    place(QStringLiteral("a"));
+    editor->applyTableAction(ContinuousEditor::TableAction::kInsertColumnRight);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h |  | i |\n| --- | --- | --- |\n"
+                         "| a |  | b |\n| c |  | d |\n"));
+    window->undo();
+    place(QStringLiteral("b"));
+    editor->applyTableAction(ContinuousEditor::TableAction::kRemoveColumn);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h |\n| --- |\n| a |\n| c |\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    place(QStringLiteral("b"));
+    editor->applyTableAction(ContinuousEditor::TableAction::kAlignLeft);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h | i |\n| --- | :--- |\n| a | b |\n| c | d |\n"));
+    window->undo();
+    place(QStringLiteral("b"));
+    editor->applyTableAction(ContinuousEditor::TableAction::kAlignCenter);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h | i |\n| --- | :---: |\n| a | b |\n| c | d |\n"));
+    window->undo();
+    place(QStringLiteral("b"));
+    editor->applyTableAction(ContinuousEditor::TableAction::kAlignRight);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h | i |\n| --- | ---: |\n| a | b |\n| c | d |\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    place(QStringLiteral("h"));
+    QVERIFY(!editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kInsertRowAbove));
+    QVERIFY(!editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kRemoveRow));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kInsertRowBelow));
+
+    editor->applyTableAction(ContinuousEditor::TableAction::kRemoveTable);
+    QCOMPARE(window->session().snapshot().source, std::string{});
+    QVERIFY(!removeRow->isEnabled());
+    QVERIFY(!action(window, "tableInsertRowAboveAction")->isEnabled());
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousEmptyTableCellEditing() {
+    const QByteArray source =
+        "| h | i |\n| --- | --- |\n|  | b |\n| c | d |\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    QVERIFY(window->setContinuousMode(true));
+    auto* editor = window->continuousEditor();
+    auto* rich = editor->editor();
+    const auto table = [&]() -> QTextTable* {
+      for (auto* frame : rich->document()->rootFrame()->childFrames()) {
+        if (auto* value = dynamic_cast<QTextTable*>(frame)) {
+          return value;
+        }
+      }
+      return nullptr;
+    };
+    auto* value = table();
+    QVERIFY(value);
+    auto cursor = value->cellAt(1, 0).firstCursorPosition();
+    rich->setTextCursor(cursor);
+    rich->insertPlainText(QStringLiteral("a"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h | i |\n| --- | --- |\n| a | b |\n| c | d |\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    value = table();
+    QVERIFY(value);
+    cursor = value->cellAt(1, 0).firstCursorPosition();
+    rich->setTextCursor(cursor);
+    rich->insertPlainText(QStringLiteral("x|y"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h | i |\n| --- | --- |\n| x\\|y | b |\n| c | d |\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    value = table();
+    QVERIFY(value);
+    rich->setTextCursor(value->cellAt(1, 0).firstCursorPosition());
+    editor->applyTableAction(ContinuousEditor::TableAction::kInsertColumnRight);
+    value = table();
+    QVERIFY(value);
+    QCOMPARE(value->columns(), 3);
+    rich->setTextCursor(value->cellAt(1, 1).firstCursorPosition());
+    rich->insertPlainText(QStringLiteral("new"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h |  | i |\n| --- | --- | --- |\n"
+                         "|  | new | b |\n| c |  | d |\n"));
+    window->undo();
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousTableSingleColumnGuard() {
+    const QByteArray source = "| h |\n| --- |\n| a |\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    QVERIFY(window->setContinuousMode(true));
+    auto* editor = window->continuousEditor();
+    auto* rich = editor->editor();
+    auto cursor = rich->document()->find(QStringLiteral("a"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    QVERIFY(!editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kRemoveColumn));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kInsertColumnLeft));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kInsertColumnRight));
+    QVERIFY(editor->tableActionEnabled(
+        ContinuousEditor::TableAction::kRemoveTable));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| h |\n| --- |\n| a |\n"));
+  }
+
+  void continuousTableCreation() {
+    const QByteArray source = "alpha\n\nbeta\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    auto* table = action(window, "tableAction");
+    QVERIFY(table);
+    QVERIFY(!table->isEnabled());
+    QVERIFY(window->setContinuousMode(true));
+    QVERIFY(table->isEnabled());
+    auto* rich = window->continuousEditor()->editor();
+    auto cursor = rich->document()->find(QStringLiteral("alpha"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    table->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\n| Column 1 | Column 2 |\n"
+                         "| --- | --- |\n|  |  |\n\nbeta\n"));
+    QTextTable* value = nullptr;
+    for (auto* frame : rich->document()->rootFrame()->childFrames()) {
+      if ((value = dynamic_cast<QTextTable*>(frame))) {
+        break;
+      }
+    }
+    QVERIFY(value);
+    rich->setTextCursor(value->cellAt(1, 0).firstCursorPosition());
+    rich->insertPlainText(QStringLiteral("x"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\n| Column 1 | Column 2 |\n"
+                         "| --- | --- |\n| x |  |\n\nbeta\n"));
+    window->undo();
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(window->setContinuousMode(false));
+    QVERIFY(!table->isEnabled());
+    QVERIFY(dialogs.errors.empty());
+
+    auto* empty = controller.newDocument();
+    QVERIFY(empty->setContinuousMode(true));
+    table = action(empty, "tableAction");
+    QVERIFY(table->isEnabled());
+    table->trigger();
+    QCOMPARE(empty->session().snapshot().source,
+             std::string("| Column 1 | Column 2 |\n"
+                         "| --- | --- |\n|  |  |\n"));
+    empty->undo();
+    QCOMPARE(empty->session().snapshot().source, std::string{});
+    dialogs.tableSelection = TableSelection{3, 2};
+    table->trigger();
+    QCOMPARE(empty->session().snapshot().source,
+             std::string("| Column 1 | Column 2 | Column 3 |\n"
+                         "| --- | --- | --- |\n"
+                         "|  |  |  |\n|  |  |  |\n"));
+    const auto sized = empty->session().snapshot().source;
+    dialogs.tableSelection.reset();
+    table->trigger();
+    QCOMPARE(empty->session().snapshot().source, sized);
+  }
+
+  void continuousCodeAndRuleInsertion() {
+    const QByteArray source = "alpha\n\nbeta\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    auto* code = action(window, "codeAction");
+    auto* rule = action(window, "horizontalLineAction");
+    QVERIFY(code);
+    QVERIFY(rule);
+    QVERIFY(!code->isEnabled());
+    QVERIFY(!rule->isEnabled());
+    QVERIFY(window->setContinuousMode(true));
+    QVERIFY(code->isEnabled());
+    QVERIFY(rule->isEnabled());
+    auto* rich = window->continuousEditor()->editor();
+    auto cursor = rich->document()->find(QStringLiteral("alpha"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    code->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\n```\n```\n\nbeta\n"));
+    auto body = rich->document()->find(QStringLiteral("alpha"));
+    QVERIFY(!body.isNull());
+    body.movePosition(QTextCursor::NextBlock);
+    rich->setTextCursor(body);
+    rich->insertPlainText(QStringLiteral("x"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\n```\nx\n```\n\nbeta\n"));
+    window->undo();
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    cursor = rich->document()->find(QStringLiteral("alpha"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    rule->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\n---\n\nbeta\n"));
+    QVERIFY(rich->document()->toPlainText().contains(QChar(0x2500)));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(window->setContinuousMode(false));
+    QVERIFY(!code->isEnabled());
+    QVERIFY(!rule->isEnabled());
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousLinkCreation() {
+    const QByteArray source = "alpha beta\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    auto* link = action(window, "linkAction");
+    QVERIFY(link);
+    QVERIFY(!link->isEnabled());
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    auto cursor = rich->document()->find(QStringLiteral("alpha"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    QVERIFY(link->isEnabled());
+    dialogs.linkUrl = QStringLiteral("https://example.test");
+    link->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("[alpha](<https://example.test>) beta\n"));
+    QCOMPARE(dialogs.linkPrompts, 1);
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    cursor = rich->document()->find(QStringLiteral("beta"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    QVERIFY(link->isEnabled());
+    dialogs.linkUrl.reset();
+    link->trigger();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QCOMPARE(dialogs.linkPrompts, 2);
+
+    auto collapsed = rich->document()->find(QStringLiteral("beta"));
+    collapsed.clearSelection();
+    rich->setTextCursor(collapsed);
+    QVERIFY(!link->isEnabled());
+    QVERIFY(window->setContinuousMode(false));
+    QVERIFY(!link->isEnabled());
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousImageCreation() {
+    const QByteArray source = "alpha beta\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    auto* image = action(window, "imageAction");
+    QVERIFY(image);
+    QVERIFY(!image->isEnabled());
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    auto cursor = rich->document()->find(QStringLiteral("alpha"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    QVERIFY(image->isEnabled());
+    dialogs.imageUrl = QStringLiteral("https://example.test/image.png");
+    image->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("![alpha](<https://example.test/image.png>) beta\n"));
+    QCOMPARE(dialogs.imagePrompts, 1);
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    cursor = rich->document()->find(QStringLiteral("beta"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    QVERIFY(image->isEnabled());
+    dialogs.imageUrl.reset();
+    image->trigger();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QCOMPARE(dialogs.imagePrompts, 2);
+
+    auto collapsed = rich->document()->find(QStringLiteral("beta"));
+    collapsed.clearSelection();
+    rich->setTextCursor(collapsed);
+    QVERIFY(!image->isEnabled());
+    QVERIFY(window->setContinuousMode(false));
+    QVERIFY(!image->isEnabled());
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousInlineCodeEditing() {
+    const QByteArray source = "`old`\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    QVERIFY(!rich->document()->toRawText().contains(
+        QStringLiteral("Read-only: code")));
+    auto cursor = rich->document()->find(QStringLiteral("old"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    rich->insertPlainText(QStringLiteral("new"));
+    QCOMPARE(window->session().snapshot().source, std::string("`new`\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(window->setContinuousMode(false));
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousAcceptanceMatrix() {
+    const QByteArray source =
+        "# Heading\n\n"
+        "Paragraph **bold** *italic* ~~strike~~ `inline`.\n\n"
+        "> quote\n\n"
+        "- one\n- two\n\n"
+        "```js\ncode\n```\n\n"
+        "[link](https://example.test)\n"
+        "![alt](https://example.test/image.png)\n\n"
+        "| h | i |\n| --- | --- |\n| a | b |\n\n"
+        "---\n\n"
+        "<script>bad()</script>\n\n"
+        "> | nested |\n> | --- |\n> | x |\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto initial = window->session().snapshot();
+    const bool initialDirty = window->session().dirty();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    const auto text = rich->document()->toRawText();
+    QVERIFY(text.contains(QStringLiteral("Heading")));
+    QVERIFY(text.contains(QStringLiteral("bold")));
+    QVERIFY(text.contains(QStringLiteral("italic")));
+    QVERIFY(text.contains(QStringLiteral("strike")));
+    QVERIFY(text.contains(QStringLiteral("inline")));
+    QVERIFY(text.contains(QStringLiteral("quote")));
+    QVERIFY(text.contains(QStringLiteral("one")));
+    QVERIFY(text.contains(QStringLiteral("two")));
+    QVERIFY(text.contains(QStringLiteral("code")));
+    QVERIFY(text.contains(QStringLiteral("link")));
+    QVERIFY(text.contains(QStringLiteral("alt")));
+    QVERIFY(text.contains(QStringLiteral("a")));
+    QVERIFY(text.contains(QStringLiteral("b")));
+    QVERIFY(text.contains(QChar(0x2500)));
+    QVERIFY(text.contains(QStringLiteral("[Read-only: HTML")));
+    QVERIFY(text.contains(QStringLiteral("table - edit in Markdown")));
+    QVERIFY(!text.contains(QStringLiteral("Read-only: code]")));
+    int tables = 0;
+    for (auto* frame : rich->document()->rootFrame()->childFrames()) {
+      if (dynamic_cast<QTextTable*>(frame)) {
+        ++tables;
+      }
+    }
+    QCOMPARE(tables, 1);
+    QCOMPARE(window->session().snapshot().source, initial.source);
+    QCOMPARE(window->session().snapshot().token, initial.token);
+    QVERIFY(window->setContinuousMode(false));
+    QCOMPARE(window->session().snapshot().source, initial.source);
+    QCOMPARE(window->session().snapshot().token, initial.token);
+    QVERIFY(window->setContinuousMode(true));
+    QCOMPARE(window->session().snapshot().source, initial.source);
+    QCOMPARE(window->session().snapshot().token, initial.token);
+    QCOMPARE(window->session().dirty(), initialDirty);
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousUnsupportedTableFallback() {
+    const QByteArray source = "> | h |\n> | --- |\n> | a |\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    QVERIFY(rich->document()->toRawText().contains(
+        QStringLiteral("table - edit in Markdown")));
+    QCOMPARE(window->session().snapshot().source, original.source);
+  }
+
+  void continuousImageAltLabels() {
+    const QByteArray source =
+        "![before](/image \"T\")\n\n"
+        "![ref][id]\n\n"
+        "[id]: /img \"I\"\n\n"
+        "[![logo](file:///private)](/keep)\n\n"
+        "![unsafe](javascript:ignored)\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    const bool originalDirty = window->session().dirty();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    const auto replace = [&](const QString& label, const QString& replacement) {
+      auto cursor = rich->document()->find(label);
+      QVERIFY(!cursor.isNull());
+      QVERIFY(!cursor.charFormat().isImageFormat());
+      QVERIFY(cursor.charFormat().anchorHref().isEmpty());
+      rich->setTextCursor(cursor);
+      rich->insertPlainText(replacement);
+    };
+    replace(QStringLiteral("before"), QStringLiteral("after"));
+    replace(QStringLiteral("ref"), QStringLiteral("ref2"));
+    replace(QStringLiteral("logo"), QStringLiteral("brand"));
+    replace(QStringLiteral("unsafe"), QStringLiteral("safe"));
+    const QByteArray expected =
+        "![after](/image \"T\")\n\n"
+        "![ref2][id]\n\n"
+        "[id]: /img \"I\"\n\n"
+        "[![brand](file:///private)](/keep)\n\n"
+        "![safe](javascript:ignored)\n";
+    QCOMPARE(window->session().snapshot().source, expected.toStdString());
+    QVERIFY(window->session().dirty());
+    for (int i = 0; i < 4; ++i) {
+      window->undo();
+    }
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QCOMPARE(window->session().dirty(), originalDirty);
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousStructuralCommands() {
+    const QByteArray source =
+        "alpha\n\nbeta\n\ngamma\n\n- one\n- two\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    const bool originalDirty = window->session().dirty();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    auto* quote = action(window, "blockquoteAction");
+    auto* ordered = action(window, "orderedListAction");
+    auto* unordered = action(window, "unorderedListAction");
+    QVERIFY(quote);
+    QVERIFY(ordered);
+    QVERIFY(unordered);
+    const auto place = [&](const QString& text) {
+      auto cursor = rich->document()->find(text);
+      QVERIFY(!cursor.isNull());
+      rich->setTextCursor(cursor);
+    };
+
+    place(QStringLiteral("alpha"));
+    QVERIFY(quote->isEnabled());
+    QVERIFY(ordered->isEnabled());
+    QVERIFY(unordered->isEnabled());
+    quote->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("> alpha\n\nbeta\n\ngamma\n\n- one\n- two\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    place(QStringLiteral("alpha"));
+    QVERIFY(quote->isEnabled());
+    quote->trigger();
+    place(QStringLiteral("alpha"));
+    QVERIFY(quote->isEnabled());
+    quote->trigger();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    window->undo();
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    place(QStringLiteral("beta"));
+    QVERIFY(ordered->isEnabled());
+    ordered->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\n1. beta\n\ngamma\n\n- one\n- two\n"));
+    place(QStringLiteral("beta"));
+    QVERIFY(unordered->isEnabled());
+    unordered->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\n- beta\n\ngamma\n\n- one\n- two\n"));
+    window->undo();
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    place(QStringLiteral("one"));
+    QVERIFY(ordered->isEnabled());
+    ordered->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\nbeta\n\ngamma\n\n1. one\n2. two\n"));
+    place(QStringLiteral("one"));
+    QVERIFY(unordered->isEnabled());
+    unordered->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\nbeta\n\ngamma\n\n- one\n- two\n"));
+    window->undo();
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    place(QStringLiteral("one"));
+    QVERIFY(quote->isEnabled());
+    quote->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("alpha\n\nbeta\n\ngamma\n\n> - one\n> - two\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    rich->selectAll();
+    QVERIFY(!quote->isEnabled());
+    QVERIFY(!ordered->isEnabled());
+    QVERIFY(!unordered->isEnabled());
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(window->setContinuousMode(false));
+    QVERIFY(!quote->isEnabled());
+    QVERIFY(!ordered->isEnabled());
+    QVERIFY(!unordered->isEnabled());
+    QCOMPARE(window->session().dirty(), originalDirty);
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousCodeBlockQuote() {
+    const QByteArray source = "```\ncode\n```\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    auto* quote = action(window, "blockquoteAction");
+    QVERIFY(quote);
+    auto cursor = rich->document()->find(QStringLiteral("code"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    QVERIFY(quote->isEnabled());
+    quote->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("> ```\n> code\n> ```\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousCodeBlockEditing() {
+    const QByteArray source =
+        "before\n\n```js\nold\nline2\n```\n\nafter\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto original = window->session().snapshot();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    const auto displayed = rich->document()->toRawText();
+    QVERIFY(displayed.contains(QStringLiteral("old")));
+    QVERIFY(displayed.contains(QStringLiteral("line2")));
+    QVERIFY(!displayed.contains(QStringLiteral("```")));
+
+    auto cursor = rich->document()->find(QStringLiteral("old"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    rich->insertPlainText(QStringLiteral("new"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("before\n\n```js\nnew\nline2\n```\n\nafter\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+
+    cursor = rich->document()->find(QStringLiteral("line2"));
+    QVERIFY(!cursor.isNull());
+    cursor.setPosition(cursor.selectionEnd());
+    rich->setTextCursor(cursor);
+    rich->insertPlainText(QStringLiteral("\nadded"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("before\n\n```js\nold\nline2\nadded\n```\n\nafter\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(dialogs.errors.empty());
+
+    cursor = rich->document()->find(QStringLiteral("old"));
+    QVERIFY(!cursor.isNull());
+    rich->setTextCursor(cursor);
+    rich->insertPlainText(QStringLiteral("```"));
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(!dialogs.errors.empty());
+    QVERIFY(window->setContinuousMode(false));
+    QCOMPARE(window->session().snapshot().source, original.source);
+    QVERIFY(window->setContinuousMode(true));
+    QCOMPARE(window->session().snapshot().source, original.source);
+  }
+
+  void settingsAppliedToExistingWindow() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    Settings settings;
+    settings.theme = Theme::kLight;
+    settings.editorFontSize = 17;
+    settings.wordWrap = false;
+    settings.defaultFileLocation = QDir::tempPath();
+    settings.shortcuts.insert(QStringLiteral("boldAction"),
+                              QStringLiteral("Ctrl+Alt+B"));
+    QString error;
+    QVERIFY2(window->applySettings(settings, &error), qPrintable(error));
+    QCOMPARE(window->editor()->font().pointSize(), 17);
+    QCOMPARE(window->editor()->lineWrapMode(), QPlainTextEdit::NoWrap);
+    QCOMPARE(window->continuousEditor()->editor()->lineWrapMode(),
+             QTextEdit::NoWrap);
+    auto* bold = action(window, "boldAction");
+    QVERIFY(bold);
+    QCOMPARE(bold->shortcut(), QKeySequence(QStringLiteral("Ctrl+Alt+B")));
+    QCOMPARE(dialogs.defaultLocation(), QDir::tempPath());
+    QApplication::setPalette(QApplication::style()->standardPalette());
   }
 
   void continuousRejectedCommandsAndNoop() {

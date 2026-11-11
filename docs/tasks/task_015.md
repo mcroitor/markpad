@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Ready` (родительский контракт)
+- Статус: `Done` (родительский контракт принят после Done 021–024)
 - Владелец: архитектор + C++ разработчик
 - Приоритет: P0
 
@@ -209,6 +209,30 @@ incremental оптимизации. Отказы должны быть явны�
 ## Итог выполнения
 
 - Контракт v2 исправляет замечания review и разделён на Tasks 021–024.
-  Reference policy 025 v1 согласована; реализация ожидает Done 014.
-  Table commands не добавлены в код;
-  проверки нового поведения ещё не запускались.
+  Reference policy 025 v1 согласована; Task 014 Done.
+- [Task 021](task_021.md) Done: exact top-level table/header/delimiter/body
+  row/raw-cell ranges, alignment mapping и context-aware reference validation.
+  Windows/Linux CTest и Linux ASan/UBSan/leaks — 3/3.
+- [Task 022](task_022.md) Done: InsertTableRow/RemoveTableRow/
+  SetTableAlignment, normalized table serializer и plain-text cell policy.
+  Windows/Linux CTest и Linux ASan/UBSan/leaks — 3/3.
+- [Task 023](task_023.md) Done: InsertTableColumn/RemoveTableColumn/RemoveTable,
+  last-column и cascade guards. Windows/Linux CTest и Linux ASan/UBSan/leaks —
+  3/3.
+- [Task 024](task_024.md) Done: nested table mapping и все шесть table commands
+  в LI/QUOTE depth 1–3, required RemoveTable refusals и reference preservation.
+  Windows/Linux CTest и Linux ASan/UBSan/leaks — 3/3.
+
+### Приёмка родительского контракта
+
+- 021–024 Done; mandatory fixtures 015/021/022/023/024 покрыты Qt Test.
+- Table source-map, row/alignment, column/RemoveTable и nested forms проверены;
+  header-only, single-column, ragged rejections, CRLF/EOF/Unicode и depth 3
+  входят в fixtures.
+- Existing raw inline fragments/references сохраняются, новые plain-text cells
+  экранируются; last-column/cascade/structural-mismatch отказы атомарны.
+- Windows UCRT64 CTest 3/3, MD4C 232 passed; Ubuntu CTest 3/3; Linux
+  ASan/UBSan/leak CTest 3/3. `git diff --check --ignore-space-at-eol` pass.
+  clang-format в среде отсутствует; native visual QA/clang-tidy/remote CI не
+  запускались.
+- Родительский контракт 015 принят.

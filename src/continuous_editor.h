@@ -7,13 +7,18 @@
 
 #include "document_session.h"
 #include "markdown_document.h"
+#include "settings.h"
+#include "page_text_edit.h"
 
 class QLabel;
 class QTextEdit;
 class QTextCursor;
 class QTextCharFormat;
+class QTextTable;
 
 namespace markpad {
+
+class PageTextEdit;
 
 class ContinuousEditor final : public QWidget {
   Q_OBJECT
@@ -37,7 +42,46 @@ class ContinuousEditor final : public QWidget {
   };
   InlineState inlineState(markdown::InlineStyle style) const;
   void toggleInlineStyle(markdown::InlineStyle style);
+  struct StructuralState {
+    std::optional<markdown::EditCommand> command;
+    bool checked = false;
+    QString reason;
+  };
+  StructuralState blockquoteState() const;
+  StructuralState listState(bool ordered) const;
+  void toggleBlockquote();
+  void changeListKind(bool ordered);
+  enum class TableAction {
+    kInsertRowAbove,
+    kInsertRowBelow,
+    kRemoveRow,
+    kInsertColumnLeft,
+    kInsertColumnRight,
+    kRemoveColumn,
+    kAlignLeft,
+    kAlignCenter,
+    kAlignRight,
+    kRemoveTable
+  };
+  bool tableActionEnabled(TableAction action) const;
+  void applyTableAction(TableAction action);
+  bool blockInsertionEnabled() const;
+  bool tableCreationEnabled() const;
+  void insertTable(size_t columns = 2, size_t bodyRows = 1);
+  void insertHorizontalRule();
+  void insertFencedCode();
+  bool linkCreationEnabled() const;
+  void insertLink(const QString& url);
+  bool imageCreationEnabled() const;
+  void insertImage(const QString& src);
   void explainCursorMapping(bool exact);
+  void setPaged(bool paged);
+  bool paged() const { return paged_; }
+  void setPageSetup(const PageSetup& setup);
+  PageSetup pageSetup() const { return pageSetup_; }
+  int pageCount() const;
+  int currentPage() const;
+  QString layoutWarning() const;
 
  signals:
   void commandRequested(const markpad::DocumentToken& token,
@@ -54,11 +98,39 @@ class ContinuousEditor final : public QWidget {
     int start;
     int length;
   };
+  struct CodeRun {
+    size_t node;
+    int start;
+    int length;
+  };
+  struct CodeSpanRun {
+    size_t node;
+    int start;
+    int length;
+  };
+  struct TableRun {
+    QTextTable* widget;
+    size_t node;
+  };
+  struct EmptyCellRun {
+    size_t node;
+    int start;
+  };
+  struct TableContext {
+    size_t node;
+    int row;
+    int column;
+    int rows;
+    int columns;
+  };
   struct Context {
     int start;
     int end;
     std::optional<size_t> heading;
     std::optional<size_t> task;
+    size_t block;
+    std::optional<size_t> list;
+    std::optional<size_t> quote;
   };
   struct Change {
     int position;
@@ -66,26 +138,51 @@ class ContinuousEditor final : public QWidget {
     int added;
   };
   void renderBlock(size_t node, QTextCursor& cursor, int depth = 0,
-                   QString prefix = {}, std::optional<size_t> task = {});
+                   QString prefix = {}, std::optional<size_t> task = {},
+                   std::optional<size_t> list = {},
+                   std::optional<size_t> quote = {});
+  void renderCodeBlock(size_t node, QTextCursor& cursor, int depth,
+                       std::optional<size_t> list,
+                       std::optional<size_t> quote);
+  void renderTable(size_t node, QTextCursor& cursor, int depth);
+  void renderHorizontalRule(QTextCursor& cursor, int depth);
+  size_t insertionPosition() const;
+  struct LinkSelection {
+    size_t node;
+    markdown::SourceRange range;
+  };
+  std::optional<LinkSelection> linkSelection() const;
+  std::optional<TableContext> tableContext() const;
+  std::optional<markdown::EditCommand> tableCommand(
+      const TableContext& context, TableAction action) const;
   void renderInline(size_t node, QTextCursor& cursor, QTextCharFormat format,
                     bool allowEditing = true);
   void beginBlock(QTextCursor& cursor, int depth);
-  void opaque(QTextCursor& cursor, const QString& label, int depth);
+  void opaque(QTextCursor& cursor, const QString& label, int depth,
+              std::optional<size_t> block = {},
+              std::optional<size_t> list = {},
+              std::optional<size_t> quote = {});
   void changed();
   void restore(const QString& reason);
   const Context* context() const;
 
   QLabel* notice_;
-  QTextEdit* editor_;
+  PageTextEdit* editor_;
   std::optional<markdown::Document> document_;
   DocumentToken token_;
   std::vector<Run> runs_;
+  std::vector<CodeRun> codeRuns_;
+  std::vector<CodeSpanRun> codeSpanRuns_;
+  std::vector<TableRun> tableRuns_;
+  std::vector<EmptyCellRun> emptyCellRuns_;
   std::vector<Context> contexts_;
   std::vector<bool> mappedBlocks_;
   std::optional<Change> change_;
   QString renderedText_;
   bool rendering_ = false;
   bool firstBlock_ = true;
+  bool paged_ = false;
+  PageSetup pageSetup_;
 };
 
 }  // namespace markpad
