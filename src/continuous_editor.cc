@@ -1,10 +1,12 @@
 #include "continuous_editor.h"
 
+#include <QApplication>
 #include <QColor>
 #include <QFontDatabase>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMimeData>
+#include <QPalette>
 #include <QSignalBlocker>
 #include <QStringConverter>
 #include <QTextBlockFormat>
@@ -56,6 +58,46 @@ QString literal(const QByteArray& bytes) {
   QStringDecoder decoder(QStringConverter::Utf8,
                          QStringConverter::Flag::ConvertInitialBom);
   return decoder(bytes);
+}
+
+bool darkPalette(const QPalette& palette) {
+  return palette.color(QPalette::Window).lightness() < 128;
+}
+
+QColor mutedForeground(const QPalette& palette) {
+  return darkPalette(palette) ? QColor(175, 175, 175) : QColor(100, 100, 100);
+}
+
+QColor mutedBackground(const QPalette& palette) {
+  return darkPalette(palette) ? QColor(62, 62, 62) : QColor(235, 235, 235);
+}
+
+QColor editableBackground(const QPalette& palette) {
+  return darkPalette(palette) ? QColor(38, 64, 88) : QColor(240, 248, 255);
+}
+
+QColor codeForeground(const QPalette& palette) {
+  return darkPalette(palette) ? QColor(225, 225, 225) : QColor(70, 70, 70);
+}
+
+QColor codeBackground(const QPalette& palette) {
+  return darkPalette(palette) ? QColor(55, 55, 55) : QColor(235, 235, 235);
+}
+
+QColor linkForeground(const QPalette& palette) {
+  return darkPalette(palette) ? QColor(120, 170, 255) : QColor(35, 80, 170);
+}
+
+QColor imageForeground(const QPalette& palette) {
+  return darkPalette(palette) ? QColor(150, 200, 240) : QColor(40, 90, 140);
+}
+
+QColor imageBackground(const QPalette& palette) {
+  return darkPalette(palette) ? QColor(40, 60, 80) : QColor(225, 235, 245);
+}
+
+QColor ruleForeground(const QPalette& palette) {
+  return darkPalette(palette) ? QColor(160, 160, 160) : QColor(120, 120, 120);
 }
 
 std::optional<QString> codeDisplay(const QByteArray& bytes) {
@@ -177,9 +219,10 @@ void ContinuousEditor::opaque(QTextCursor& cursor, const QString& label,
                               std::optional<size_t> quote) {
   beginBlock(cursor, depth);
   const int start = cursor.position();
+  const auto palette = QApplication::palette();
   QTextCharFormat format;
-  format.setForeground(QColor(100, 100, 100));
-  format.setBackground(QColor(235, 235, 235));
+  format.setForeground(mutedForeground(palette));
+  format.setBackground(mutedBackground(palette));
   cursor.insertText(QStringLiteral("[Read-only: ") + label + ']', format);
   if (block) {
     contexts_.push_back(
@@ -203,12 +246,13 @@ void ContinuousEditor::renderCodeBlock(size_t index, QTextCursor& cursor,
   }
   beginBlock(cursor, depth);
   const int start = cursor.position();
+  const auto palette = QApplication::palette();
   QTextCharFormat format;
   auto font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
   font.setStyleHint(QFont::Monospace);
   format.setFont(font);
-  format.setForeground(QColor(40, 40, 40));
-  format.setBackground(QColor(245, 245, 245));
+  format.setForeground(codeForeground(palette));
+  format.setBackground(codeBackground(palette));
   format.setToolTip(QStringLiteral(
       "Editable fenced code body; fences and info string are protected."));
   cursor.insertText(*display, format);
@@ -241,9 +285,11 @@ void ContinuousEditor::renderTable(size_t index, QTextCursor& cursor, int depth)
       return;
     }
   }
+  const auto palette = QApplication::palette();
   QTextTableFormat tableFormat;
   tableFormat.setBorder(1);
   tableFormat.setBorderStyle(QTextFrameFormat::BorderStyle_Solid);
+  tableFormat.setBorderBrush(palette.color(QPalette::Mid));
   tableFormat.setCellSpacing(0);
   tableFormat.setCellPadding(4);
   tableFormat.setWidth(QTextLength(QTextLength::PercentageLength, 100));
@@ -255,7 +301,7 @@ void ContinuousEditor::renderTable(size_t index, QTextCursor& cursor, int depth)
       auto cell = table->cellAt(rowIndex, int(column));
       if (header) {
         QTextTableCellFormat cellFormat;
-        cellFormat.setBackground(QColor(235, 235, 235));
+        cellFormat.setBackground(mutedBackground(palette));
         cell.setFormat(cellFormat);
       }
       auto cellCursor = cell.firstCursorPosition();
@@ -295,7 +341,7 @@ void ContinuousEditor::renderHorizontalRule(QTextCursor& cursor, int depth) {
   blockFormat.setAlignment(Qt::AlignHCenter);
   cursor.setBlockFormat(blockFormat);
   QTextCharFormat format;
-  format.setForeground(QColor(120, 120, 120));
+  format.setForeground(ruleForeground(QApplication::palette()));
   format.setToolTip(QStringLiteral("Horizontal rule - edit in Markdown"));
   cursor.insertText(QString(40, QChar(0x2500)), format);
 }
@@ -360,9 +406,10 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
       format.setFontPointSize(24 - level * 2);
     }
     if (!prefix.isEmpty()) {
+      const auto palette = QApplication::palette();
       QTextCharFormat marker;
-      marker.setForeground(QColor(100, 100, 100));
-      marker.setBackground(QColor(235, 235, 235));
+      marker.setForeground(mutedForeground(palette));
+      marker.setBackground(mutedBackground(palette));
       cursor.insertText(prefix, marker);
     }
     for (auto child : node.children) {
@@ -405,6 +452,7 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
 void ContinuousEditor::renderInline(size_t index, QTextCursor& cursor,
                                     QTextCharFormat format, bool allowEditing) {
   const auto& node = document_->nodes[index];
+  const auto palette = QApplication::palette();
   if (node.kind == markdown::NodeKind::kSpan) {
     if (node.type == MD_SPAN_CODE) {
       bool editable = allowEditing && node.children.size() == 1;
@@ -441,8 +489,8 @@ void ContinuousEditor::renderInline(size_t index, QTextCursor& cursor,
             auto font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
             font.setStyleHint(QFont::Monospace);
             codeFormat.setFont(font);
-            codeFormat.setForeground(QColor(70, 70, 70));
-            codeFormat.setBackground(QColor(235, 235, 235));
+            codeFormat.setForeground(codeForeground(palette));
+            codeFormat.setBackground(codeBackground(palette));
             codeFormat.setToolTip(QStringLiteral("Editable inline code"));
             const int start = cursor.position();
             cursor.insertText(value, codeFormat);
@@ -452,8 +500,8 @@ void ContinuousEditor::renderInline(size_t index, QTextCursor& cursor,
         }
       }
       QTextCharFormat protectedFormat;
-      protectedFormat.setForeground(QColor(100, 100, 100));
-      protectedFormat.setBackground(QColor(235, 235, 235));
+      protectedFormat.setForeground(mutedForeground(palette));
+      protectedFormat.setBackground(mutedBackground(palette));
       cursor.insertText(QStringLiteral("[Read-only: code]"), protectedFormat);
       return;
     }
@@ -464,7 +512,7 @@ void ContinuousEditor::renderInline(size_t index, QTextCursor& cursor,
     } else if (node.type == MD_SPAN_DEL) {
       format.setFontStrikeOut(true);
     } else if (node.type == MD_SPAN_A) {
-      format.setForeground(QColor(35, 80, 170));
+      format.setForeground(linkForeground(palette));
       format.setToolTip(QStringLiteral(
           "Link - navigation disabled. Edit label text only; use Markdown for "
           "addresses and reference definitions."));
@@ -475,15 +523,15 @@ void ContinuousEditor::renderInline(size_t index, QTextCursor& cursor,
                            "Navigation disabled; edit in Markdown."));
       }
     } else if (node.type == MD_SPAN_IMG) {
-      format.setForeground(QColor(40, 90, 140));
-      format.setBackground(QColor(225, 235, 245));
+      format.setForeground(imageForeground(palette));
+      format.setBackground(imageBackground(palette));
       format.setToolTip(QStringLiteral(
           "Image - resource loading disabled. Edit alt text only; use "
           "Markdown for source, title and reference definitions."));
     } else {
       QTextCharFormat protectedFormat;
-      protectedFormat.setForeground(QColor(100, 100, 100));
-      protectedFormat.setBackground(QColor(235, 235, 235));
+      protectedFormat.setForeground(mutedForeground(palette));
+      protectedFormat.setBackground(mutedBackground(palette));
       const QString label = node.type == MD_SPAN_IMG ? QStringLiteral("image")
                             : node.type == MD_SPAN_CODE
                                 ? QStringLiteral("code")
@@ -503,15 +551,15 @@ void ContinuousEditor::renderInline(size_t index, QTextCursor& cursor,
   QString text = literal(node.text);
   const bool canEdit = allowEditing && editable(*document_, node);
   if (!canEdit) {
-    format.setForeground(QColor(100, 100, 100));
-    format.setBackground(QColor(235, 235, 235));
+    format.setForeground(mutedForeground(palette));
+    format.setBackground(mutedBackground(palette));
     if (node.type == MD_TEXT_HTML) {
       text = QStringLiteral("[Read-only: inline HTML]");
     } else if (node.type == MD_TEXT_SOFTBR || node.type == MD_TEXT_BR) {
       text = QStringLiteral(" [Read-only: line break] ");
     }
   } else {
-    format.setBackground(QColor(240, 248, 255));
+    format.setBackground(editableBackground(palette));
     if (format.toolTip().isEmpty()) {
       format.setToolTip(QStringLiteral("Editable text run"));
     }

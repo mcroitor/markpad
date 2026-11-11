@@ -766,7 +766,6 @@ bool MainWindow::applySettings(const Settings& settings, QString* error) {
                      QColor(140, 140, 140));
   }
   QApplication::setPalette(palette);
-  refreshToolbarIcons();
 
   QFont font = settings.editorFontFamily.trimmed().isEmpty()
                    ? QFontDatabase::systemFont(QFontDatabase::FixedFont)
@@ -806,6 +805,24 @@ bool MainWindow::applySettings(const Settings& settings, QString* error) {
   if (pagedMode_) {
     continuous_->setPaged(true);
   }
+  if (continuousMode_) {
+    const auto richCursor = continuous_->editor()->textCursor();
+    const int anchor = richCursor.anchor();
+    const int position = richCursor.position();
+    const auto renderError = continuous_->render(session_.snapshot());
+    if (!renderError.isEmpty() && error) {
+      *error = renderError;
+      return false;
+    }
+    auto restored = continuous_->editor()->textCursor();
+    const int maximum =
+        std::max(0, int(continuous_->editor()->document()->characterCount()) - 1);
+    restored.setPosition(std::min(anchor, maximum));
+    restored.setPosition(std::min(position, maximum), QTextCursor::KeepAnchor);
+    continuous_->editor()->setTextCursor(restored);
+  }
+  refreshToolbarIcons();
+  refreshState();
   return true;
 }
 
