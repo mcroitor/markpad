@@ -96,7 +96,7 @@ flowchart TB
 - ReplaceText/heading/task вызывают единое `applyEdit`, повторный parse и проверку ожидаемой сигнатуры. MainWindow сверяет Session token projection с текущей Session перед записью результата в общую source history.
 - Необеспеченные операции явно отклоняются, projection восстанавливается; неподдержанные элементы/границы защищены и помечены. HTML и nested/unsupported tables пока placeholders; top-level table cell text рендерится и редактируется (Task 033); fenced code body редактируется в continuous (Task 031); image alt labels редактируются как inert текст (Task 029). Enter, пустой результат normal text run и cross-run edits выполняются в Markdown. Native rich undo/HTML paste/resources отключены.
 - Переключение режима не меняет source/revision/dirty/history. Selection переносится для mapped текста; немаппируемые позиции сопровождаются пояснением. При switch-back без правок/перемещения выделение восстанавливается точно.
-- Heading/task commands контекстные; создание inline formatting и сложные структурные операции не включены в Task 026. Полная Task 005 остаётся In Progress.
+- Heading/task commands контекстные; создание inline formatting и сложные структурные операции не входили в Task 026. Полная Task 005 принята позже через Tasks 026–042 для реализованного top-level scope.
 
 ### Inline-форматирование выделения (Task 027)
 
@@ -117,7 +117,7 @@ flowchart TB
 - Image children рендерятся вручную QTextCursor как styled inert label; image/anchor formats, href и resource loading не создаются. Src/title остаются source-backed attributes и не меняются.
 - Normal mapped alt runs редактируются прежним ReplaceText/Session. Inline/full-reference image alt сохраняет spelling/definition binding; unsafe schemes остаются инертными.
 - Formatting spans внутри alt отображаются, но новые format commands внутри image alt не открыты; code/HTML/entity fragments protected. Cross-run/empty/newline/stale edits отклоняются, projection восстанавливается.
-- Создание/удаление images и изменение src/title не входят в срез; полная Task 005 остаётся In Progress.
+- Создание/удаление images и изменение src/title не входили в Task 029; scoped Task 005 принята через Task 042, native/manual release QA остаётся в Task 011.
 
 ### Blockquote и списки в continuous (Task 030)
 

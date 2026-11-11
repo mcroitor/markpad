@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Blocked` (dependency Task 005 остаётся In Progress)
+- Статус: `Blocked` (Task 005 Done; остаются native visual/PDF/printer QA, remote CI и ручной release checklist)
 - Владелец: архитектор/координатор; тестировщик и DevOps по необходимости
 - Приоритет: P2
 
@@ -57,8 +57,10 @@ Markpad должен работать на Windows и Linux, открывать/
 
 ## Итог выполнения
 
-- Не начато: Task 005 остаётся In Progress, поэтому end-to-end release checklist
-  не может быть утверждён.
-- Проверки: полный CTest 7/7 выполняется в рамках Tasks 006–009, но release
-  acceptance требует завершения 005 и ручного UI/PDF checklist на Windows/Linux.
-- Решение о готовности: заблокировано зависимостью 005.
+- Dependency Task 005 снята: continuous scoped объём принят Task 042.
+- Полный CTest 7/7 стабильно проходит на Windows и Ubuntu WSL, включая Linux
+  ASan/UBSan/leaks; MD4C и GUI acceptance suites проходят.
+- Остаются native visual QA, printer hardware, ручной UI/PDF checklist и
+  remote CI. Автоматические offscreen-тесты их не заменяют.
+- Решение о готовности: заблокировано этими release/manual проверками, а не
+  функциональным dependency 005.

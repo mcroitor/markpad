@@ -63,9 +63,11 @@ clean, empty, unnamed window. The editor includes basic visual syntax highlighti
 standard editing shortcuts, an Edit context menu and a cursor/dirty status bar.
 The main toolbar uses theme-aware icon-only buttons with tooltips; menu actions
 and object names remain unchanged.
-A first limited continuous WYSIWYG slice is available through
-**View > Switch mode**. Full WYSIWYG editing, pagination, export and persistent
-settings are still in development/planned.
+Continuous and paginated WYSIWYG modes are available through **View > Switch
+mode**, alongside HTML/PDF export and persistent settings. The Task 005
+continuous scope is accepted for supported top-level GFM constructs; nested
+code/table editing, rich HTML rendering and native visual release QA remain
+documented follow-ups.
 
 Pass file paths as command-line arguments (for example, `markpad document.md`).
 Local `QFileOpenEvent` requests are handled too; OS file associations and

@@ -1849,6 +1849,64 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(dialogs.errors.empty());
   }
 
+  void continuousAcceptanceMatrix() {
+    const QByteArray source =
+        "# Heading\n\n"
+        "Paragraph **bold** *italic* ~~strike~~ `inline`.\n\n"
+        "> quote\n\n"
+        "- one\n- two\n\n"
+        "```js\ncode\n```\n\n"
+        "[link](https://example.test)\n"
+        "![alt](https://example.test/image.png)\n\n"
+        "| h | i |\n| --- | --- |\n| a | b |\n\n"
+        "---\n\n"
+        "<script>bad()</script>\n\n"
+        "> | nested |\n> | --- |\n> | x |\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    const auto initial = window->session().snapshot();
+    const bool initialDirty = window->session().dirty();
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    const auto text = rich->document()->toRawText();
+    QVERIFY(text.contains(QStringLiteral("Heading")));
+    QVERIFY(text.contains(QStringLiteral("bold")));
+    QVERIFY(text.contains(QStringLiteral("italic")));
+    QVERIFY(text.contains(QStringLiteral("strike")));
+    QVERIFY(text.contains(QStringLiteral("inline")));
+    QVERIFY(text.contains(QStringLiteral("quote")));
+    QVERIFY(text.contains(QStringLiteral("one")));
+    QVERIFY(text.contains(QStringLiteral("two")));
+    QVERIFY(text.contains(QStringLiteral("code")));
+    QVERIFY(text.contains(QStringLiteral("link")));
+    QVERIFY(text.contains(QStringLiteral("alt")));
+    QVERIFY(text.contains(QStringLiteral("a")));
+    QVERIFY(text.contains(QStringLiteral("b")));
+    QVERIFY(text.contains(QChar(0x2500)));
+    QVERIFY(text.contains(QStringLiteral("[Read-only: HTML")));
+    QVERIFY(text.contains(QStringLiteral("table - edit in Markdown")));
+    QVERIFY(!text.contains(QStringLiteral("Read-only: code]")));
+    int tables = 0;
+    for (auto* frame : rich->document()->rootFrame()->childFrames()) {
+      if (dynamic_cast<QTextTable*>(frame)) {
+        ++tables;
+      }
+    }
+    QCOMPARE(tables, 1);
+    QCOMPARE(window->session().snapshot().source, initial.source);
+    QCOMPARE(window->session().snapshot().token, initial.token);
+    QVERIFY(window->setContinuousMode(false));
+    QCOMPARE(window->session().snapshot().source, initial.source);
+    QCOMPARE(window->session().snapshot().token, initial.token);
+    QVERIFY(window->setContinuousMode(true));
+    QCOMPARE(window->session().snapshot().source, initial.source);
+    QCOMPARE(window->session().snapshot().token, initial.token);
+    QCOMPARE(window->session().dirty(), initialDirty);
+    QVERIFY(dialogs.errors.empty());
+  }
+
   void continuousUnsupportedTableFallback() {
     const QByteArray source = "> | h |\n> | --- |\n> | a |\n";
     TestDialogs dialogs;

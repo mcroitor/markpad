@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `In Progress` (родитель; реализованные срезы — Tasks 026–041)
+- Статус: `Done` (принято через срезы Tasks 026–042 для реализованного top-level scoped объёма)
 - Владелец: архитектор + C++ разработчик
 - Приоритет: P1
 
@@ -109,6 +109,13 @@ WYSIWYG continuous — полноценный редактируемый реж�
 - Реализована [Task 041](task_041.md): inline code spans рендерятся и
   редактируются в continuous; link/image/autolink code spans остаются
   protected.
+- [Task 042](task_042.md) добавляет acceptance matrix смешанного документа:
+  все поддерживаемые top-level блоки и inline spans, protected HTML/nested
+  table placeholders, source-preserving mode switch. Task 005 принята для
+  реализованного scope.
+- Осознанно оставлены ограничения: nested code/table editing, HTML rendering,
+  link/image address/title editing, rich/multiline table cells и syntax
+  highlighting. Native visual/PDF/printer QA вынесен в Task 011.
 - Выполнена зависимая подготовка структурных команд:
   [Task 016](task_016.md) — exact source-map top-level списков/пунктов.
 - Реализована [Task 017](task_017.md): source-preserving InsertListItem,
