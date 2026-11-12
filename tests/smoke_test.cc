@@ -13,6 +13,7 @@
 #include <QStatusBar>
 #include <QStyle>
 #include <QTabWidget>
+#include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -485,6 +486,18 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(dialog.findChild<QWidget*>(QStringLiteral("settingsEditorTab")));
     QVERIFY(dialog.findChild<QWidget*>(QStringLiteral("settingsPageTab")));
     QVERIFY(dialog.findChild<QWidget*>(QStringLiteral("settingsShortcutTab")));
+    dialog.setShortcutCatalog(
+        {{QStringLiteral("boldAction"), QStringLiteral("Bold"),
+          QStringLiteral("Ctrl+B")},
+         {QStringLiteral("saveAction"), QStringLiteral("Save"),
+          QStringLiteral("Ctrl+S")}});
+    auto* catalog = dialog.findChild<QTableWidget*>(
+        QStringLiteral("settingsShortcutCatalog"));
+    QVERIFY(catalog);
+    QCOMPARE(catalog->rowCount(), 2);
+    QCOMPARE(catalog->item(0, 0)->text(), QStringLiteral("Bold"));
+    QCOMPARE(catalog->item(0, 1)->text(), QStringLiteral("Ctrl+B"));
+    QCOMPARE(catalog->item(1, 2)->text(), QStringLiteral("saveAction"));
     QVERIFY(dialog.findChild<QWidget*>(
         QStringLiteral("settingsWysiwygBodyFont")));
     QVERIFY(dialog.findChild<QWidget*>(

@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Ready`.
+- Статус: `Done`.
 - Владелец: архитектор/координатор; `cpp-developer`, `test-writer`.
 - Приоритет: P1 (release blocker по owner QA).
 - Источник: [release checklist, Settings](../release_checklist.md#settings).
@@ -80,4 +80,12 @@ shortcuts и возможностью override, сохранив существ�
 
 ## Итог выполнения
 
-Ожидает реализации.
+- Shortcut tab теперь показывает таблицу действий, default shortcuts и
+  object names; ниже остаётся текстовый редактор overrides.
+- MainWindow собирает каталог из реальных QAction до применения overrides и
+  передаёт его в SettingsDialog.
+- Добавлен `settingsShortcutCatalog` и проверка строк/значений в
+  `settingsDialogUsesTabs`; таблица отображается в light/dark.
+- Windows Debug/Release CTest 7/7. Evidence:
+  `docs/qa/task_011/dark/settings-shortcut.png`.
+- Ветка `feature/task_049`; требуется remote CI/merge.

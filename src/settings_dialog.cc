@@ -9,6 +9,7 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -16,6 +17,7 @@
 #include <QPushButton>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <QTableWidget>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -149,9 +151,29 @@ SettingsDialog::SettingsDialog(const QStringList& languages, QWidget* parent)
   auto* shortcutPage = new QWidget(tabs);
   shortcutPage->setObjectName(QStringLiteral("settingsShortcutTab"));
   auto* shortcutsLayout = new QVBoxLayout(shortcutPage);
+  auto* catalogHint = new QLabel(
+      QStringLiteral("Available actions and their default shortcuts:"),
+      shortcutPage);
+  shortcutsLayout->addWidget(catalogHint);
+  shortcutCatalog_ = new QTableWidget(0, 3, shortcutPage);
+  shortcutCatalog_->setObjectName(QStringLiteral("settingsShortcutCatalog"));
+  shortcutCatalog_->setHorizontalHeaderLabels(
+      {QStringLiteral("Action"), QStringLiteral("Default"),
+       QStringLiteral("Object name")});
+  shortcutCatalog_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  shortcutCatalog_->setSelectionBehavior(QAbstractItemView::SelectRows);
+  shortcutCatalog_->setSelectionMode(QAbstractItemView::SingleSelection);
+  shortcutCatalog_->horizontalHeader()->setStretchLastSection(true);
+  shortcutCatalog_->verticalHeader()->setVisible(false);
+  shortcutCatalog_->setMinimumHeight(180);
+  shortcutsLayout->addWidget(shortcutCatalog_);
+  shortcutsLayout->addWidget(new QLabel(
+      QStringLiteral("Overrides (one per line, actionName=Shortcut):"),
+      shortcutPage));
   shortcuts_ = new QPlainTextEdit(shortcutPage);
   shortcuts_->setPlaceholderText(
       QStringLiteral("One override per line: actionName=Ctrl+Alt+K"));
+  shortcuts_->setMaximumHeight(120);
   shortcutsLayout->addWidget(shortcuts_);
   tabs->addTab(shortcutPage, QStringLiteral("Shortcut"));
 
@@ -192,6 +214,25 @@ SettingsDialog::SettingsDialog(const QStringList& languages, QWidget* parent)
   wysiwygQuoteItalic_->setObjectName(
       QStringLiteral("settingsWysiwygQuoteItalic"));
   shortcuts_->setObjectName(QStringLiteral("settingsShortcuts"));
+}
+
+void SettingsDialog::setShortcutCatalog(const QList<ShortcutInfo>& catalog) {
+  shortcutCatalog_->setRowCount(catalog.size());
+  for (int row = 0; row < catalog.size(); ++row) {
+    const auto& info = catalog[row];
+    auto label = info.label;
+    label.remove(QChar('&'));
+    shortcutCatalog_->setItem(row, 0,
+                              new QTableWidgetItem(label.trimmed()));
+    shortcutCatalog_->setItem(
+        row, 1,
+        new QTableWidgetItem(info.defaultShortcut.isEmpty()
+                                 ? QStringLiteral("(none)")
+                                 : info.defaultShortcut));
+    shortcutCatalog_->setItem(row, 2,
+                              new QTableWidgetItem(info.objectName));
+  }
+  shortcutCatalog_->resizeColumnsToContents();
 }
 
 void SettingsDialog::setValues(const Settings& settings) {

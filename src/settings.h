@@ -22,6 +22,12 @@ struct PageSetup {
   double marginLeftMm = 20.0;
 };
 
+struct ShortcutInfo {
+  QString objectName;
+  QString label;
+  QString defaultShortcut;
+};
+
 struct WysiwygStyle {
   QString bodyFontFamily;
   int bodyFontSize = 14;

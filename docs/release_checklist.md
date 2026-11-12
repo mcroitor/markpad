@@ -130,6 +130,7 @@ owner re-review required.
 
 ### Settings
 
-Tracking: [Task 049](tasks/task_049.md).
+Tracking: [Task 049](tasks/task_049.md). Status: fixed on `feature/task_049`;
+owner re-review required.
 
 1. The shortcut tab is unuseful, because the User does not know any actions associated with the listed shortcuts. Must be completed with the default actions.

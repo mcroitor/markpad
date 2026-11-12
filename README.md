@@ -261,8 +261,9 @@ global page defaults (A4 portrait, 20 mm). The Page tab also exposes per-block
 WYSIWYG typography: body/heading/code/quote font families and sizes, heading
 bold and quote italic. English is built in; extra languages are loaded from
 `lang/*.ini` with English fallback. Settings are edited in Edit → Settings using
-General, Editor, Page and Shortcut tabs. Changes apply immediately except the
-language, which takes effect after restart. Task 006 adds an editable paged
+General, Editor, Page and Shortcut tabs. The Shortcut tab lists available
+actions with their default shortcuts and accepts per-action overrides. Changes
+apply immediately except the language, which takes effect after restart. Task 006 adds an editable paged
 WYSIWYG mode with a deterministic page-layout engine: A4/Letter/Legal,
 portrait/landscape, configurable margins, block-based page placement, page
 count/navigation in the status bar and an overflow warning for blocks taller than

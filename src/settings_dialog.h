@@ -2,6 +2,7 @@
 #define MARKPAD_SRC_SETTINGS_DIALOG_H_
 
 #include <QDialog>
+#include <QList>
 #include <QMap>
 #include <QStringList>
 #include <array>
@@ -16,6 +17,7 @@ class QFontComboBox;
 class QLineEdit;
 class QPlainTextEdit;
 class QSpinBox;
+class QTableWidget;
 
 namespace markpad {
 
@@ -26,6 +28,7 @@ class SettingsDialog final : public QDialog {
   explicit SettingsDialog(const QStringList& languages,
                           QWidget* parent = nullptr);
   void setValues(const Settings& settings);
+  void setShortcutCatalog(const QList<ShortcutInfo>& catalog);
   Settings values() const;
   std::optional<QString> validationError() const;
 
@@ -60,6 +63,7 @@ class SettingsDialog final : public QDialog {
   QSpinBox* wysiwygQuoteSize_;
   QCheckBox* wysiwygQuoteItalic_;
   QPlainTextEdit* shortcuts_;
+  QTableWidget* shortcutCatalog_;
 };
 
 }  // namespace markpad

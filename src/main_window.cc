@@ -676,6 +676,19 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   setPopupMode(listMenu->menuAction());
   setPopupMode(modes->menuAction());
   refreshToolbarIcons();
+  for (auto* action : findChildren<QAction*>()) {
+    if (!action || action->objectName().isEmpty() ||
+        action->text().trimmed().isEmpty()) {
+      continue;
+    }
+    shortcutCatalog_.push_back(
+        {action->objectName(), action->text(),
+         action->shortcut().toString(QKeySequence::PortableText)});
+  }
+  std::sort(shortcutCatalog_.begin(), shortcutCatalog_.end(),
+            [](const ShortcutInfo& left, const ShortcutInfo& right) {
+              return QString::localeAwareCompare(left.label, right.label) < 0;
+            });
   connect(editor_->document(), &QTextDocument::contentsChange, this,
           [this](int position, int removed, int added) {
             if (!refreshing_ && (removed != 0 || added != 0)) {
@@ -982,6 +995,7 @@ bool MainWindow::applySettings(const Settings& settings, QString* error) {
 
 void MainWindow::showSettings() {
   SettingsDialog dialog(settingsService_.languages(), this);
+  dialog.setShortcutCatalog(shortcutCatalog_);
   dialog.setValues(settings_);
   if (dialog.exec() != QDialog::Accepted) {
     return;

@@ -1,6 +1,7 @@
 #ifndef MARKPAD_SRC_MAIN_WINDOW_H_
 #define MARKPAD_SRC_MAIN_WINDOW_H_
 
+#include <QList>
 #include <QMainWindow>
 #include <QMap>
 #include <QString>
@@ -100,6 +101,7 @@ class MainWindow final : public QMainWindow {
   Settings settings_;
   QMap<QString, QString> languageText_;
   QString settingsDiagnostic_;
+  QList<ShortcutInfo> shortcutCatalog_;
   QPlainTextEdit* editor_;
   QAction* undoAction_;
   QAction* redoAction_;
