@@ -5,14 +5,19 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFontComboBox>
+#include <QFontDatabase>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QTabWidget>
 #include <QVBoxLayout>
+#include <QWidget>
 
 namespace markpad {
 
@@ -20,51 +25,57 @@ SettingsDialog::SettingsDialog(const QStringList& languages, QWidget* parent)
     : QDialog(parent) {
   setWindowTitle(QStringLiteral("Settings"));
   auto* layout = new QVBoxLayout(this);
+  auto* tabs = new QTabWidget(this);
+  tabs->setObjectName(QStringLiteral("settingsTabs"));
 
-  auto* general = new QGroupBox(QStringLiteral("General"), this);
-  auto* generalForm = new QFormLayout(general);
-  language_ = new QComboBox(general);
+  auto* generalPage = new QWidget(tabs);
+  generalPage->setObjectName(QStringLiteral("settingsGeneralTab"));
+  auto* generalForm = new QFormLayout(generalPage);
+  language_ = new QComboBox(generalPage);
   language_->addItems(languages);
   generalForm->addRow(QStringLiteral("Language"), language_);
-  theme_ = new QComboBox(general);
+  theme_ = new QComboBox(generalPage);
   theme_->addItem(QStringLiteral("System"), int(Theme::kSystem));
   theme_->addItem(QStringLiteral("Light"), int(Theme::kLight));
   theme_->addItem(QStringLiteral("Dark"), int(Theme::kDark));
   generalForm->addRow(QStringLiteral("Theme"), theme_);
   auto* autoSave = new QCheckBox(
-      QStringLiteral("Auto Save (deferred)"), general);
+      QStringLiteral("Auto Save (deferred)"), generalPage);
   autoSave->setObjectName(QStringLiteral("settingsAutoSave"));
   autoSave->setEnabled(false);
   autoSave->setToolTip(
       QStringLiteral("Auto Save is deferred until a recovery policy is "
                      "approved"));
   generalForm->addRow(autoSave);
-  defaultLocation_ = new QLineEdit(general);
+  defaultLocation_ = new QLineEdit(generalPage);
   generalForm->addRow(QStringLiteral("Default file location"),
                       defaultLocation_);
-  layout->addWidget(general);
+  tabs->addTab(generalPage, QStringLiteral("General"));
 
-  auto* editor = new QGroupBox(QStringLiteral("Editor"), this);
-  auto* editorForm = new QFormLayout(editor);
-  fontSize_ = new QSpinBox(editor);
+  auto* editorPage = new QWidget(tabs);
+  editorPage->setObjectName(QStringLiteral("settingsEditorTab"));
+  auto* editorForm = new QFormLayout(editorPage);
+  fontSize_ = new QSpinBox(editorPage);
   fontSize_->setRange(6, 48);
   editorForm->addRow(QStringLiteral("Font size"), fontSize_);
-  font_ = new QFontComboBox(editor);
+  font_ = new QFontComboBox(editorPage);
   editorForm->addRow(QStringLiteral("Font family"), font_);
-  wordWrap_ = new QCheckBox(QStringLiteral("Wrap long lines"), editor);
+  wordWrap_ = new QCheckBox(QStringLiteral("Wrap long lines"), editorPage);
   editorForm->addRow(wordWrap_);
   auto* lineNumbers = new QCheckBox(
-      QStringLiteral("Line numbers (deferred)"), editor);
+      QStringLiteral("Line numbers (deferred)"), editorPage);
   lineNumbers->setObjectName(QStringLiteral("settingsLineNumbers"));
   lineNumbers->setEnabled(false);
   lineNumbers->setToolTip(
       QStringLiteral("Line-number gutter is deferred to a later settings "
                      "slice"));
   editorForm->addRow(lineNumbers);
-  layout->addWidget(editor);
+  tabs->addTab(editorPage, QStringLiteral("Editor"));
 
-  auto* page = new QGroupBox(QStringLiteral("Page"), this);
-  auto* pageForm = new QFormLayout(page);
+  auto* page = new QWidget(tabs);
+  page->setObjectName(QStringLiteral("settingsPageTab"));
+  auto* pageLayout = new QVBoxLayout(page);
+  auto* pageForm = new QFormLayout();
   pageSize_ = new QComboBox(page);
   pageSize_->addItem(QStringLiteral("A4"), int(PageSize::kA4));
   pageSize_->addItem(QStringLiteral("Letter"), int(PageSize::kLetter));
@@ -91,15 +102,60 @@ SettingsDialog::SettingsDialog(const QStringList& languages, QWidget* parent)
   pageForm->addRow(QStringLiteral("Right margin"), marginRight_);
   pageForm->addRow(QStringLiteral("Bottom margin"), marginBottom_);
   pageForm->addRow(QStringLiteral("Left margin"), marginLeft_);
-  layout->addWidget(page);
+  pageLayout->addLayout(pageForm);
 
-  auto* shortcuts = new QGroupBox(QStringLiteral("Shortcuts"), this);
-  auto* shortcutsLayout = new QVBoxLayout(shortcuts);
-  shortcuts_ = new QPlainTextEdit(shortcuts);
+  auto* typography = new QGroupBox(
+      QStringLiteral("WYSIWYG typography"), page);
+  auto* typographyForm = new QFormLayout(typography);
+  wysiwygBodyFont_ = new QFontComboBox(typography);
+  typographyForm->addRow(QStringLiteral("Body font"), wysiwygBodyFont_);
+  wysiwygBodySize_ = new QSpinBox(typography);
+  wysiwygBodySize_->setRange(6, 72);
+  typographyForm->addRow(QStringLiteral("Body size"), wysiwygBodySize_);
+  wysiwygHeadingFont_ = new QFontComboBox(typography);
+  typographyForm->addRow(QStringLiteral("Heading font"),
+                         wysiwygHeadingFont_);
+  wysiwygHeadingBold_ =
+      new QCheckBox(QStringLiteral("Bold headings"), typography);
+  typographyForm->addRow(wysiwygHeadingBold_);
+  auto* headingSizes = new QWidget(typography);
+  auto* headingLayout = new QHBoxLayout(headingSizes);
+  headingLayout->setContentsMargins(0, 0, 0, 0);
+  for (int level = 0; level < 6; ++level) {
+    headingLayout->addWidget(
+        new QLabel(QStringLiteral("H%1").arg(level + 1), headingSizes));
+    wysiwygHeadingSizes_[size_t(level)] = new QSpinBox(headingSizes);
+    wysiwygHeadingSizes_[size_t(level)]->setRange(6, 96);
+    headingLayout->addWidget(wysiwygHeadingSizes_[size_t(level)]);
+  }
+  typographyForm->addRow(QStringLiteral("Heading sizes"), headingSizes);
+  wysiwygCodeFont_ = new QFontComboBox(typography);
+  typographyForm->addRow(QStringLiteral("Code font"), wysiwygCodeFont_);
+  wysiwygCodeSize_ = new QSpinBox(typography);
+  wysiwygCodeSize_->setRange(6, 72);
+  typographyForm->addRow(QStringLiteral("Code size"), wysiwygCodeSize_);
+  wysiwygQuoteFont_ = new QFontComboBox(typography);
+  typographyForm->addRow(QStringLiteral("Quote font"), wysiwygQuoteFont_);
+  wysiwygQuoteSize_ = new QSpinBox(typography);
+  wysiwygQuoteSize_->setRange(6, 72);
+  typographyForm->addRow(QStringLiteral("Quote size"), wysiwygQuoteSize_);
+  wysiwygQuoteItalic_ =
+      new QCheckBox(QStringLiteral("Italic quotes"), typography);
+  typographyForm->addRow(wysiwygQuoteItalic_);
+  pageLayout->addWidget(typography);
+  pageLayout->addStretch();
+  tabs->addTab(page, QStringLiteral("Page"));
+
+  auto* shortcutPage = new QWidget(tabs);
+  shortcutPage->setObjectName(QStringLiteral("settingsShortcutTab"));
+  auto* shortcutsLayout = new QVBoxLayout(shortcutPage);
+  shortcuts_ = new QPlainTextEdit(shortcutPage);
   shortcuts_->setPlaceholderText(
       QStringLiteral("One override per line: actionName=Ctrl+Alt+K"));
   shortcutsLayout->addWidget(shortcuts_);
-  layout->addWidget(shortcuts);
+  tabs->addTab(shortcutPage, QStringLiteral("Shortcut"));
+
+  layout->addWidget(tabs);
 
   auto* buttons = new QDialogButtonBox(
       QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
@@ -119,6 +175,22 @@ SettingsDialog::SettingsDialog(const QStringList& languages, QWidget* parent)
   marginRight_->setObjectName(QStringLiteral("settingsMarginRight"));
   marginBottom_->setObjectName(QStringLiteral("settingsMarginBottom"));
   marginLeft_->setObjectName(QStringLiteral("settingsMarginLeft"));
+  wysiwygBodyFont_->setObjectName(QStringLiteral("settingsWysiwygBodyFont"));
+  wysiwygBodySize_->setObjectName(QStringLiteral("settingsWysiwygBodySize"));
+  wysiwygHeadingFont_->setObjectName(
+      QStringLiteral("settingsWysiwygHeadingFont"));
+  wysiwygHeadingBold_->setObjectName(
+      QStringLiteral("settingsWysiwygHeadingBold"));
+  for (int level = 0; level < 6; ++level) {
+    wysiwygHeadingSizes_[size_t(level)]->setObjectName(
+        QStringLiteral("settingsWysiwygHeading%1Size").arg(level + 1));
+  }
+  wysiwygCodeFont_->setObjectName(QStringLiteral("settingsWysiwygCodeFont"));
+  wysiwygCodeSize_->setObjectName(QStringLiteral("settingsWysiwygCodeSize"));
+  wysiwygQuoteFont_->setObjectName(QStringLiteral("settingsWysiwygQuoteFont"));
+  wysiwygQuoteSize_->setObjectName(QStringLiteral("settingsWysiwygQuoteSize"));
+  wysiwygQuoteItalic_->setObjectName(
+      QStringLiteral("settingsWysiwygQuoteItalic"));
   shortcuts_->setObjectName(QStringLiteral("settingsShortcuts"));
 }
 
@@ -140,6 +212,31 @@ void SettingsDialog::setValues(const Settings& settings) {
   marginRight_->setValue(settings.page.marginRightMm);
   marginBottom_->setValue(settings.page.marginBottomMm);
   marginLeft_->setValue(settings.page.marginLeftMm);
+  const auto bodyFamily = settings.wysiwyg.bodyFontFamily.trimmed().isEmpty()
+                              ? settings.editorFontFamily
+                              : settings.wysiwyg.bodyFontFamily;
+  wysiwygBodyFont_->setCurrentFont(QFont(bodyFamily));
+  wysiwygBodySize_->setValue(settings.wysiwyg.bodyFontSize);
+  wysiwygHeadingFont_->setCurrentFont(QFont(
+      settings.wysiwyg.headingFontFamily.trimmed().isEmpty()
+          ? bodyFamily
+          : settings.wysiwyg.headingFontFamily));
+  wysiwygHeadingBold_->setChecked(settings.wysiwyg.headingBold);
+  for (int level = 0; level < 6; ++level) {
+    wysiwygHeadingSizes_[size_t(level)]->setValue(
+        settings.wysiwyg.headingSizes[size_t(level)]);
+  }
+  wysiwygCodeFont_->setCurrentFont(
+      settings.wysiwyg.codeFontFamily.trimmed().isEmpty()
+          ? QFontDatabase::systemFont(QFontDatabase::FixedFont)
+          : QFont(settings.wysiwyg.codeFontFamily));
+  wysiwygCodeSize_->setValue(settings.wysiwyg.codeFontSize);
+  wysiwygQuoteFont_->setCurrentFont(QFont(
+      settings.wysiwyg.quoteFontFamily.trimmed().isEmpty()
+          ? bodyFamily
+          : settings.wysiwyg.quoteFontFamily));
+  wysiwygQuoteSize_->setValue(settings.wysiwyg.quoteFontSize);
+  wysiwygQuoteItalic_->setChecked(settings.wysiwyg.quoteItalic);
   QStringList lines;
   for (auto it = settings.shortcuts.begin(); it != settings.shortcuts.end();
        ++it) {
@@ -200,6 +297,20 @@ Settings SettingsDialog::collect() const {
   settings.page.marginRightMm = marginRight_->value();
   settings.page.marginBottomMm = marginBottom_->value();
   settings.page.marginLeftMm = marginLeft_->value();
+  settings.wysiwyg.bodyFontFamily = wysiwygBodyFont_->currentFont().family();
+  settings.wysiwyg.bodyFontSize = wysiwygBodySize_->value();
+  settings.wysiwyg.headingFontFamily =
+      wysiwygHeadingFont_->currentFont().family();
+  settings.wysiwyg.headingBold = wysiwygHeadingBold_->isChecked();
+  for (int level = 0; level < 6; ++level) {
+    settings.wysiwyg.headingSizes[size_t(level)] =
+        wysiwygHeadingSizes_[size_t(level)]->value();
+  }
+  settings.wysiwyg.codeFontFamily = wysiwygCodeFont_->currentFont().family();
+  settings.wysiwyg.codeFontSize = wysiwygCodeSize_->value();
+  settings.wysiwyg.quoteFontFamily = wysiwygQuoteFont_->currentFont().family();
+  settings.wysiwyg.quoteFontSize = wysiwygQuoteSize_->value();
+  settings.wysiwyg.quoteItalic = wysiwygQuoteItalic_->isChecked();
   if (const auto shortcuts = parseShortcuts(nullptr)) {
     settings.shortcuts = *shortcuts;
   }

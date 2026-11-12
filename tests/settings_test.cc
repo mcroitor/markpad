@@ -55,6 +55,16 @@ class SettingsTest : public QObject {
     settings.page.marginRightMm = 13.5;
     settings.page.marginBottomMm = 14.5;
     settings.page.marginLeftMm = 15.5;
+    settings.wysiwyg.bodyFontFamily = QStringLiteral("DejaVu Sans");
+    settings.wysiwyg.bodyFontSize = 18;
+    settings.wysiwyg.headingFontFamily = QStringLiteral("DejaVu Serif");
+    settings.wysiwyg.headingBold = false;
+    settings.wysiwyg.headingSizes = {32, 28, 24, 20, 18, 16};
+    settings.wysiwyg.codeFontFamily = QStringLiteral("Cascadia Mono");
+    settings.wysiwyg.codeFontSize = 16;
+    settings.wysiwyg.quoteFontFamily = QStringLiteral("DejaVu Serif");
+    settings.wysiwyg.quoteFontSize = 17;
+    settings.wysiwyg.quoteItalic = true;
     settings.shortcuts.insert(QStringLiteral("boldAction"),
                               QStringLiteral("Ctrl+Alt+B"));
     QVERIFY2(!service.save(settings), "settings save failed");
@@ -70,6 +80,24 @@ class SettingsTest : public QObject {
     QCOMPARE(loaded.settings.page.orientation, PageOrientation::kLandscape);
     QCOMPARE(loaded.settings.page.marginTopMm, 12.5);
     QCOMPARE(loaded.settings.page.marginLeftMm, 15.5);
+    QCOMPARE(loaded.settings.wysiwyg.bodyFontFamily,
+             QStringLiteral("DejaVu Sans"));
+    QCOMPARE(loaded.settings.wysiwyg.bodyFontSize, 18);
+    QCOMPARE(loaded.settings.wysiwyg.headingFontFamily,
+             QStringLiteral("DejaVu Serif"));
+    QVERIFY(!loaded.settings.wysiwyg.headingBold);
+    const std::array<int, 6> expectedHeadingSizes{32, 28, 24, 20, 18, 16};
+    for (size_t index = 0; index < expectedHeadingSizes.size(); ++index) {
+      QCOMPARE(loaded.settings.wysiwyg.headingSizes[index],
+               expectedHeadingSizes[index]);
+    }
+    QCOMPARE(loaded.settings.wysiwyg.codeFontFamily,
+             QStringLiteral("Cascadia Mono"));
+    QCOMPARE(loaded.settings.wysiwyg.codeFontSize, 16);
+    QCOMPARE(loaded.settings.wysiwyg.quoteFontFamily,
+             QStringLiteral("DejaVu Serif"));
+    QCOMPARE(loaded.settings.wysiwyg.quoteFontSize, 17);
+    QVERIFY(loaded.settings.wysiwyg.quoteItalic);
     QCOMPARE(loaded.settings.shortcuts.value(QStringLiteral("boldAction")),
              QStringLiteral("Ctrl+Alt+B"));
   }
@@ -104,7 +132,9 @@ class SettingsTest : public QObject {
                 "editorFontSize":99,
                 "page":{"size":"B5","orientation":"sideways",
                         "marginTopMm":-1,"marginRightMm":20,
-                        "marginBottomMm":20,"marginLeftMm":20}
+                        "marginBottomMm":20,"marginLeftMm":20},
+                "wysiwyg":{"bodyFontSize":999,"headingSizes":[1,2],
+                           "codeFontSize":5}
               })");
     const auto loaded = service.load();
     QVERIFY(loaded.found);
@@ -115,6 +145,9 @@ class SettingsTest : public QObject {
     QCOMPARE(loaded.settings.page.size, PageSize::kA4);
     QCOMPARE(loaded.settings.page.orientation, PageOrientation::kPortrait);
     QCOMPARE(loaded.settings.page.marginTopMm, 20.0);
+    QCOMPARE(loaded.settings.wysiwyg.bodyFontSize, 14);
+    QCOMPARE(loaded.settings.wysiwyg.codeFontSize, 12);
+    QCOMPARE(loaded.settings.wysiwyg.headingSizes[0], 22);
   }
 
   void shortcutValidation() {

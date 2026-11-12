@@ -79,6 +79,7 @@ class ContinuousEditor final : public QWidget {
   bool paged() const { return paged_; }
   void setPageSetup(const PageSetup& setup);
   PageSetup pageSetup() const { return pageSetup_; }
+  void setWysiwygStyle(const WysiwygStyle& style) { style_ = style; }
   int pageCount() const;
   int currentPage() const;
   QString layoutWarning() const;
@@ -183,6 +184,7 @@ class ContinuousEditor final : public QWidget {
   bool firstBlock_ = true;
   bool paged_ = false;
   PageSetup pageSetup_;
+  WysiwygStyle style_;
 };
 
 }  // namespace markpad

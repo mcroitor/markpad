@@ -12,6 +12,7 @@
 #include <QPlainTextEdit>
 #include <QStatusBar>
 #include <QStyle>
+#include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -21,9 +22,11 @@
 #include <QToolBar>
 #include <QUrl>
 #include <QtTest/QtTest>
+#include <algorithm>
 
 #include "application_controller.h"
 #include "continuous_editor.h"
+#include "settings_dialog.h"
 
 namespace markpad {
 
@@ -420,6 +423,78 @@ class MainWindowSmokeTest : public QObject {
     QCOMPARE(window->session().snapshot().source, source.toStdString());
     QCOMPARE(window->session().snapshot().token.revision, std::uint64_t{0});
     QVERIFY(!window->session().dirty());
+  }
+
+  void markdownHighlightingDistinguishesBoldAndItalic() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const auto path = dir.filePath("emphasis.md");
+    const QByteArray source =
+        "**bold** and *italic* and __strong__ and _em_\n";
+    QVERIFY(put(path, source));
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.openDocument(path);
+    QVERIFY(window);
+    QCoreApplication::processEvents();
+    const auto formats = window->editor()->document()
+                             ->firstBlock()
+                             .layout()
+                             ->formats();
+    const auto formatCovers = [&](int position, auto predicate) {
+      return std::any_of(formats.begin(), formats.end(),
+                         [&](const QTextLayout::FormatRange& range) {
+                           return position >= range.start &&
+                                  position < range.start + range.length &&
+                                  predicate(range.format);
+                         });
+    };
+    QVERIFY(formatCovers(2, [](const QTextCharFormat& format) {
+      return format.fontWeight() >= QFont::Bold;
+    }));
+    QVERIFY(!formatCovers(2, [](const QTextCharFormat& format) {
+      return format.fontItalic();
+    }));
+    QVERIFY(formatCovers(17, [](const QTextCharFormat& format) {
+      return format.fontItalic();
+    }));
+    QVERIFY(!formatCovers(17, [](const QTextCharFormat& format) {
+      return format.fontWeight() >= QFont::Bold;
+    }));
+    QVERIFY(formatCovers(32, [](const QTextCharFormat& format) {
+      return format.fontWeight() >= QFont::Bold;
+    }));
+    QVERIFY(!formatCovers(32, [](const QTextCharFormat& format) {
+      return format.fontItalic();
+    }));
+  }
+
+  void settingsDialogUsesTabs() {
+    SettingsDialog dialog({QStringLiteral("en")});
+    auto* tabs = dialog.findChild<QTabWidget*>(
+        QStringLiteral("settingsTabs"));
+    QVERIFY(tabs);
+    QCOMPARE(tabs->count(), 4);
+    QCOMPARE(tabs->tabText(0), QStringLiteral("General"));
+    QCOMPARE(tabs->tabText(1), QStringLiteral("Editor"));
+    QCOMPARE(tabs->tabText(2), QStringLiteral("Page"));
+    QCOMPARE(tabs->tabText(3), QStringLiteral("Shortcut"));
+    QVERIFY(dialog.findChild<QWidget*>(QStringLiteral("settingsGeneralTab")));
+    QVERIFY(dialog.findChild<QWidget*>(QStringLiteral("settingsEditorTab")));
+    QVERIFY(dialog.findChild<QWidget*>(QStringLiteral("settingsPageTab")));
+    QVERIFY(dialog.findChild<QWidget*>(QStringLiteral("settingsShortcutTab")));
+    QVERIFY(dialog.findChild<QWidget*>(
+        QStringLiteral("settingsWysiwygBodyFont")));
+    QVERIFY(dialog.findChild<QWidget*>(
+        QStringLiteral("settingsWysiwygBodySize")));
+    QVERIFY(dialog.findChild<QWidget*>(
+        QStringLiteral("settingsWysiwygHeading1Size")));
+    QVERIFY(dialog.findChild<QWidget*>(
+        QStringLiteral("settingsWysiwygHeading6Size")));
+    QVERIFY(dialog.findChild<QWidget*>(
+        QStringLiteral("settingsWysiwygCodeFont")));
+    QVERIFY(dialog.findChild<QWidget*>(
+        QStringLiteral("settingsWysiwygQuoteFont")));
   }
 
   void continuousTextAndHistory() {
@@ -1882,6 +1957,46 @@ class MainWindowSmokeTest : public QObject {
                 .lightness() < 128);
     settings.theme = Theme::kLight;
     QVERIFY2(window->applySettings(settings, &error), qPrintable(error));
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousTypographySettings() {
+    const QByteArray source =
+        "# Heading\n\nparagraph\n\n> quote\n\n```\ncode\n```\n\n`inline`\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    QVERIFY(window->setContinuousMode(true));
+    Settings settings;
+    settings.wysiwyg.bodyFontSize = 18;
+    settings.wysiwyg.headingBold = false;
+    settings.wysiwyg.headingSizes = {40, 32, 26, 21, 18, 15};
+    settings.wysiwyg.codeFontSize = 19;
+    settings.wysiwyg.quoteFontSize = 17;
+    settings.wysiwyg.quoteItalic = true;
+    QString error;
+    QVERIFY2(window->applySettings(settings, &error), qPrintable(error));
+    auto* rich = window->continuousEditor()->editor();
+    QCOMPARE(rich->font().pointSize(), 18);
+    auto cursor = rich->document()->find(QStringLiteral("Heading"));
+    QVERIFY(!cursor.isNull());
+    QCOMPARE(cursor.charFormat().fontPointSize(), 40.0);
+    QVERIFY(cursor.charFormat().fontWeight() < QFont::Bold);
+    cursor = rich->document()->find(QStringLiteral("quote"));
+    QVERIFY(!cursor.isNull());
+    QCOMPARE(cursor.charFormat().fontPointSize(), 17.0);
+    QVERIFY(cursor.charFormat().fontItalic());
+    cursor = rich->document()->find(QStringLiteral("code"));
+    QVERIFY(!cursor.isNull());
+    QCOMPARE(cursor.charFormat().fontPointSize(), 19.0);
+    cursor = rich->document()->find(QStringLiteral("inline"));
+    QVERIFY(!cursor.isNull());
+    QCOMPARE(cursor.charFormat().fontPointSize(), 19.0);
+    QVERIFY(window->setPagedMode(true));
+    cursor = rich->document()->find(QStringLiteral("Heading"));
+    QVERIFY(!cursor.isNull());
+    QCOMPARE(cursor.charFormat().fontPointSize(), 40.0);
     QVERIFY(dialogs.errors.empty());
   }
 

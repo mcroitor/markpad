@@ -38,17 +38,13 @@ $env:PATH = "C:\msys64\ucrt64\bin;C:\msys64\usr\bin;$env:PATH"
 
 Keep `C:\msys64\ucrt64\bin` on `PATH` when running the application or tests so Windows can find Qt runtime DLLs.
 
-For a redistributable Release directory, build with `-DCMAKE_BUILD_TYPE=Release`
-and then run the packaging script from an MSYS2 UCRT64 shell:
+For a redistributable Release directory, build with `-DCMAKE_BUILD_TYPE=Release` and then run the packaging script from an MSYS2 UCRT64 shell:
 
 ```sh
 bash scripts/package_windows.sh build-release package-windows 0.1.0
 ```
 
-The script deploys the Qt/GCC runtime DLLs, copies `LICENSE`,
-`MD4C-LICENSE.md`, README and third-party license texts, and writes
-`markpad.exe.sha256`. CI uploads the same directory as the
-`markpad-0.1.0-windows-ucrt64` artifact.
+The script deploys the Qt/GCC runtime DLLs, copies `LICENSE`, `MD4C-LICENSE.md`, README and third-party license texts, and writes `markpad.exe.sha256`. CI uploads the same directory as the `markpad-0.1.0-windows-ucrt64` artifact.
 
 ### Linux (Ubuntu)
 
@@ -272,14 +268,18 @@ emphasis, links and images, escapes raw HTML, and omits unsafe URI schemes
 and reports open/write/commit failures. Task 009 adds a versioned user settings
 service under the platform Markpad config directory: theme, language, editor
 font/size, word wrap, default file location, validated shortcut overrides and
-global page defaults (A4 portrait, 20 mm). English is built in; extra languages
-are loaded from `lang/*.ini` with English fallback. Settings are edited in
-Edit → Settings and applied after restart. Task 006 adds an editable paged
+global page defaults (A4 portrait, 20 mm). The Page tab also exposes per-block
+WYSIWYG typography: body/heading/code/quote font families and sizes, heading
+bold and quote italic. English is built in; extra languages are loaded from
+`lang/*.ini` with English fallback. Settings are edited in Edit → Settings using
+General, Editor, Page and Shortcut tabs. Changes apply immediately except the
+language, which takes effect after restart. Task 006 adds an editable paged
 WYSIWYG mode with a deterministic page-layout engine: A4/Letter/Legal,
 portrait/landscape, configurable margins, block-based page placement, page
 count/navigation in the status bar and an overflow warning for blocks taller than
-the page. The page view is a guided editable rich-text surface rather than
-separate page widgets. Task 008 adds PDF export and printing through Qt
+the page. The current page view is a guided editable rich-text surface rather
+than true page sheets; the block-based page-surface redesign is tracked in
+[Task 044](docs/tasks/task_044.md). Task 008 adds PDF export and printing through Qt
 PrintSupport using the same page geometry and safe HTML rendering policy; PDF
 output is written atomically and errors are reported. Native visual PDF QA and
 real printer hardware remain manual checks.

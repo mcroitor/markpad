@@ -773,7 +773,23 @@ bool MainWindow::applySettings(const Settings& settings, QString* error) {
   font.setPointSize(
       std::max(1, qRound(settings.editorFontSize * zoom_)));
   editor_->setFont(font);
-  continuous_->editor()->setFont(font);
+  auto wysiwygStyle = settings.wysiwyg;
+  const auto scaledSize = [this](int size) {
+    return std::max(1, qRound(size * zoom_));
+  };
+  wysiwygStyle.bodyFontSize = scaledSize(wysiwygStyle.bodyFontSize);
+  wysiwygStyle.codeFontSize = scaledSize(wysiwygStyle.codeFontSize);
+  wysiwygStyle.quoteFontSize = scaledSize(wysiwygStyle.quoteFontSize);
+  for (auto& size : wysiwygStyle.headingSizes) {
+    size = scaledSize(size);
+  }
+  continuous_->setWysiwygStyle(wysiwygStyle);
+  QFont continuousFont =
+      settings.wysiwyg.bodyFontFamily.trimmed().isEmpty()
+          ? font
+          : QFont(settings.wysiwyg.bodyFontFamily);
+  continuousFont.setPointSize(wysiwygStyle.bodyFontSize);
+  continuous_->editor()->setFont(continuousFont);
   editor_->setLineWrapMode(settings.wordWrap ? QPlainTextEdit::WidgetWidth
                                              : QPlainTextEdit::NoWrap);
   continuous_->editor()->setLineWrapMode(

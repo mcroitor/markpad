@@ -4,6 +4,7 @@
 #include <QMap>
 #include <QString>
 #include <QStringList>
+#include <array>
 #include <optional>
 
 namespace markpad {
@@ -21,6 +22,19 @@ struct PageSetup {
   double marginLeftMm = 20.0;
 };
 
+struct WysiwygStyle {
+  QString bodyFontFamily;
+  int bodyFontSize = 14;
+  QString headingFontFamily;
+  bool headingBold = true;
+  std::array<int, 6> headingSizes{22, 20, 18, 16, 14, 12};
+  QString codeFontFamily;
+  int codeFontSize = 12;
+  QString quoteFontFamily;
+  int quoteFontSize = 14;
+  bool quoteItalic = false;
+};
+
 struct Settings {
   int schemaVersion = 1;
   QString language = QStringLiteral("en");
@@ -30,6 +44,7 @@ struct Settings {
   bool wordWrap = true;
   QString defaultFileLocation;
   PageSetup page;
+  WysiwygStyle wysiwyg;
   QMap<QString, QString> shortcuts;
 };
 

@@ -11,8 +11,9 @@ owner sign-off.
 | `markdown.png` | Markdown mode, light theme, fixture loaded. |
 | `continuous.png` | Continuous WYSIWYG, light theme, menu closed. |
 | `paged.png` | Paged WYSIWYG, light theme, page count visible. |
-| `settings.png` | Settings dialog with deferred Auto Save and Line Numbers controls. |
-| `dark/*.png` | The same four views with the dark theme selected. |
+| `settings.png` | Settings dialog General tab with deferred Auto Save. |
+| `settings-page.png` | Settings Page tab with page setup and per-block WYSIWYG typography controls. |
+| `dark/*.png` | The same views with the dark theme selected. |
 | `print-to-pdf.pdf` | Output from Microsoft Print to PDF through the native print dialog. |
 | `print-to-pdf.txt` | `pdftotext` extraction of the printed PDF for quick content review. |
 | `fixture.md` | Source fixture used for the screenshots and print check. |
@@ -23,6 +24,11 @@ owner sign-off.
 - Dark-theme WYSIWYG initially used light editable-run, code, and table-header
   backgrounds while text stayed light. The palette-aware colors and a runtime
   re-render were added; `continuousDarkThemeColors` is the regression test.
+- Markdown source highlighting previously matched the inner part of `**bold**`
+  as italic. Strong spans are now highlighted separately from emphasis and are
+  covered by `markdownHighlightingDistinguishesBoldAndItalic`.
+- The Settings dialog is now organized as General, Editor, Page and Shortcut
+  tabs; `settings.png` and `dark/settings.png` were recaptured after that change.
 - The paged view reported **Page 1 of 3**, while Microsoft Print to PDF produced
   **2 A4 pages**. This is the documented Task 008 limitation: the paged status
   uses `PageLayoutEngine`, while Qt text layout performs the actual print/PDF
