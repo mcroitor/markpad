@@ -21,6 +21,7 @@ These screenshots were captured from the Windows portable Release package on Win
 | `release-qa/saved-copy.md` | Byte-identical copy produced through native Save As. |
 | `release-qa/unsaved-close.png` | Native unsaved-changes confirmation with Save/Discard/Cancel. |
 | `release-qa/close-save.md` | File written by choosing Save from the native close prompt. |
+| `table-wide/continuous.png` | Wide 4-column table fitting the continuous WYSIWYG viewport after Task 046. |
 
 ## Findings and follow-up
 

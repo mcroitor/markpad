@@ -72,10 +72,6 @@ QColor mutedBackground(const QPalette& palette) {
   return darkPalette(palette) ? QColor(62, 62, 62) : QColor(235, 235, 235);
 }
 
-QColor editableBackground(const QPalette& palette) {
-  return darkPalette(palette) ? QColor(38, 64, 88) : QColor(240, 248, 255);
-}
-
 QColor codeForeground(const QPalette& palette) {
   return darkPalette(palette) ? QColor(225, 225, 225) : QColor(70, 70, 70);
 }
@@ -117,6 +113,23 @@ void applyHeadingStyle(QTextCharFormat& format, const WysiwygStyle& style,
   format.setFontWeight(style.headingBold ? QFont::Bold : QFont::Normal);
   format.setFontPointSize(std::clamp(
       style.headingSizes[size_t(std::clamp(level, 1, 6) - 1)], 6, 96));
+}
+
+void applyCodeBlockBackground(QTextCursor cursor, int start, int end,
+                              const QColor& color) {
+  auto* document = cursor.document();
+  for (auto block = document->findBlock(start);
+       block.isValid() && block.position() < end; block = block.next()) {
+    auto format = block.blockFormat();
+    format.setBackground(color);
+    format.setTopMargin(0);
+    format.setBottomMargin(block.next().isValid() &&
+                                   block.next().position() < end
+                               ? 0
+                               : 8);
+    QTextCursor blockCursor(block);
+    blockCursor.setBlockFormat(format);
+  }
 }
 
 std::optional<QString> codeDisplay(const QByteArray& bytes) {
@@ -170,6 +183,7 @@ ContinuousEditor::ContinuousEditor(QWidget* parent)
   notice_->setWordWrap(true);
   notice_->setObjectName(QStringLiteral("continuousNotice"));
   editor_->setObjectName(QStringLiteral("continuousEditor"));
+  editor_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   layout->addWidget(notice_);
   layout->addWidget(editor_);
   editor_->installEventFilter(this);
@@ -273,6 +287,8 @@ void ContinuousEditor::renderCodeBlock(size_t index, QTextCursor& cursor,
   format.setToolTip(QStringLiteral(
       "Editable fenced code body; fences and info string are protected."));
   cursor.insertText(*display, format);
+  applyCodeBlockBackground(cursor, start, cursor.position(),
+                           codeBackground(palette));
   codeRuns_.push_back({index, start, int(display->size())});
   contexts_.push_back(
       {start, cursor.position(), {}, {}, index, list, quote});
@@ -310,6 +326,13 @@ void ContinuousEditor::renderTable(size_t index, QTextCursor& cursor, int depth)
   tableFormat.setCellSpacing(0);
   tableFormat.setCellPadding(4);
   tableFormat.setWidth(QTextLength(QTextLength::PercentageLength, 100));
+  QList<QTextLength> columnConstraints;
+  const auto columnWidth = 100.0 / double(source.columns);
+  for (size_t column = 0; column < source.columns; ++column) {
+    columnConstraints.append(
+        QTextLength(QTextLength::PercentageLength, columnWidth));
+  }
+  tableFormat.setColumnWidthConstraints(columnConstraints);
   auto* table =
       cursor.insertTable(int(rows), int(source.columns), tableFormat);
   const auto fillRow = [&](const markdown::TableRowSource& row, int rowIndex,
@@ -579,7 +602,6 @@ void ContinuousEditor::renderInline(size_t index, QTextCursor& cursor,
       text = QStringLiteral(" [Read-only: line break] ");
     }
   } else {
-    format.setBackground(editableBackground(palette));
     if (format.toolTip().isEmpty()) {
       format.setToolTip(QStringLiteral("Editable text run"));
     }

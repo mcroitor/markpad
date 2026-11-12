@@ -96,7 +96,9 @@ owner re-review required (`dark/menu.png`, `dark/settings.png`).
 
 ### Continuous WYSIWYG
 
-Tracking: [Task 046](tasks/task_046.md).
+Tracking: [Task 046](tasks/task_046.md). Status: fixed on `feature/task_046`;
+owner re-review required (`continuous.png`, `dark/continuous.png`,
+`table-wide/continuous.png`).
 
 1. The common text is written on light blue background, it looks unnecessary and distracting. Keep the default background color (white in light mode and dark in dark mode).
 2. Code blocks are not shown as a blocks: exists white lines between the code lines. Let it be visually distinct with a proper block background.
@@ -105,7 +107,9 @@ Tracking: [Task 046](tasks/task_046.md).
 ### Paged WYSIWYG
 
 Tracking: [Task 044](tasks/task_044.md), with shared visual fixes from
-[Task 045](tasks/task_045.md) and [Task 046](tasks/task_046.md).
+[Task 045](tasks/task_045.md) and [Task 046](tasks/task_046.md). Status:
+background/code/table-fit shared issues fixed on `feature/task_046`; real page
+layout still blocked by Task 044.
 
 1. Page layout does not match the expected output. Each page must be seen as a page. Take a look to the Microsoft Word or PDF rendering as a reference for the expected layout.
 2. The same issues observed in Continuous WYSIWYG (background color, code block rendering, table width) also affect Paged WYSIWYG and must be addressed consistently.
