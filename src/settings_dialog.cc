@@ -6,13 +6,14 @@
 #include <QDoubleSpinBox>
 #include <QFontComboBox>
 #include <QFormLayout>
-#include <QGroupBox>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QTabWidget>
 #include <QVBoxLayout>
+#include <QWidget>
 
 namespace markpad {
 
@@ -20,50 +21,55 @@ SettingsDialog::SettingsDialog(const QStringList& languages, QWidget* parent)
     : QDialog(parent) {
   setWindowTitle(QStringLiteral("Settings"));
   auto* layout = new QVBoxLayout(this);
+  auto* tabs = new QTabWidget(this);
+  tabs->setObjectName(QStringLiteral("settingsTabs"));
 
-  auto* general = new QGroupBox(QStringLiteral("General"), this);
-  auto* generalForm = new QFormLayout(general);
-  language_ = new QComboBox(general);
+  auto* generalPage = new QWidget(tabs);
+  generalPage->setObjectName(QStringLiteral("settingsGeneralTab"));
+  auto* generalForm = new QFormLayout(generalPage);
+  language_ = new QComboBox(generalPage);
   language_->addItems(languages);
   generalForm->addRow(QStringLiteral("Language"), language_);
-  theme_ = new QComboBox(general);
+  theme_ = new QComboBox(generalPage);
   theme_->addItem(QStringLiteral("System"), int(Theme::kSystem));
   theme_->addItem(QStringLiteral("Light"), int(Theme::kLight));
   theme_->addItem(QStringLiteral("Dark"), int(Theme::kDark));
   generalForm->addRow(QStringLiteral("Theme"), theme_);
   auto* autoSave = new QCheckBox(
-      QStringLiteral("Auto Save (deferred)"), general);
+      QStringLiteral("Auto Save (deferred)"), generalPage);
   autoSave->setObjectName(QStringLiteral("settingsAutoSave"));
   autoSave->setEnabled(false);
   autoSave->setToolTip(
       QStringLiteral("Auto Save is deferred until a recovery policy is "
                      "approved"));
   generalForm->addRow(autoSave);
-  defaultLocation_ = new QLineEdit(general);
+  defaultLocation_ = new QLineEdit(generalPage);
   generalForm->addRow(QStringLiteral("Default file location"),
                       defaultLocation_);
-  layout->addWidget(general);
+  tabs->addTab(generalPage, QStringLiteral("General"));
 
-  auto* editor = new QGroupBox(QStringLiteral("Editor"), this);
-  auto* editorForm = new QFormLayout(editor);
-  fontSize_ = new QSpinBox(editor);
+  auto* editorPage = new QWidget(tabs);
+  editorPage->setObjectName(QStringLiteral("settingsEditorTab"));
+  auto* editorForm = new QFormLayout(editorPage);
+  fontSize_ = new QSpinBox(editorPage);
   fontSize_->setRange(6, 48);
   editorForm->addRow(QStringLiteral("Font size"), fontSize_);
-  font_ = new QFontComboBox(editor);
+  font_ = new QFontComboBox(editorPage);
   editorForm->addRow(QStringLiteral("Font family"), font_);
-  wordWrap_ = new QCheckBox(QStringLiteral("Wrap long lines"), editor);
+  wordWrap_ = new QCheckBox(QStringLiteral("Wrap long lines"), editorPage);
   editorForm->addRow(wordWrap_);
   auto* lineNumbers = new QCheckBox(
-      QStringLiteral("Line numbers (deferred)"), editor);
+      QStringLiteral("Line numbers (deferred)"), editorPage);
   lineNumbers->setObjectName(QStringLiteral("settingsLineNumbers"));
   lineNumbers->setEnabled(false);
   lineNumbers->setToolTip(
       QStringLiteral("Line-number gutter is deferred to a later settings "
                      "slice"));
   editorForm->addRow(lineNumbers);
-  layout->addWidget(editor);
+  tabs->addTab(editorPage, QStringLiteral("Editor"));
 
-  auto* page = new QGroupBox(QStringLiteral("Page"), this);
+  auto* page = new QWidget(tabs);
+  page->setObjectName(QStringLiteral("settingsPageTab"));
   auto* pageForm = new QFormLayout(page);
   pageSize_ = new QComboBox(page);
   pageSize_->addItem(QStringLiteral("A4"), int(PageSize::kA4));
@@ -91,15 +97,18 @@ SettingsDialog::SettingsDialog(const QStringList& languages, QWidget* parent)
   pageForm->addRow(QStringLiteral("Right margin"), marginRight_);
   pageForm->addRow(QStringLiteral("Bottom margin"), marginBottom_);
   pageForm->addRow(QStringLiteral("Left margin"), marginLeft_);
-  layout->addWidget(page);
+  tabs->addTab(page, QStringLiteral("Page"));
 
-  auto* shortcuts = new QGroupBox(QStringLiteral("Shortcuts"), this);
-  auto* shortcutsLayout = new QVBoxLayout(shortcuts);
-  shortcuts_ = new QPlainTextEdit(shortcuts);
+  auto* shortcutPage = new QWidget(tabs);
+  shortcutPage->setObjectName(QStringLiteral("settingsShortcutTab"));
+  auto* shortcutsLayout = new QVBoxLayout(shortcutPage);
+  shortcuts_ = new QPlainTextEdit(shortcutPage);
   shortcuts_->setPlaceholderText(
       QStringLiteral("One override per line: actionName=Ctrl+Alt+K"));
   shortcutsLayout->addWidget(shortcuts_);
-  layout->addWidget(shortcuts);
+  tabs->addTab(shortcutPage, QStringLiteral("Shortcut"));
+
+  layout->addWidget(tabs);
 
   auto* buttons = new QDialogButtonBox(
       QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);

@@ -23,6 +23,11 @@ owner sign-off.
 - Dark-theme WYSIWYG initially used light editable-run, code, and table-header
   backgrounds while text stayed light. The palette-aware colors and a runtime
   re-render were added; `continuousDarkThemeColors` is the regression test.
+- Markdown source highlighting previously matched the inner part of `**bold**`
+  as italic. Strong spans are now highlighted separately from emphasis and are
+  covered by `markdownHighlightingDistinguishesBoldAndItalic`.
+- The Settings dialog is now organized as General, Editor, Page and Shortcut
+  tabs; `settings.png` and `dark/settings.png` were recaptured after that change.
 - The paged view reported **Page 1 of 3**, while Microsoft Print to PDF produced
   **2 A4 pages**. This is the documented Task 008 limitation: the paged status
   uses `PageLayoutEngine`, while Qt text layout performs the actual print/PDF

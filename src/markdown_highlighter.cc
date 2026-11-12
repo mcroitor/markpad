@@ -60,10 +60,17 @@ void MarkdownHighlighter::highlightBlock(const QString& text) {
       setFormat(value.capturedStart(), value.capturedLength(), format);
     }
   };
+  QTextCharFormat strong;
+  strong.setFontWeight(QFont::Bold);
+  static const QRegularExpression strongPattern(
+      QStringLiteral("(?:\\*\\*(?!\\s)[^*\\n]+(?<!\\s)\\*\\*|"
+                     "__(?!\\s)[^_\\n]+(?<!\\s)__)"));
+  apply(strongPattern, strong);
   QTextCharFormat emphasis;
   emphasis.setFontItalic(true);
   static const QRegularExpression emphasisPattern(
-      QStringLiteral("(?:\\*[^*\\n]+\\*|_[^_\\n]+_)"));
+      QStringLiteral("(?<!\\*)\\*(?!\\*)(?!\\s)[^*\\n]+(?<!\\s)\\*(?!\\*)|"
+                     "(?<!_)_(?!_)(?!\\s)[^_\\n]+(?<!\\s)_(?!_)"));
   apply(emphasisPattern, emphasis);
   QTextCharFormat link;
   link.setForeground(QColor(25, 120, 120));

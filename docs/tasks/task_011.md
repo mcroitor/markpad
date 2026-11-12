@@ -94,10 +94,16 @@ Markpad должен работать на Windows и Linux, открывать/
   `markpad-0.1.0-windows-ucrt64` содержит 176 файлов, `markpad.exe` SHA-256
   `5162839752ea55857f97caf35f89b1fd78ff4b832eabdfa49ed47b9157fc6676`,
   запускается без Qt в `PATH`.
+- QA follow-up (2026-11-12): исправлена подсветка `**bold**` в Markdown-редакторе
+  (больше не отображается как italic); Settings dialog переведён на вкладки
+  General/Editor/Page/Shortcut и покрыт GUI-тестом.
+- WYSIWYG typography settings и настоящая постраничная поверхность выделены в
+  [Task 043](task_043.md) и [Task 044](task_044.md); оба пункта блокируют release
+  до выбора и реализации.
 - Physical printer, Linux CUPS, native File Open/Save/Save As, unsaved-close,
   SDI routing, oversized-block overflow, Linux native visual QA и owner sign-off
   остаются незакрытыми. PR не создан: GitHub CLI token не имеет permission на
   создание PR; ветка запушена и CI уже прошёл.
-- Решение о готовности: `In Progress`/не заявляется до owner sign-off и
-  оставшихся ручных проверок; автоматические ворота и functional dependency 005
-  больше не блокируют задачу.
+- Решение о готовности: `In Progress`/не заявляется до owner sign-off,
+  Task 043/044 и оставшихся ручных проверок; автоматические ворота и functional
+  dependency 005 больше не блокируют задачу.

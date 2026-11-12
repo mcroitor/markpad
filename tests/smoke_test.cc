@@ -12,6 +12,7 @@
 #include <QPlainTextEdit>
 #include <QStatusBar>
 #include <QStyle>
+#include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -21,9 +22,11 @@
 #include <QToolBar>
 #include <QUrl>
 #include <QtTest/QtTest>
+#include <algorithm>
 
 #include "application_controller.h"
 #include "continuous_editor.h"
+#include "settings_dialog.h"
 
 namespace markpad {
 
@@ -420,6 +423,66 @@ class MainWindowSmokeTest : public QObject {
     QCOMPARE(window->session().snapshot().source, source.toStdString());
     QCOMPARE(window->session().snapshot().token.revision, std::uint64_t{0});
     QVERIFY(!window->session().dirty());
+  }
+
+  void markdownHighlightingDistinguishesBoldAndItalic() {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const auto path = dir.filePath("emphasis.md");
+    const QByteArray source =
+        "**bold** and *italic* and __strong__ and _em_\n";
+    QVERIFY(put(path, source));
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.openDocument(path);
+    QVERIFY(window);
+    QCoreApplication::processEvents();
+    const auto formats = window->editor()->document()
+                             ->firstBlock()
+                             .layout()
+                             ->formats();
+    const auto formatCovers = [&](int position, auto predicate) {
+      return std::any_of(formats.begin(), formats.end(),
+                         [&](const QTextLayout::FormatRange& range) {
+                           return position >= range.start &&
+                                  position < range.start + range.length &&
+                                  predicate(range.format);
+                         });
+    };
+    QVERIFY(formatCovers(2, [](const QTextCharFormat& format) {
+      return format.fontWeight() >= QFont::Bold;
+    }));
+    QVERIFY(!formatCovers(2, [](const QTextCharFormat& format) {
+      return format.fontItalic();
+    }));
+    QVERIFY(formatCovers(17, [](const QTextCharFormat& format) {
+      return format.fontItalic();
+    }));
+    QVERIFY(!formatCovers(17, [](const QTextCharFormat& format) {
+      return format.fontWeight() >= QFont::Bold;
+    }));
+    QVERIFY(formatCovers(32, [](const QTextCharFormat& format) {
+      return format.fontWeight() >= QFont::Bold;
+    }));
+    QVERIFY(!formatCovers(32, [](const QTextCharFormat& format) {
+      return format.fontItalic();
+    }));
+  }
+
+  void settingsDialogUsesTabs() {
+    SettingsDialog dialog({QStringLiteral("en")});
+    auto* tabs = dialog.findChild<QTabWidget*>(
+        QStringLiteral("settingsTabs"));
+    QVERIFY(tabs);
+    QCOMPARE(tabs->count(), 4);
+    QCOMPARE(tabs->tabText(0), QStringLiteral("General"));
+    QCOMPARE(tabs->tabText(1), QStringLiteral("Editor"));
+    QCOMPARE(tabs->tabText(2), QStringLiteral("Page"));
+    QCOMPARE(tabs->tabText(3), QStringLiteral("Shortcut"));
+    QVERIFY(dialog.findChild<QWidget*>(QStringLiteral("settingsGeneralTab")));
+    QVERIFY(dialog.findChild<QWidget*>(QStringLiteral("settingsEditorTab")));
+    QVERIFY(dialog.findChild<QWidget*>(QStringLiteral("settingsPageTab")));
+    QVERIFY(dialog.findChild<QWidget*>(QStringLiteral("settingsShortcutTab")));
   }
 
   void continuousTextAndHistory() {
