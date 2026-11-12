@@ -17,6 +17,7 @@
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextEdit>
+#include <QTextFormat>
 #include <QTextLayout>
 #include <QTextTable>
 #include <QToolBar>
@@ -1460,6 +1461,7 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(table);
     QCOMPARE(table->rows(), 3);
     QCOMPARE(table->columns(), 3);
+    QCOMPARE(table->format().columnWidthConstraints().size(), 3);
     auto header = table->cellAt(0, 0).firstCursorPosition();
     QVERIFY(header.charFormat().fontWeight() >= QFont::Bold);
     QCOMPARE(table->cellAt(0, 0).firstCursorPosition().blockFormat().alignment(),
@@ -1940,10 +1942,14 @@ class MainWindowSmokeTest : public QObject {
     auto* rich = window->continuousEditor()->editor();
     auto cursor = rich->document()->find(QStringLiteral("alpha"));
     QVERIFY(!cursor.isNull());
-    QVERIFY(cursor.charFormat().background().color().lightness() < 128);
+    QVERIFY(!cursor.charFormat().hasProperty(QTextFormat::BackgroundBrush));
     cursor = rich->document()->find(QStringLiteral("code"));
     QVERIFY(!cursor.isNull());
     QVERIFY(cursor.charFormat().background().color().lightness() < 128);
+    QVERIFY(rich->document()
+                ->findBlock(cursor.position())
+                .blockFormat()
+                .hasProperty(QTextFormat::BackgroundBrush));
     QTextTable* table = nullptr;
     for (auto* frame : rich->document()->rootFrame()->childFrames()) {
       if ((table = dynamic_cast<QTextTable*>(frame))) {

@@ -15,6 +15,7 @@ PageTextEdit::PageTextEdit(QWidget* parent) : QTextEdit(parent) {
   setAcceptRichText(false);
   connect(document(), &QTextDocument::contentsChanged, this,
           [this] { viewport()->update(); });
+  updatePageWidth();
 }
 
 void PageTextEdit::setPaged(bool paged) {
@@ -31,7 +32,10 @@ void PageTextEdit::setPageSetup(const PageSetup& setup) {
 
 void PageTextEdit::updatePageWidth() {
   if (!paged_) {
-    document()->setTextWidth(-1);
+    const auto width = viewport()->width() - 2.0 * document()->documentMargin();
+    if (width > 0.0) {
+      document()->setTextWidth(width);
+    }
     return;
   }
   const auto page = PageLayoutEngine::pageSize(setup_);

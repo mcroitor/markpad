@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Ready`.
+- Статус: `Done`.
 - Владелец: архитектор/координатор; `cpp-developer`, `test-writer`, при необходимости
   `frontend-designer`.
 - Приоритет: P1 (release blocker по owner QA).
@@ -91,4 +91,15 @@ GUI-тестами и screenshots; если fit таблицы требует и
 
 ## Итог выполнения
 
-Ожидает реализации.
+- Убран постоянный light-blue background у editable text; protected fragments
+  остаются визуально отличимыми.
+- Code block получил block-level background и нулевые межстрочные margins;
+  blank lines и строки кода теперь образуют единый блок в light/dark.
+- Таблицам заданы процентные column width constraints; continuous mode
+  использует ширину viewport, добавлен horizontal scrollbar как fallback.
+  Широкая 4-column fixture полностью видна.
+- `continuousDarkThemeColors` проверяет отсутствие постоянного фона и наличие
+  block background у code; table test проверяет column constraints.
+- Windows Debug/Release CTest 7/7. Evidence: обновлённые light/dark screenshots и
+  `docs/qa/task_011/table-wide/continuous.png`.
+- Ветка `feature/task_046`; paged page-sheet layout остаётся Task 044.
