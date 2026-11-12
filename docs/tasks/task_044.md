@@ -33,7 +33,9 @@ page surface с расчётом позиционирования блоков.
   в постраничном режиме.
 - Синхронизация source ranges, token, undo/redo, cursor/navigation и dirty state.
 - Согласование page count с PDF-export там, где это допускает Task 008; различие
-  Qt-layout/PDF документируется.
+  Qt-layout/PDF документируется; PDF parity — Task 047.
+- Учесть исправления Task 045 (dark theme) и Task 046 (backgrounds/code/table fit)
+  в page sheets.
 - Тесты разрывов, больших блоков, навигации и round-trip.
 
 **Не включено:**
@@ -110,7 +112,8 @@ editable rich-text canvas; scroll area показывает листы с про
 
 ## Зависимости и открытые вопросы
 
-- Зависимости: Tasks 005, 006; Task 043 для итоговой типографики.
+- Зависимости: Tasks 005, 006, 043; Tasks 045/046 для итоговой визуальной
+  согласованности; Task 047 зависит от этой задачи.
 - Выбрано: A как release milestone; B (per-page canvases) — возможное later
   развитие, если A не удовлетворит acceptance.
 

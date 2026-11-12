@@ -49,7 +49,12 @@
 | 041 | Inline code spans: rendering и редактирование | Done | 013, 026, 031 |
 | 042 | Acceptance matrix Task 005 и закрытие среза | Done | 026–041 |
 | 043 | Настройки типографики WYSIWYG | Done | 005, 009; per-block controls на Page |
-| 044 | Настоящая редактируемая постраничная поверхность | Ready | 005, 006, 043; выбран incremental page sheets |
+| 044 | Настоящая редактируемая постраничная поверхность | Ready | 005, 006, 043, 045, 046; выбран incremental page sheets |
+| 045 | Dark theme: меню и Settings readability | Ready | 009; owner QA |
+| 046 | WYSIWYG backgrounds, code blocks и table fit | Ready | 005, 006, 043 |
+| 047 | PDF export layout parity | Blocked | 044, 046; ждёт page surface |
+| 048 | Toolbar actions и dropdown menus | Ready | 004, 032 |
+| 049 | Shortcut settings: actions/defaults | Ready | 009 |
 
 ```text
 001 -> 002 -> 003 -> 004 -> 005 -> 006 -> 008
@@ -69,6 +74,8 @@
 010 разблокирует решения в 006/008 и последующую задачу автосохранения
 004,005,006,007,008,009 -> 011
 005,009 -> 043; 006,043 -> 044
+045,046 -> 044; 044,046 -> 047
+004,032 -> 048; 009 -> 049
 002 -> 012 -> 013 -> 016 -> 017 -> 018 -> 019 -> 020
              013 -> 025 -> 017
 016,017,018,019,020,025 -> приёмка 014
