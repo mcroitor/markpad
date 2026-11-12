@@ -126,6 +126,83 @@ QString rawEditorText(QPlainTextEdit* editor) {
   return text;
 }
 
+QString darkStyleSheet() {
+  return QString::fromLatin1(R"QSS(
+QMenuBar {
+  background-color: #2b2b2e;
+  color: #eeeeee;
+}
+QMenuBar::item {
+  background: transparent;
+  color: #eeeeee;
+}
+QMenuBar::item:selected,
+QMenuBar::item:pressed {
+  background: #3d3d42;
+}
+QMenu {
+  background-color: #2b2b2e;
+  color: #eeeeee;
+  border: 1px solid #555555;
+}
+QMenu::item {
+  background: transparent;
+  color: #eeeeee;
+  padding: 4px 24px 4px 20px;
+}
+QMenu::item:selected {
+  background-color: #3b6ea8;
+  color: #ffffff;
+}
+QMenu::item:disabled {
+  color: #888888;
+}
+QMenu::separator {
+  height: 1px;
+  background: #555555;
+  margin: 4px 8px;
+}
+QToolTip {
+  background-color: #1e1e20;
+  color: #eeeeee;
+  border: 1px solid #555555;
+}
+QComboBox,
+QLineEdit,
+QSpinBox,
+QDoubleSpinBox,
+QFontComboBox,
+QPlainTextEdit,
+QTextEdit {
+  background-color: #1e1e20;
+  color: #eeeeee;
+  border: 1px solid #555555;
+}
+QComboBox QAbstractItemView {
+  background-color: #1e1e20;
+  color: #eeeeee;
+  selection-background-color: #3b6ea8;
+  selection-color: #ffffff;
+}
+QTabBar::tab {
+  background: #2b2b2e;
+  color: #eeeeee;
+  padding: 6px 14px;
+}
+QTabBar::tab:selected {
+  background: #3d3d42;
+}
+QTabWidget::pane {
+  border: 1px solid #555555;
+}
+QGroupBox,
+QLabel,
+QCheckBox {
+  color: #eeeeee;
+}
+)QSS");
+}
+
 }  // namespace
 
 MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
@@ -135,6 +212,7 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   languageText_ = settingsService_.languageMap(settings_.language);
   settingsDiagnostic_ = loaded.diagnostic;
   dialogs_.setDefaultLocation(settings_.defaultFileLocation);
+  menuBar()->setNativeMenuBar(false);
   resize(1000, 700);
   editor_->setObjectName(QStringLiteral("markdownEditor"));
   editor_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
@@ -766,6 +844,8 @@ bool MainWindow::applySettings(const Settings& settings, QString* error) {
                      QColor(140, 140, 140));
   }
   QApplication::setPalette(palette);
+  qApp->setStyleSheet(settings.theme == Theme::kDark ? darkStyleSheet()
+                                                      : QString());
 
   QFont font = settings.editorFontFamily.trimmed().isEmpty()
                    ? QFontDatabase::systemFont(QFontDatabase::FixedFont)

@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Ready`.
+- Статус: `Done`.
 - Владелец: архитектор/координатор; `cpp-developer`, `test-writer`.
 - Приоритет: P1 (release blocker по owner QA).
 - Источник: [release checklist, Dark theme](../release_checklist.md#dark-theme).
@@ -74,4 +74,13 @@ Settings и диалогов, сохранив light/system поведение. 
 
 ## Итог выполнения
 
-Ожидает реализации.
+- Добавлен dark-theme stylesheet для menu bar/menu popup, tooltips, Settings
+  controls, tabs, labels и group boxes; menu bar переведён в non-native Qt
+  режим, чтобы palette/style применялись на Windows.
+- Dark Settings и открытое File menu проверены screenshots; светлая тема
+  очищает stylesheet.
+- `continuousDarkThemeColors` дополнительно проверяет установку/снятие global
+  stylesheet.
+- Windows Debug/Release CTest 7/7. Screenshots обновлены в
+  `docs/qa/task_011/dark/` (`menu.png`, `settings.png`, `settings-page.png`).
+- Ветка `feature/task_045`; требуется merge и повторная owner visual QA.

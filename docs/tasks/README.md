@@ -50,7 +50,7 @@
 | 042 | Acceptance matrix Task 005 и закрытие среза | Done | 026–041 |
 | 043 | Настройки типографики WYSIWYG | Done | 005, 009; per-block controls на Page |
 | 044 | Настоящая редактируемая постраничная поверхность | Ready | 005, 006, 043, 045, 046; выбран incremental page sheets |
-| 045 | Dark theme: меню и Settings readability | Ready | 009; owner QA |
+| 045 | Dark theme: меню и Settings readability | Done | 009; owner QA; non-native menu + dark QSS |
 | 046 | WYSIWYG backgrounds, code blocks и table fit | Ready | 005, 006, 043 |
 | 047 | PDF export layout parity | Blocked | 044, 046; ждёт page surface |
 | 048 | Toolbar actions и dropdown menus | Ready | 004, 032 |
