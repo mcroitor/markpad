@@ -40,9 +40,14 @@ is limited to automated CTest in this environment.
 - [ ] Paged WYSIWYG: overflow warning for an oversized block.
 - [x] Settings dialog: all sketch groups visible; deferred Auto Save/Line Numbers
       clearly disabled or deferred.
-- [ ] Native File Open/Save/Save As dialogs open and cancel without data loss.
-- [ ] Unsaved-changes close confirmation: Save, Discard, Cancel.
-- [ ] Multi-window SDI behavior and file-open routing.
+- [x] Native File Open/Save/Save As dialogs exercised from the portable package:
+      opened the fixture and saved an identical copy. Evidence:
+      `docs/qa/task_011/release-qa/saved-copy.md`.
+- [x] Unsaved-changes close confirmation exercised with Save, Discard and Cancel.
+      Evidence: `docs/qa/task_011/release-qa/unsaved-close.png` and
+      `close-save.md`.
+- [x] Multi-window SDI behavior exercised: File > New produced two Markpad
+      windows (`fixture.md` and `Untitled`).
 - [ ] Linux native visual QA (not captured; automated tests pass).
 
 Owner sign-off: ____________________  Date: __________
@@ -70,7 +75,7 @@ Owner sign-off: ____________________  Date: __________
 - [x] `MD4C-LICENSE.md` included; project MIT `LICENSE` and Qt/GCC/third-party
       notices available under `licenses/`.
 - [x] Package runs from a clean directory with Qt removed from `PATH`.
-- [ ] Smoke-open, edit, save, switch modes, and export from the portable package.
+- [x] Smoke-open, edit, save, switch modes, and export from the portable package.
 - [x] CI artifact recorded: 176 files, `markpad.exe` SHA-256
       `5162839752ea55857f97caf35f89b1fd78ff4b832eabdfa49ed47b9157fc6676`,
       from commit `d769c68` / Qt 6.12.0. The artifact launches with Qt removed

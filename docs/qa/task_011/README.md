@@ -20,6 +20,9 @@ owner sign-off.
 | `ci-artifact.txt` | Final GitHub Actions run, artifact checksum and clean-PATH launch evidence. |
 | `overflow.md`, `overflow/paged.png` | Oversized single-block page overflow fixture and Windows status-bar evidence. |
 | `release-qa/export.html` | HTML export produced through the native export dialog from the Windows portable package. |
+| `release-qa/saved-copy.md` | Byte-identical copy produced through native Save As. |
+| `release-qa/unsaved-close.png` | Native unsaved-changes confirmation with Save/Discard/Cancel. |
+| `release-qa/close-save.md` | File written by choosing Save from the native close prompt. |
 
 ## Findings and follow-up
 

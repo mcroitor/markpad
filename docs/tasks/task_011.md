@@ -105,11 +105,14 @@ Markpad должен работать на Windows и Linux, открывать/
   portable package создаёт корректный файл; oversized single-block fixture
   показывает `Overflow warning` в paged status bar. Evidence — в
   `docs/qa/task_011/release-qa` и `docs/qa/task_011/overflow`.
-- Physical printer, Linux CUPS, native File Open/Save/Save As, unsaved-close,
-  SDI routing, Linux native visual QA и owner sign-off остаются незакрытыми.
-  Native Save As automation did not complete; automated save/close/SDI tests
-  проходят. PR не создан: GitHub CLI token не имеет permission на создание PR;
-  ветка запушена и CI уже прошёл.
+- Native File Open/Save/Save As, unsaved-close Save/Discard/Cancel и multi-window
+  SDI проверены на Windows portable package; evidence — `saved-copy.md`,
+  `unsaved-close.png`, `close-save.md`. Автоматические тесты сохранения/закрытия/SDI
+  также проходят.
+- Physical printer, Linux CUPS, Linux native visual QA, owner visual sign-off и
+  явное принятие paged/PDF page-count divergence остаются незакрытыми.
+- PR не создан: GitHub CLI token не имеет permission на создание PR; ветка
+  `feature/task_011-followup` запушена, CI прошёл.
 - Решение о готовности: `In Progress`/не заявляется до owner sign-off,
   Task 043/044 и оставшихся ручных проверок; автоматические ворота и functional
   dependency 005 больше не блокируют задачу.
