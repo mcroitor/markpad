@@ -126,7 +126,7 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
       - name: Package portable Windows build
-        run: bash scripts/package_windows.sh build package-windows 0.1.0
+        run: bash scripts/package_windows.sh build package-windows 0.1.0 "${GITHUB_SHA:-unknown}"
 
       - name: Upload portable package
         uses: actions/upload-artifact@v4

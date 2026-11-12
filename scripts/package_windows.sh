@@ -4,6 +4,7 @@ set -euo pipefail
 build_dir="${1:-build}"
 output_dir="${2:-package-windows}"
 version="${3:-0.1.0}"
+commit="${4:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
 prefix="${MINGW_PREFIX:-/ucrt64}"
 
 if [[ ! -f "$build_dir/markpad.exe" ]]; then
@@ -65,7 +66,6 @@ qt_version="unknown"
 if [[ -x "${prefix}/bin/qtpaths.exe" ]]; then
   qt_version="$("${prefix}/bin/qtpaths.exe" --qt-version 2>/dev/null || true)"
 fi
-commit="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 cat > "$output_dir/VERSION.txt" <<EOF
 Markpad $version
 Commit: $commit
