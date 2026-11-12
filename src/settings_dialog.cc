@@ -5,7 +5,11 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFontComboBox>
+#include <QFontDatabase>
 #include <QFormLayout>
+#include <QGroupBox>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPlainTextEdit>
@@ -70,7 +74,8 @@ SettingsDialog::SettingsDialog(const QStringList& languages, QWidget* parent)
 
   auto* page = new QWidget(tabs);
   page->setObjectName(QStringLiteral("settingsPageTab"));
-  auto* pageForm = new QFormLayout(page);
+  auto* pageLayout = new QVBoxLayout(page);
+  auto* pageForm = new QFormLayout();
   pageSize_ = new QComboBox(page);
   pageSize_->addItem(QStringLiteral("A4"), int(PageSize::kA4));
   pageSize_->addItem(QStringLiteral("Letter"), int(PageSize::kLetter));
@@ -97,6 +102,48 @@ SettingsDialog::SettingsDialog(const QStringList& languages, QWidget* parent)
   pageForm->addRow(QStringLiteral("Right margin"), marginRight_);
   pageForm->addRow(QStringLiteral("Bottom margin"), marginBottom_);
   pageForm->addRow(QStringLiteral("Left margin"), marginLeft_);
+  pageLayout->addLayout(pageForm);
+
+  auto* typography = new QGroupBox(
+      QStringLiteral("WYSIWYG typography"), page);
+  auto* typographyForm = new QFormLayout(typography);
+  wysiwygBodyFont_ = new QFontComboBox(typography);
+  typographyForm->addRow(QStringLiteral("Body font"), wysiwygBodyFont_);
+  wysiwygBodySize_ = new QSpinBox(typography);
+  wysiwygBodySize_->setRange(6, 72);
+  typographyForm->addRow(QStringLiteral("Body size"), wysiwygBodySize_);
+  wysiwygHeadingFont_ = new QFontComboBox(typography);
+  typographyForm->addRow(QStringLiteral("Heading font"),
+                         wysiwygHeadingFont_);
+  wysiwygHeadingBold_ =
+      new QCheckBox(QStringLiteral("Bold headings"), typography);
+  typographyForm->addRow(wysiwygHeadingBold_);
+  auto* headingSizes = new QWidget(typography);
+  auto* headingLayout = new QHBoxLayout(headingSizes);
+  headingLayout->setContentsMargins(0, 0, 0, 0);
+  for (int level = 0; level < 6; ++level) {
+    headingLayout->addWidget(
+        new QLabel(QStringLiteral("H%1").arg(level + 1), headingSizes));
+    wysiwygHeadingSizes_[size_t(level)] = new QSpinBox(headingSizes);
+    wysiwygHeadingSizes_[size_t(level)]->setRange(6, 96);
+    headingLayout->addWidget(wysiwygHeadingSizes_[size_t(level)]);
+  }
+  typographyForm->addRow(QStringLiteral("Heading sizes"), headingSizes);
+  wysiwygCodeFont_ = new QFontComboBox(typography);
+  typographyForm->addRow(QStringLiteral("Code font"), wysiwygCodeFont_);
+  wysiwygCodeSize_ = new QSpinBox(typography);
+  wysiwygCodeSize_->setRange(6, 72);
+  typographyForm->addRow(QStringLiteral("Code size"), wysiwygCodeSize_);
+  wysiwygQuoteFont_ = new QFontComboBox(typography);
+  typographyForm->addRow(QStringLiteral("Quote font"), wysiwygQuoteFont_);
+  wysiwygQuoteSize_ = new QSpinBox(typography);
+  wysiwygQuoteSize_->setRange(6, 72);
+  typographyForm->addRow(QStringLiteral("Quote size"), wysiwygQuoteSize_);
+  wysiwygQuoteItalic_ =
+      new QCheckBox(QStringLiteral("Italic quotes"), typography);
+  typographyForm->addRow(wysiwygQuoteItalic_);
+  pageLayout->addWidget(typography);
+  pageLayout->addStretch();
   tabs->addTab(page, QStringLiteral("Page"));
 
   auto* shortcutPage = new QWidget(tabs);
@@ -128,6 +175,22 @@ SettingsDialog::SettingsDialog(const QStringList& languages, QWidget* parent)
   marginRight_->setObjectName(QStringLiteral("settingsMarginRight"));
   marginBottom_->setObjectName(QStringLiteral("settingsMarginBottom"));
   marginLeft_->setObjectName(QStringLiteral("settingsMarginLeft"));
+  wysiwygBodyFont_->setObjectName(QStringLiteral("settingsWysiwygBodyFont"));
+  wysiwygBodySize_->setObjectName(QStringLiteral("settingsWysiwygBodySize"));
+  wysiwygHeadingFont_->setObjectName(
+      QStringLiteral("settingsWysiwygHeadingFont"));
+  wysiwygHeadingBold_->setObjectName(
+      QStringLiteral("settingsWysiwygHeadingBold"));
+  for (int level = 0; level < 6; ++level) {
+    wysiwygHeadingSizes_[size_t(level)]->setObjectName(
+        QStringLiteral("settingsWysiwygHeading%1Size").arg(level + 1));
+  }
+  wysiwygCodeFont_->setObjectName(QStringLiteral("settingsWysiwygCodeFont"));
+  wysiwygCodeSize_->setObjectName(QStringLiteral("settingsWysiwygCodeSize"));
+  wysiwygQuoteFont_->setObjectName(QStringLiteral("settingsWysiwygQuoteFont"));
+  wysiwygQuoteSize_->setObjectName(QStringLiteral("settingsWysiwygQuoteSize"));
+  wysiwygQuoteItalic_->setObjectName(
+      QStringLiteral("settingsWysiwygQuoteItalic"));
   shortcuts_->setObjectName(QStringLiteral("settingsShortcuts"));
 }
 
@@ -149,6 +212,31 @@ void SettingsDialog::setValues(const Settings& settings) {
   marginRight_->setValue(settings.page.marginRightMm);
   marginBottom_->setValue(settings.page.marginBottomMm);
   marginLeft_->setValue(settings.page.marginLeftMm);
+  const auto bodyFamily = settings.wysiwyg.bodyFontFamily.trimmed().isEmpty()
+                              ? settings.editorFontFamily
+                              : settings.wysiwyg.bodyFontFamily;
+  wysiwygBodyFont_->setCurrentFont(QFont(bodyFamily));
+  wysiwygBodySize_->setValue(settings.wysiwyg.bodyFontSize);
+  wysiwygHeadingFont_->setCurrentFont(QFont(
+      settings.wysiwyg.headingFontFamily.trimmed().isEmpty()
+          ? bodyFamily
+          : settings.wysiwyg.headingFontFamily));
+  wysiwygHeadingBold_->setChecked(settings.wysiwyg.headingBold);
+  for (int level = 0; level < 6; ++level) {
+    wysiwygHeadingSizes_[size_t(level)]->setValue(
+        settings.wysiwyg.headingSizes[size_t(level)]);
+  }
+  wysiwygCodeFont_->setCurrentFont(
+      settings.wysiwyg.codeFontFamily.trimmed().isEmpty()
+          ? QFontDatabase::systemFont(QFontDatabase::FixedFont)
+          : QFont(settings.wysiwyg.codeFontFamily));
+  wysiwygCodeSize_->setValue(settings.wysiwyg.codeFontSize);
+  wysiwygQuoteFont_->setCurrentFont(QFont(
+      settings.wysiwyg.quoteFontFamily.trimmed().isEmpty()
+          ? bodyFamily
+          : settings.wysiwyg.quoteFontFamily));
+  wysiwygQuoteSize_->setValue(settings.wysiwyg.quoteFontSize);
+  wysiwygQuoteItalic_->setChecked(settings.wysiwyg.quoteItalic);
   QStringList lines;
   for (auto it = settings.shortcuts.begin(); it != settings.shortcuts.end();
        ++it) {
@@ -209,6 +297,20 @@ Settings SettingsDialog::collect() const {
   settings.page.marginRightMm = marginRight_->value();
   settings.page.marginBottomMm = marginBottom_->value();
   settings.page.marginLeftMm = marginLeft_->value();
+  settings.wysiwyg.bodyFontFamily = wysiwygBodyFont_->currentFont().family();
+  settings.wysiwyg.bodyFontSize = wysiwygBodySize_->value();
+  settings.wysiwyg.headingFontFamily =
+      wysiwygHeadingFont_->currentFont().family();
+  settings.wysiwyg.headingBold = wysiwygHeadingBold_->isChecked();
+  for (int level = 0; level < 6; ++level) {
+    settings.wysiwyg.headingSizes[size_t(level)] =
+        wysiwygHeadingSizes_[size_t(level)]->value();
+  }
+  settings.wysiwyg.codeFontFamily = wysiwygCodeFont_->currentFont().family();
+  settings.wysiwyg.codeFontSize = wysiwygCodeSize_->value();
+  settings.wysiwyg.quoteFontFamily = wysiwygQuoteFont_->currentFont().family();
+  settings.wysiwyg.quoteFontSize = wysiwygQuoteSize_->value();
+  settings.wysiwyg.quoteItalic = wysiwygQuoteItalic_->isChecked();
   if (const auto shortcuts = parseShortcuts(nullptr)) {
     settings.shortcuts = *shortcuts;
   }

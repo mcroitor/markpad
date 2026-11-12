@@ -11,8 +11,9 @@ owner sign-off.
 | `markdown.png` | Markdown mode, light theme, fixture loaded. |
 | `continuous.png` | Continuous WYSIWYG, light theme, menu closed. |
 | `paged.png` | Paged WYSIWYG, light theme, page count visible. |
-| `settings.png` | Settings dialog with deferred Auto Save and Line Numbers controls. |
-| `dark/*.png` | The same four views with the dark theme selected. |
+| `settings.png` | Settings dialog General tab with deferred Auto Save. |
+| `settings-page.png` | Settings Page tab with page setup and per-block WYSIWYG typography controls. |
+| `dark/*.png` | The same views with the dark theme selected. |
 | `print-to-pdf.pdf` | Output from Microsoft Print to PDF through the native print dialog. |
 | `print-to-pdf.txt` | `pdftotext` extraction of the printed PDF for quick content review. |
 | `fixture.md` | Source fixture used for the screenshots and print check. |

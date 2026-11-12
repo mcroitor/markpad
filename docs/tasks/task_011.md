@@ -97,9 +97,9 @@ Markpad должен работать на Windows и Linux, открывать/
 - QA follow-up (2026-11-12): исправлена подсветка `**bold**` в Markdown-редакторе
   (больше не отображается как italic); Settings dialog переведён на вкладки
   General/Editor/Page/Shortcut и покрыт GUI-тестом.
-- WYSIWYG typography settings и настоящая постраничная поверхность выделены в
-  [Task 043](task_043.md) и [Task 044](task_044.md); оба пункта блокируют release
-  до выбора и реализации.
+- WYSIWYG typography settings реализованы в [Task 043](task_043.md) (per-block
+  controls на Page); настоящая постраничная поверхность выделена в
+  [Task 044](task_044.md) и остаётся release-блокером до реализации.
 - Physical printer, Linux CUPS, native File Open/Save/Save As, unsaved-close,
   SDI routing, oversized-block overflow, Linux native visual QA и owner sign-off
   остаются незакрытыми. PR не создан: GitHub CLI token не имеет permission на

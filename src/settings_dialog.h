@@ -4,6 +4,7 @@
 #include <QDialog>
 #include <QMap>
 #include <QStringList>
+#include <array>
 #include <optional>
 
 #include "settings.h"
@@ -48,6 +49,16 @@ class SettingsDialog final : public QDialog {
   QDoubleSpinBox* marginRight_;
   QDoubleSpinBox* marginBottom_;
   QDoubleSpinBox* marginLeft_;
+  QFontComboBox* wysiwygBodyFont_;
+  QSpinBox* wysiwygBodySize_;
+  QFontComboBox* wysiwygHeadingFont_;
+  QCheckBox* wysiwygHeadingBold_;
+  std::array<QSpinBox*, 6> wysiwygHeadingSizes_{};
+  QFontComboBox* wysiwygCodeFont_;
+  QSpinBox* wysiwygCodeSize_;
+  QFontComboBox* wysiwygQuoteFont_;
+  QSpinBox* wysiwygQuoteSize_;
+  QCheckBox* wysiwygQuoteItalic_;
   QPlainTextEdit* shortcuts_;
 };
 

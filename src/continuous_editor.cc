@@ -100,6 +100,25 @@ QColor ruleForeground(const QPalette& palette) {
   return darkPalette(palette) ? QColor(160, 160, 160) : QColor(120, 120, 120);
 }
 
+QFont configuredCodeFont(const WysiwygStyle& style) {
+  QFont font = style.codeFontFamily.trimmed().isEmpty()
+                   ? QFontDatabase::systemFont(QFontDatabase::FixedFont)
+                   : QFont(style.codeFontFamily);
+  font.setStyleHint(QFont::Monospace);
+  font.setPointSize(std::clamp(style.codeFontSize, 6, 72));
+  return font;
+}
+
+void applyHeadingStyle(QTextCharFormat& format, const WysiwygStyle& style,
+                       int level) {
+  if (!style.headingFontFamily.trimmed().isEmpty()) {
+    format.setFontFamilies(QStringList{style.headingFontFamily});
+  }
+  format.setFontWeight(style.headingBold ? QFont::Bold : QFont::Normal);
+  format.setFontPointSize(std::clamp(
+      style.headingSizes[size_t(std::clamp(level, 1, 6) - 1)], 6, 96));
+}
+
 std::optional<QString> codeDisplay(const QByteArray& bytes) {
   QStringDecoder decoder(QStringConverter::Utf8);
   QString text = decoder(bytes);
@@ -248,9 +267,7 @@ void ContinuousEditor::renderCodeBlock(size_t index, QTextCursor& cursor,
   const int start = cursor.position();
   const auto palette = QApplication::palette();
   QTextCharFormat format;
-  auto font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-  font.setStyleHint(QFont::Monospace);
-  format.setFont(font);
+  format.setFont(configuredCodeFont(style_));
   format.setForeground(codeForeground(palette));
   format.setBackground(codeBackground(palette));
   format.setToolTip(QStringLiteral(
@@ -402,8 +419,13 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
     QTextCharFormat format;
     if (node.type == MD_BLOCK_H) {
       const int level = std::clamp(node.attributes["level"].toInt(), 1, 6);
-      format.setFontWeight(QFont::Bold);
-      format.setFontPointSize(24 - level * 2);
+      applyHeadingStyle(format, style_, level);
+    } else if (quote.has_value()) {
+      if (!style_.quoteFontFamily.trimmed().isEmpty()) {
+        format.setFontFamilies(QStringList{style_.quoteFontFamily});
+      }
+      format.setFontItalic(style_.quoteItalic);
+      format.setFontPointSize(std::clamp(style_.quoteFontSize, 6, 72));
     }
     if (!prefix.isEmpty()) {
       const auto palette = QApplication::palette();
@@ -486,9 +508,7 @@ void ContinuousEditor::renderInline(size_t index, QTextCursor& cursor,
               !value.contains(QChar::ParagraphSeparator) &&
               !value.contains(QChar::LineSeparator)) {
             auto codeFormat = format;
-            auto font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-            font.setStyleHint(QFont::Monospace);
-            codeFormat.setFont(font);
+            codeFormat.setFont(configuredCodeFont(style_));
             codeFormat.setForeground(codeForeground(palette));
             codeFormat.setBackground(codeBackground(palette));
             codeFormat.setToolTip(QStringLiteral("Editable inline code"));

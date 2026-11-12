@@ -2,10 +2,11 @@
 
 ## Статус и владелец
 
-- Статус: `Draft`.
+- Статус: `Ready`.
 - Владелец: архитектор/координатор; `cpp-developer`, `test-writer`, при необходимости
   `frontend-designer`.
 - Приоритет: P1 (release blocker после QA).
+- Решение владельца (2026-11-12): вариант A, incremental page sheets.
 
 ## Контекст
 
@@ -41,7 +42,11 @@ page surface с расчётом позиционирования блоков.
 - WYSIWYG typography settings (Task 043).
 - Печать на физическом принтере и CI-инфраструктура.
 
-## Варианты архитектуры (нужно решение)
+## Выбранная архитектура
+
+**A. Один editable document + page-break spacer blocks (инкрементальный).**
+Реализуется как первый release milestone; per-page canvases (B) остаются
+возможным последующим развитием, если визуальная модель A окажется недостаточной.
 
 ### A. Один editable document + page-break spacer blocks (инкрементальный)
 
@@ -106,14 +111,20 @@ editable rich-text canvas; scroll area показывает листы с про
 ## Зависимости и открытые вопросы
 
 - Зависимости: Tasks 005, 006; Task 043 для итоговой типографики.
-- Нужно выбрать вариант A или B. C/D не рекомендуются.
-- Нужно определить, допустим ли промежуточный вариант A как release milestone
-  или требуется только B.
+- Выбрано: A как release milestone; B (per-page canvases) — возможное later
+  развитие, если A не удовлетворит acceptance.
 
 ## Исполнительский промпт
 
-Не сформирован до выбора архитектуры страниц.
+Реализуй выбранный вариант A в `PageTextEdit`/`ContinuousEditor`: построй
+page sheets с полями, промежутками и номерами из `PageLayoutEngine`, добавь
+блоковые page-break spacing на границах страниц, не меняя GFM source bytes,
+token, undo/redo и mapping. Не добавляй неразрывный split блока; oversized
+block должен по-прежнему давать overflow warning. Покрой тестами многостраничный
+fixture, навигацию, page setup и round-trip; обнови README/ARCHITECTURE и
+screenshots. Если mapping или editing ломается, остановись и верни отчёт с
+конкретным blocker вместо частичной имитации страниц.
 
 ## Итог выполнения
 
-Ожидает решения владельца. Код не изменялся.
+Ожидает реализации. Код не изменялся.

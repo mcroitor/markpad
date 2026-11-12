@@ -483,6 +483,18 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(dialog.findChild<QWidget*>(QStringLiteral("settingsEditorTab")));
     QVERIFY(dialog.findChild<QWidget*>(QStringLiteral("settingsPageTab")));
     QVERIFY(dialog.findChild<QWidget*>(QStringLiteral("settingsShortcutTab")));
+    QVERIFY(dialog.findChild<QWidget*>(
+        QStringLiteral("settingsWysiwygBodyFont")));
+    QVERIFY(dialog.findChild<QWidget*>(
+        QStringLiteral("settingsWysiwygBodySize")));
+    QVERIFY(dialog.findChild<QWidget*>(
+        QStringLiteral("settingsWysiwygHeading1Size")));
+    QVERIFY(dialog.findChild<QWidget*>(
+        QStringLiteral("settingsWysiwygHeading6Size")));
+    QVERIFY(dialog.findChild<QWidget*>(
+        QStringLiteral("settingsWysiwygCodeFont")));
+    QVERIFY(dialog.findChild<QWidget*>(
+        QStringLiteral("settingsWysiwygQuoteFont")));
   }
 
   void continuousTextAndHistory() {
@@ -1945,6 +1957,46 @@ class MainWindowSmokeTest : public QObject {
                 .lightness() < 128);
     settings.theme = Theme::kLight;
     QVERIFY2(window->applySettings(settings, &error), qPrintable(error));
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousTypographySettings() {
+    const QByteArray source =
+        "# Heading\n\nparagraph\n\n> quote\n\n```\ncode\n```\n\n`inline`\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    QVERIFY(window->setContinuousMode(true));
+    Settings settings;
+    settings.wysiwyg.bodyFontSize = 18;
+    settings.wysiwyg.headingBold = false;
+    settings.wysiwyg.headingSizes = {40, 32, 26, 21, 18, 15};
+    settings.wysiwyg.codeFontSize = 19;
+    settings.wysiwyg.quoteFontSize = 17;
+    settings.wysiwyg.quoteItalic = true;
+    QString error;
+    QVERIFY2(window->applySettings(settings, &error), qPrintable(error));
+    auto* rich = window->continuousEditor()->editor();
+    QCOMPARE(rich->font().pointSize(), 18);
+    auto cursor = rich->document()->find(QStringLiteral("Heading"));
+    QVERIFY(!cursor.isNull());
+    QCOMPARE(cursor.charFormat().fontPointSize(), 40.0);
+    QVERIFY(cursor.charFormat().fontWeight() < QFont::Bold);
+    cursor = rich->document()->find(QStringLiteral("quote"));
+    QVERIFY(!cursor.isNull());
+    QCOMPARE(cursor.charFormat().fontPointSize(), 17.0);
+    QVERIFY(cursor.charFormat().fontItalic());
+    cursor = rich->document()->find(QStringLiteral("code"));
+    QVERIFY(!cursor.isNull());
+    QCOMPARE(cursor.charFormat().fontPointSize(), 19.0);
+    cursor = rich->document()->find(QStringLiteral("inline"));
+    QVERIFY(!cursor.isNull());
+    QCOMPARE(cursor.charFormat().fontPointSize(), 19.0);
+    QVERIFY(window->setPagedMode(true));
+    cursor = rich->document()->find(QStringLiteral("Heading"));
+    QVERIFY(!cursor.isNull());
+    QCOMPARE(cursor.charFormat().fontPointSize(), 40.0);
     QVERIFY(dialogs.errors.empty());
   }
 

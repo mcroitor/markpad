@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QKeySequence>
@@ -19,6 +20,8 @@ constexpr double kMinMargin = 0.0;
 constexpr double kMaxMargin = 200.0;
 constexpr int kMinFont = 6;
 constexpr int kMaxFont = 48;
+constexpr int kMaxWysiwygFont = 72;
+constexpr int kMaxHeadingFont = 96;
 
 QString defaultConfigRoot() {
   auto root = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
@@ -35,6 +38,41 @@ QJsonObject pageObject(const PageSetup& page) {
           {"marginRightMm", page.marginRightMm},
           {"marginBottomMm", page.marginBottomMm},
           {"marginLeftMm", page.marginLeftMm}};
+}
+
+QJsonObject wysiwygObject(const WysiwygStyle& style) {
+  QJsonArray headingSizes;
+  for (const auto size : style.headingSizes) {
+    headingSizes.push_back(size);
+  }
+  return {{"bodyFontFamily", style.bodyFontFamily},
+          {"bodyFontSize", style.bodyFontSize},
+          {"headingFontFamily", style.headingFontFamily},
+          {"headingBold", style.headingBold},
+          {"headingSizes", headingSizes},
+          {"codeFontFamily", style.codeFontFamily},
+          {"codeFontSize", style.codeFontSize},
+          {"quoteFontFamily", style.quoteFontFamily},
+          {"quoteFontSize", style.quoteFontSize},
+          {"quoteItalic", style.quoteItalic}};
+}
+
+int boundedInt(const QJsonObject& object, const char* key, int fallback,
+               int minimum, int maximum, QString* diagnostic) {
+  if (!object.contains(QLatin1String(key))) {
+    return fallback;
+  }
+  const auto value = object.value(QLatin1String(key));
+  if (!value.isDouble() || value.toInt() < minimum ||
+      value.toInt() > maximum) {
+    if (diagnostic) {
+      *diagnostic += QStringLiteral("Invalid %1; using %2. ")
+                         .arg(QLatin1String(key))
+                         .arg(fallback);
+    }
+    return fallback;
+  }
+  return value.toInt();
 }
 
 double number(const QJsonObject& object, const char* key, double fallback) {
@@ -314,6 +352,53 @@ SettingsLoadResult SettingsService::load() const {
           number(page, "marginLeftMm", settings.page.marginLeftMm);
     }
   }
+  if (object.value(QStringLiteral("wysiwyg")).isObject()) {
+    const auto wysiwyg =
+        object.value(QStringLiteral("wysiwyg")).toObject();
+    auto& style = settings.wysiwyg;
+    style.bodyFontFamily =
+        wysiwyg.value(QStringLiteral("bodyFontFamily")).toString();
+    style.headingFontFamily =
+        wysiwyg.value(QStringLiteral("headingFontFamily")).toString();
+    style.codeFontFamily =
+        wysiwyg.value(QStringLiteral("codeFontFamily")).toString();
+    style.quoteFontFamily =
+        wysiwyg.value(QStringLiteral("quoteFontFamily")).toString();
+    style.bodyFontSize =
+        boundedInt(wysiwyg, "bodyFontSize", style.bodyFontSize, kMinFont,
+                   kMaxWysiwygFont, &result.diagnostic);
+    style.codeFontSize =
+        boundedInt(wysiwyg, "codeFontSize", style.codeFontSize, kMinFont,
+                   kMaxWysiwygFont, &result.diagnostic);
+    style.quoteFontSize =
+        boundedInt(wysiwyg, "quoteFontSize", style.quoteFontSize, kMinFont,
+                   kMaxWysiwygFont, &result.diagnostic);
+    style.headingBold =
+        wysiwyg.value(QStringLiteral("headingBold")).toBool(true);
+    style.quoteItalic =
+        wysiwyg.value(QStringLiteral("quoteItalic")).toBool(false);
+    const auto sizes = wysiwyg.value(QStringLiteral("headingSizes"));
+    if (sizes.isArray() && sizes.toArray().size() == 6) {
+      const auto values = sizes.toArray();
+      bool valid = true;
+      for (int index = 0; index < values.size(); ++index) {
+        if (!values.at(index).isDouble() ||
+            values.at(index).toInt() < kMinFont ||
+            values.at(index).toInt() > kMaxHeadingFont) {
+          valid = false;
+          break;
+        }
+      }
+      if (valid) {
+        for (int index = 0; index < values.size(); ++index) {
+          style.headingSizes[size_t(index)] = values.at(index).toInt();
+        }
+      } else {
+        result.diagnostic +=
+            QStringLiteral("Invalid heading sizes; using defaults. ");
+      }
+    }
+  }
   if (object.value(QStringLiteral("shortcuts")).isObject()) {
     const auto shortcuts =
         object.value(QStringLiteral("shortcuts")).toObject();
@@ -350,6 +435,7 @@ std::optional<QString> SettingsService::save(const Settings& settings) const {
       {"wordWrap", settings.wordWrap},
       {"defaultFileLocation", settings.defaultFileLocation},
       {"page", page},
+      {"wysiwyg", wysiwygObject(settings.wysiwyg)},
       {"shortcuts", shortcuts},
   };
   QSaveFile file(configPath());

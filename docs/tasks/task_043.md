@@ -2,9 +2,10 @@
 
 ## Статус и владелец
 
-- Статус: `Draft`.
-- Владелец: архитектор/координатор; `cpp-developer` и `test-writer` после выбора модели.
+- Статус: `Done`.
+- Владелец: архитектор/координатор; `cpp-developer` и `test-writer`.
 - Приоритет: P1 (release blocker после QA).
+- Решения владельца (2026-11-12): per-block style controls; размещение — вкладка Page.
 
 ## Контекст
 
@@ -43,14 +44,12 @@ WYSIWYG-режим использует собственные жёстко за
 - Markdown-редактор сохраняет собственные font family/size.
 - Решения о WYSIWYG-типографике не должны менять source/token/history contract.
 
-## Варианты модели (нужно решение)
+## Выбранная модель
 
-- **A (рекомендуется):** WYSIWYG font family + base size; H1–H6, code, quote и
-  inline code вычисляются из base size по документированной шкале.
-- **B:** отдельные контролы для body, H1–H6, code и quote (больше UI и настроек).
-- **C:** только базовый размер/множитель, семейство наследуется от Markdown
-  editor font.
-- **D:** пресеты Compact/Normal/Large + base family/size.
+- **B: per-block style controls.** Отдельные настройки для body, заголовков,
+  H1–H6, code и quote; контролы размещаются на вкладке Page.
+- Семейство body/heading/code/quote, размеры, heading bold и quote italic
+  сохраняются в `settings.json` и применяются к обоим WYSIWYG-режимам.
 
 ## Критерии приёмки
 
@@ -74,14 +73,21 @@ WYSIWYG-режим использует собственные жёстко за
 ## Зависимости и открытые вопросы
 
 - Зависимости: Tasks 005, 009.
-- Нужно выбрать вариант A/B/C/D и место контролов: вкладка Editor или отдельная
-  вкладка WYSIWYG.
-- Нужно подтвердить, должны ли H1–H6 настраиваться отдельно.
+- Выбрано: per-block controls на вкладке Page; H1–H6 настраиваются отдельно.
 
 ## Исполнительский промпт
 
-Не сформирован до выбора модели типографики и места контролов.
+Реализованы per-block controls на вкладке Page по решению владельца; отдельный
+промпт не требовался после уточнения модели.
 
 ## Итог выполнения
 
-Ожидает решения владельца. Код не изменялся.
+- Добавлены `WysiwygStyle` и поля body/heading/H1–H6/code/quote в Settings;
+  старые `settings.json` загружаются с defaults.
+- На вкладке Page добавлены font family/size controls для body, заголовков,
+  code и quote, а также heading bold и quote italic.
+- Continuous и paged WYSIWYG применяют эти стили; zoom масштабирует размеры.
+- Добавлены Settings round-trip/fallback tests и GUI-тесты
+  `continuousTypographySettings` / `settingsDialogUsesTabs`.
+- Windows CTest 7/7; CI для предыдущего commit зелёный. Финальный CI для этого
+  изменения запускается после push.
