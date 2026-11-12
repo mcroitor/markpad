@@ -21,7 +21,9 @@ remote CI and owner sign-off are still required.
 - [x] Ubuntu Release configure/build/CTest.
 - [x] Linux ASan/UBSan/leaks CTest.
 - [x] MD4C regression suite (part of CTest on both platforms).
-- [ ] GitHub Actions Linux and Windows jobs green on the pushed branch/PR.
+- [x] GitHub Actions Linux and Windows jobs green on the pushed branch:
+      run [43155710816](https://github.com/mcroitor/markpad/actions/runs/43155710816),
+      commit `d769c68`.
 
 ## Native visual QA
 
@@ -67,8 +69,10 @@ Owner sign-off: ____________________  Date: __________
       notices available under `licenses/`.
 - [x] Package runs from a clean directory with Qt removed from `PATH`.
 - [ ] Smoke-open, edit, save, switch modes, and export from the portable package.
-- [x] Local artifact checksum generated (`markpad.exe.sha256`); final CI artifact
-      checksum remains to be recorded.
+- [x] CI artifact recorded: 176 files, `markpad.exe` SHA-256
+      `5162839752ea55857f97caf35f89b1fd78ff4b832eabdfa49ed47b9157fc6676`,
+      from commit `d769c68` / Qt 6.12.0. The artifact launches with Qt removed
+      from `PATH`.
 
 ## Known limitations accepted for this release
 
@@ -86,7 +90,7 @@ Owner sign-off: ____________________  Date: __________
 
 ## Release decision
 
-- [ ] All mandatory automated gates pass.
+- [x] All mandatory automated gates pass.
 - [ ] Owner visual sign-off recorded.
 - [ ] Portable package smoke test passes.
 - [ ] Known limitations reviewed and accepted.

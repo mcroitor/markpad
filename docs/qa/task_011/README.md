@@ -16,6 +16,7 @@ owner sign-off.
 | `print-to-pdf.pdf` | Output from Microsoft Print to PDF through the native print dialog. |
 | `print-to-pdf.txt` | `pdftotext` extraction of the printed PDF for quick content review. |
 | `fixture.md` | Source fixture used for the screenshots and print check. |
+| `ci-artifact.txt` | Final GitHub Actions run, artifact checksum and clean-PATH launch evidence. |
 
 ## Findings and follow-up
 

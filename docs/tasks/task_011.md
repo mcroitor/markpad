@@ -89,8 +89,15 @@ Markpad должен работать на Windows и Linux, открывать/
 - Microsoft Print to PDF выполнен: получен читаемый A4 PDF. Paged view показал
   3 страницы, print/PDF — 2 страницы; это известное ограничение Task 008
   (PageLayoutEngine vs Qt text layout), требуется owner sign-off.
-- Remote CI ещё не запускался; PR нужно создать после push. Physical printer,
-  Linux CUPS, native File Open/Save/Save As, unsaved-close, SDI routing,
-  oversized-block overflow и Linux native visual QA остаются незакрытыми.
-- Решение о готовности: `Blocked`/не заявляется до зелёного remote CI и ручного
-  owner sign-off; функциональная зависимость 005 больше не блокирует задачу.
+- Remote CI green: run `43155710816` на commit `d769c68`; Linux Debug/Release,
+  Linux ASan/UBSan, Windows Debug и Windows Release portable прошли. CI artifact
+  `markpad-0.1.0-windows-ucrt64` содержит 176 файлов, `markpad.exe` SHA-256
+  `5162839752ea55857f97caf35f89b1fd78ff4b832eabdfa49ed47b9157fc6676`,
+  запускается без Qt в `PATH`.
+- Physical printer, Linux CUPS, native File Open/Save/Save As, unsaved-close,
+  SDI routing, oversized-block overflow, Linux native visual QA и owner sign-off
+  остаются незакрытыми. PR не создан: GitHub CLI token не имеет permission на
+  создание PR; ветка запушена и CI уже прошёл.
+- Решение о готовности: `In Progress`/не заявляется до owner sign-off и
+  оставшихся ручных проверок; автоматические ворота и functional dependency 005
+  больше не блокируют задачу.
