@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Ready`.
+- Статус: `Done`.
 - Владелец: архитектор/координатор; `cpp-developer`, `test-writer`.
 - Приоритет: P1 (release blocker по owner QA).
 - Источник: [release checklist, Toolbar](../release_checklist.md#toolbar).
@@ -80,4 +80,14 @@
 
 ## Итог выполнения
 
-Ожидает реализации.
+- Markdown toolbar actions теперь работают с исходником: bold/italic/strike
+  wrap/toggle, heading/paragraph, blockquote, ordered/unordered list, code,
+  horizontal rule, link, image и table.
+- Неподдерживаемые в Markdown действия остаются disabled с tooltip; actions
+  используют существующий source/history pipeline.
+- Heading, List и Switch Mode toolbar buttons переведены в `InstantPopup`,
+  поэтому dropdown открывается по клику.
+- Добавлены GUI-тесты `markdownToolbarActions` и `markdownToolbarInsertions`:
+  bold/heading/list, popup mode, link/table/code insertion.
+- Windows Debug CTest 7/7; release build проверяется перед merge.
+- Ветка `feature/task_048`; требуется remote CI/merge.

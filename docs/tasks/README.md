@@ -53,7 +53,7 @@
 | 045 | Dark theme: меню и Settings readability | Done | 009; owner QA; non-native menu + dark QSS |
 | 046 | WYSIWYG backgrounds, code blocks и table fit | Done | 005, 006, 043; shared renderer |
 | 047 | PDF export layout parity | Blocked | 044, 046; ждёт page surface |
-| 048 | Toolbar actions и dropdown menus | Ready | 004, 032 |
+| 048 | Toolbar actions и dropdown menus | Done | 004, 032; Markdown source actions |
 | 049 | Shortcut settings: actions/defaults | Ready | 009 |
 
 ```text

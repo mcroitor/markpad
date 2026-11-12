@@ -78,6 +78,15 @@ class MainWindow final : public QMainWindow {
     int viewPosition;
   };
   bool applySource(const std::string& source, int cursor);
+  void applyMarkdownInline(markdown::InlineStyle style);
+  void applyMarkdownHeading(int level);
+  void toggleMarkdownBlockquote();
+  void changeMarkdownListKind(bool ordered);
+  void insertMarkdownCode();
+  void insertMarkdownHorizontalRule();
+  void insertMarkdownLink();
+  void insertMarkdownImage();
+  void insertMarkdownTable(size_t columns, size_t rows);
   void editorChanged();
   void refreshEditor(int cursor = 0);
   void refreshState();
