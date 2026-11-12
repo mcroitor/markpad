@@ -2,8 +2,12 @@
 
 #include <QAbstractTextDocumentLayout>
 #include <QTextBlock>
+#include <QTextCursor>
 #include <QTextDocument>
+#include <QTextTable>
+#include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace markpad {
 namespace {
@@ -79,10 +83,51 @@ PageLayoutResult PageLayoutEngine::layout(const QTextDocument& document,
   };
   addPage();
 
+  struct BlockInfo {
+    QTextBlock block;
+    QRectF rect;
+    int unit = 0;
+    QTextTable* table = nullptr;
+    qreal bottomMargin = 0.0;
+  };
+  std::vector<BlockInfo> blocks;
   for (auto block = document.begin(); block.isValid(); block = block.next()) {
     const auto rect = layout->blockBoundingRect(block);
-    const auto height = rect.height();
+    if (rect.height() <= 0.0) {
+      continue;
+    }
+    const auto format = block.blockFormat();
+    const auto unit = format.hasProperty(kPageUnitProperty)
+                          ? format.intProperty(kPageUnitProperty)
+                          : 0;
+    QTextTable* table = nullptr;
+    {
+      QTextCursor cursor(block);
+      table = cursor.currentTable();
+    }
+    blocks.push_back({block, rect, unit, table, format.bottomMargin()});
+  }
+
+  for (size_t index = 0; index < blocks.size();) {
+    size_t end = index;
+    if (blocks[index].table) {
+      while (end + 1 < blocks.size() &&
+             blocks[end + 1].table == blocks[index].table) {
+        ++end;
+      }
+    } else if (blocks[index].unit != 0) {
+      while (end + 1 < blocks.size() &&
+             blocks[end + 1].table == nullptr &&
+             blocks[end + 1].unit == blocks[index].unit) {
+        ++end;
+      }
+    }
+    const auto top = blocks[index].rect.top();
+    const auto bottom =
+        blocks[end].rect.bottom() + blocks[end].bottomMargin;
+    const auto height = std::max(0.0, bottom - top);
     if (height <= 0.0) {
+      index = end + 1;
       continue;
     }
     const bool oversized = height > content.height();
@@ -92,7 +137,8 @@ PageLayoutResult PageLayoutEngine::layout(const QTextDocument& document,
       cursorY = 0.0;
     }
     BlockPlacement placement;
-    placement.block = block.blockNumber();
+    placement.block = blocks[index].block.blockNumber();
+    placement.endBlock = blocks[end].block.blockNumber();
     placement.page = pageIndex;
     placement.overflow = oversized;
     placement.rect = QRectF(0.0, cursorY, content.width(), height);
@@ -106,6 +152,7 @@ PageLayoutResult PageLayoutEngine::layout(const QTextDocument& document,
       }
     }
     cursorY += height;
+    index = end + 1;
   }
   return result;
 }
@@ -115,7 +162,7 @@ int PageLayoutEngine::pageForPosition(const QTextDocument& document,
   const auto result = layout(document, setup);
   const auto block = document.findBlock(position).blockNumber();
   for (const auto& placement : result.placements) {
-    if (placement.block == block) {
+    if (block >= placement.block && block <= placement.endBlock) {
       return placement.page;
     }
   }

@@ -28,6 +28,7 @@
 
 #include "application_controller.h"
 #include "continuous_editor.h"
+#include "page_text_edit.h"
 #include "settings_dialog.h"
 
 namespace markpad {
@@ -1239,6 +1240,50 @@ class MainWindowSmokeTest : public QObject {
     QApplication::clipboard()->clear();
   }
 
+  void pagedPageSheets() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    QByteArray source;
+    for (int i = 0; i < 140; ++i) {
+      source += "Paragraph " + QByteArray::number(i) + "\n\n";
+    }
+    window->editor()->setPlainText(QString::fromUtf8(source));
+    const auto before = window->session().snapshot();
+    QVERIFY(window->setPagedMode(true));
+    auto* paged =
+        dynamic_cast<PageTextEdit*>(window->continuousEditor()->editor());
+    QVERIFY(paged);
+    QVERIFY(paged->pageCount() >= 2);
+    QVERIFY(paged->viewportPageMargins().left() > 0);
+    const auto layout = paged->pageLayout();
+    QVERIFY(layout.pages.size() >= 2);
+    int firstSecondPage = -1;
+    for (const auto& placement : layout.placements) {
+      if (placement.page == 1) {
+        firstSecondPage = placement.block;
+        break;
+      }
+    }
+    QVERIFY(firstSecondPage >= 0);
+    const auto block = paged->document()->findBlockByNumber(firstSecondPage);
+    QVERIFY(block.blockFormat().topMargin() > 0.0);
+    QCOMPARE(window->session().snapshot().source, before.source);
+    QCOMPARE(window->session().snapshot().token.revision,
+             before.token.revision);
+
+    auto cursor = paged->document()->find(QStringLiteral("Paragraph 0"));
+    QVERIFY(!cursor.isNull());
+    cursor.movePosition(QTextCursor::EndOfBlock);
+    paged->setTextCursor(cursor);
+    paged->insertPlainText(QStringLiteral(" edited"));
+    QVERIFY(window->session().snapshot().source.find("Paragraph 0 edited") !=
+            std::string::npos);
+    QVERIFY(window->session().dirty());
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, before.source);
+    QVERIFY(dialogs.errors.empty());
+  }
   void pagedModeLayoutAndSettings() {
     TestDialogs dialogs;
     ApplicationController controller(dialogs);

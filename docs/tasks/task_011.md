@@ -81,3 +81,11 @@ Markpad должен работать на Windows и Linux, открывать/
 - Physical printer, Linux CUPS, Linux native visual QA, owner visual sign-off и   явное принятие paged/PDF page-count divergence остаются незакрытыми.
 - PR не создан: GitHub CLI token не имеет permission на создание PR; ветка   `feature/task_011-followup` запушена, CI прошёл.
 - Решение о готовности: `In Progress`/не заявляется до owner sign-off,   Tasks 044–049 и оставшихся ручных проверок; автоматические ворота и functional   dependency 005 больше не блокируют задачу.
+
+## Update 2026-11-12: Task 044 page sheets
+
+Task 044's Option A page-sheet implementation is complete locally: centered
+page sheets, desk gaps, page numbers, source/token-preserving page-break
+spacing, and atomic table/fenced-code placement. Evidence is in
+`docs/qa/task_044/`. Task 011 remains `In Progress` until owner visual sign-off
+and Task 047 PDF-parity/owner acceptance are complete.

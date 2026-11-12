@@ -122,6 +122,7 @@ void applyCodeBlockBackground(QTextCursor cursor, int start, int end,
        block.isValid() && block.position() < end; block = block.next()) {
     auto format = block.blockFormat();
     format.setBackground(color);
+    format.setProperty(kPageUnitProperty, start + 1);
     format.setTopMargin(0);
     format.setBottomMargin(block.next().isValid() &&
                                    block.next().position() < end
@@ -230,6 +231,9 @@ QString ContinuousEditor::render(const DocumentSnapshot& snapshot) {
   renderedText_ = rawText(editor_);
   change_.reset();
   notice_->setText(kNotice);
+  if (paged_) {
+    editor_->refreshPageLayout();
+  }
   rendering_ = false;
   return parsed.error;
 }
