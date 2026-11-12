@@ -29,6 +29,9 @@ page surface с расчётом позиционирования блоков.
 - Page sheets с размерами A4/Letter/Legal, orientation и margins.
 - Разрывы только между блоками; oversized block переносится на отдельную
   страницу и даёт overflow warning в соответствии с Task 006.
+- Таблица и code block рассматриваются как цельные block units и не разрезаются
+  между page sheets; row-level split, если понадобится, должен быть отдельным
+  явно принятым контрактом.
 - Редактирование текста, заголовков, списков, code, links/images, tables и HR
   в постраничном режиме.
 - Синхронизация source ranges, token, undo/redo, cursor/navigation и dirty state.
@@ -101,7 +104,9 @@ editable rich-text canvas; scroll area показывает листы с про
 4. Cursor/navigation/page count корректны после правок и смены page setup.
 5. Тесты покрывают многостраничный fixture, большие блоки, смену margins/orientation
    и round-trip source.
-6. README/ARCHITECTURE и screenshots обновлены; PDF/paged divergence документирован.
+6. Широкая таблица не разрезается между страницами и остаётся полностью видимой
+   в пределах page content area (или row-level split отдельно принят owner).
+7. README/ARCHITECTURE и screenshots обновлены; PDF/paged divergence документирован.
 
 ## План проверок
 
