@@ -18,6 +18,7 @@
 #include <QPlainTextEdit>
 #include <QPrintDialog>
 #include <QPrinter>
+#include <QRegularExpression>
 #include <QSignalBlocker>
 #include <QSize>
 #include <QStackedWidget>
@@ -28,6 +29,7 @@
 #include <QTextEdit>
 #include <QTimer>
 #include <QToolBar>
+#include <QToolButton>
 #include <algorithm>
 
 #include "continuous_editor.h"
@@ -356,6 +358,10 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
     value->setObjectName(QStringLiteral("heading%1Action").arg(level));
     headingActions_.push_back(value);
     connect(value, &QAction::triggered, this, [this, level] {
+      if (!continuousMode_) {
+        applyMarkdownHeading(level);
+        return;
+      }
       const auto node = continuous_->headingNode();
       if (node) {
         applyContinuousCommand(continuous_->token(),
@@ -382,35 +388,59 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
       value->setShortcut(QKeySequence::Italic);
     }
     inlineActions_.push_back(value);
-    connect(value, &QAction::triggered, this,
-            [this, style] { continuous_->toggleInlineStyle(style); });
+    connect(value, &QAction::triggered, this, [this, style] {
+      if (continuousMode_) {
+        continuous_->toggleInlineStyle(style);
+      } else {
+        applyMarkdownInline(style);
+      }
+    });
   }
   blockquoteAction_ = format->addAction(
       text(QStringLiteral("action.blockquote"), QStringLiteral("Blockquote")));
   blockquoteAction_->setObjectName(QStringLiteral("blockquoteAction"));
-  connect(blockquoteAction_, &QAction::triggered, this,
-          [this] { continuous_->toggleBlockquote(); });
+  connect(blockquoteAction_, &QAction::triggered, this, [this] {
+    if (continuousMode_) {
+      continuous_->toggleBlockquote();
+    } else {
+      toggleMarkdownBlockquote();
+    }
+  });
   auto* blockquote = blockquoteAction_;
   codeAction_ = format->addAction(
       text(QStringLiteral("action.code"), QStringLiteral("Code")));
   codeAction_->setObjectName(QStringLiteral("codeAction"));
-  connect(codeAction_, &QAction::triggered, this,
-          [this] { continuous_->insertFencedCode(); });
+  connect(codeAction_, &QAction::triggered, this, [this] {
+    if (continuousMode_) {
+      continuous_->insertFencedCode();
+    } else {
+      insertMarkdownCode();
+    }
+  });
   auto* code = codeAction_;
   horizontalLineAction_ = format->addAction(
       text(QStringLiteral("action.horizontalLine"),
            QStringLiteral("Horizontal Line")));
   horizontalLineAction_->setObjectName(QStringLiteral("horizontalLineAction"));
-  connect(horizontalLineAction_, &QAction::triggered, this,
-          [this] { continuous_->insertHorizontalRule(); });
+  connect(horizontalLineAction_, &QAction::triggered, this, [this] {
+    if (continuousMode_) {
+      continuous_->insertHorizontalRule();
+    } else {
+      insertMarkdownHorizontalRule();
+    }
+  });
   auto* horizontal = horizontalLineAction_;
   linkAction_ = format->addAction(
       text(QStringLiteral("action.link"), QStringLiteral("Link")));
   linkAction_->setObjectName(QStringLiteral("linkAction"));
   connect(linkAction_, &QAction::triggered, this, [this] {
-    const auto url = dialogs_.chooseLink(this);
-    if (url) {
-      continuous_->insertLink(*url);
+    if (continuousMode_) {
+      const auto url = dialogs_.chooseLink(this);
+      if (url) {
+        continuous_->insertLink(*url);
+      }
+    } else {
+      insertMarkdownLink();
     }
   });
   auto* link = linkAction_;
@@ -418,9 +448,13 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
       text(QStringLiteral("action.image"), QStringLiteral("Image")));
   imageAction_->setObjectName(QStringLiteral("imageAction"));
   connect(imageAction_, &QAction::triggered, this, [this] {
-    const auto src = dialogs_.chooseImage(this);
-    if (src) {
-      continuous_->insertImage(*src);
+    if (continuousMode_) {
+      const auto src = dialogs_.chooseImage(this);
+      if (src) {
+        continuous_->insertImage(*src);
+      }
+    } else {
+      insertMarkdownImage();
     }
   });
   auto* image = imageAction_;
@@ -429,8 +463,13 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   tableAction_->setObjectName(QStringLiteral("tableAction"));
   connect(tableAction_, &QAction::triggered, this, [this] {
     const auto size = dialogs_.chooseTableSize(this);
-    if (size) {
+    if (!size) {
+      return;
+    }
+    if (continuousMode_) {
       continuous_->insertTable(size_t(size->columns), size_t(size->bodyRows));
+    } else {
+      insertMarkdownTable(size_t(size->columns), size_t(size->bodyRows));
     }
   });
   auto* table = tableAction_;
@@ -441,14 +480,24 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   orderedListAction_ = listMenu->addAction(
       text(QStringLiteral("action.orderedList"), QStringLiteral("Ordered")));
   orderedListAction_->setObjectName(QStringLiteral("orderedListAction"));
-  connect(orderedListAction_, &QAction::triggered, this,
-          [this] { continuous_->changeListKind(true); });
+  connect(orderedListAction_, &QAction::triggered, this, [this] {
+    if (continuousMode_) {
+      continuous_->changeListKind(true);
+    } else {
+      changeMarkdownListKind(true);
+    }
+  });
   auto* ordered = orderedListAction_;
   unorderedListAction_ = listMenu->addAction(
       text(QStringLiteral("action.unorderedList"), QStringLiteral("Unordered")));
   unorderedListAction_->setObjectName(QStringLiteral("unorderedListAction"));
-  connect(unorderedListAction_, &QAction::triggered, this,
-          [this] { continuous_->changeListKind(false); });
+  connect(unorderedListAction_, &QAction::triggered, this, [this] {
+    if (continuousMode_) {
+      continuous_->changeListKind(false);
+    } else {
+      changeMarkdownListKind(false);
+    }
+  });
   auto* unordered = unorderedListAction_;
   taskAction_ = new QAction(
       text(QStringLiteral("action.toggleTask"),
@@ -617,6 +666,15 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   toolbar->addAction(unordered);
   toolbar->addSeparator();
   toolbar->addAction(modes->menuAction());
+  const auto setPopupMode = [toolbar](QAction* action) {
+    if (auto* button =
+            qobject_cast<QToolButton*>(toolbar->widgetForAction(action))) {
+      button->setPopupMode(QToolButton::InstantPopup);
+    }
+  };
+  setPopupMode(headings->menuAction());
+  setPopupMode(listMenu->menuAction());
+  setPopupMode(modes->menuAction());
   refreshToolbarIcons();
   connect(editor_->document(), &QTextDocument::contentsChange, this,
           [this](int position, int removed, int added) {
@@ -1017,8 +1075,9 @@ void MainWindow::refreshState() {
   continuousAction_->setChecked(continuousMode_ && !pagedMode_);
   pagedAction_->setChecked(continuousMode_ && pagedMode_);
   for (auto* action : headingActions_) {
-    action->setEnabled(continuousMode_ &&
-                       continuous_->headingNode().has_value());
+    action->setEnabled(continuousMode_
+                           ? continuous_->headingNode().has_value()
+                           : true);
   }
   taskAction_->setEnabled(continuousMode_ &&
                           continuous_->taskNode().has_value());
@@ -1028,62 +1087,96 @@ void MainWindow::refreshState() {
                                  static_cast<markdown::InlineStyle>(index))
                            : ContinuousEditor::InlineState{};
     auto* action = inlineActions_[index];
-    action->setEnabled(continuousMode_ && state.command.has_value());
+    action->setEnabled(continuousMode_ ? state.command.has_value() : true);
     action->setChecked(continuousMode_ && state.checked);
-    action->setToolTip(state.reason);
+    action->setToolTip(
+        continuousMode_
+            ? state.reason
+            : QStringLiteral("Wrap the Markdown selection with formatting "
+                             "markers"));
   }
   const auto quoteState =
       continuousMode_ ? continuous_->blockquoteState()
                       : ContinuousEditor::StructuralState{};
-  blockquoteAction_->setEnabled(continuousMode_ &&
-                                quoteState.command.has_value());
-  blockquoteAction_->setToolTip(quoteState.reason);
+  blockquoteAction_->setEnabled(continuousMode_
+                                    ? quoteState.command.has_value()
+                                    : true);
+  blockquoteAction_->setToolTip(
+      continuousMode_ ? quoteState.reason
+                      : QStringLiteral("Toggle Markdown blockquote markers"));
   const auto orderedState = continuousMode_
                                 ? continuous_->listState(true)
                                 : ContinuousEditor::StructuralState{};
-  orderedListAction_->setEnabled(continuousMode_ &&
-                                 orderedState.command.has_value());
-  orderedListAction_->setToolTip(orderedState.reason);
+  orderedListAction_->setEnabled(continuousMode_
+                                     ? orderedState.command.has_value()
+                                     : true);
+  orderedListAction_->setToolTip(
+      continuousMode_ ? orderedState.reason
+                      : QStringLiteral("Convert selected lines to an ordered "
+                                       "Markdown list"));
   const auto unorderedState = continuousMode_
                                   ? continuous_->listState(false)
                                   : ContinuousEditor::StructuralState{};
-  unorderedListAction_->setEnabled(continuousMode_ &&
-                                   unorderedState.command.has_value());
-  unorderedListAction_->setToolTip(unorderedState.reason);
+  unorderedListAction_->setEnabled(continuousMode_
+                                       ? unorderedState.command.has_value()
+                                       : true);
+  unorderedListAction_->setToolTip(
+      continuousMode_ ? unorderedState.reason
+                      : QStringLiteral("Convert selected lines to an unordered "
+                                       "Markdown list"));
   const bool blockInsertion =
-      continuousMode_ && continuous_->blockInsertionEnabled();
+      continuousMode_ ? continuous_->blockInsertionEnabled() : true;
   tableAction_->setEnabled(blockInsertion);
   tableAction_->setToolTip(
-      blockInsertion
-          ? QStringLiteral("Insert a 2-column table after the current block")
-          : QStringLiteral("Table creation requires continuous WYSIWYG mode"));
+      continuousMode_
+          ? (blockInsertion
+                 ? QStringLiteral("Insert a table after the current block")
+                 : QStringLiteral("Table creation is unavailable at this "
+                                  "position"))
+          : QStringLiteral("Insert a Markdown table at the cursor"));
   codeAction_->setEnabled(blockInsertion);
   codeAction_->setToolTip(
-      blockInsertion
-          ? QStringLiteral("Insert a fenced code block after the current block")
-          : QStringLiteral("Code insertion requires continuous WYSIWYG mode"));
+      continuousMode_
+          ? (blockInsertion
+                 ? QStringLiteral("Insert a fenced code block after the "
+                                  "current block")
+                 : QStringLiteral("Code insertion is unavailable at this "
+                                  "position"))
+          : QStringLiteral("Insert a fenced Markdown code block"));
   horizontalLineAction_->setEnabled(blockInsertion);
   horizontalLineAction_->setToolTip(
-      blockInsertion
-          ? QStringLiteral("Insert a horizontal rule after the current block")
-          : QStringLiteral(
-                "Horizontal rule insertion requires continuous WYSIWYG mode"));
-  const bool linkCreation =
-      continuousMode_ && continuous_->linkCreationEnabled();
+      continuousMode_
+          ? (blockInsertion
+                 ? QStringLiteral("Insert a horizontal rule after the current "
+                                  "block")
+                 : QStringLiteral("Horizontal rule insertion is unavailable "
+                                  "at this position"))
+          : QStringLiteral("Insert a Markdown horizontal rule"));
+  const bool linkCreation = continuousMode_
+                                ? continuous_->linkCreationEnabled()
+                                : true;
   linkAction_->setEnabled(linkCreation);
   linkAction_->setToolTip(
-      linkCreation
-          ? QStringLiteral("Create a link from the selected text")
-          : QStringLiteral("Select text inside one editable run to create a "
-                           "link"));
-  const bool imageCreation =
-      continuousMode_ && continuous_->imageCreationEnabled();
+      continuousMode_
+          ? (linkCreation
+                 ? QStringLiteral("Create a link from the selected text")
+                 : QStringLiteral("Select text inside one editable run to "
+                                  "create a link"))
+          : QStringLiteral("Insert a Markdown link using the selection as the "
+                           "label"));
+  const bool imageCreation = continuousMode_
+                                 ? continuous_->imageCreationEnabled()
+                                 : true;
   imageAction_->setEnabled(imageCreation);
   imageAction_->setToolTip(
-      imageCreation
-          ? QStringLiteral("Insert an image using the selected text as alt")
-          : QStringLiteral("Select alt text inside one editable run to insert "
-                           "an image"));
+      continuousMode_
+          ? (imageCreation
+                 ? QStringLiteral("Insert an image using the selected text as "
+                                  "alt")
+                 : QStringLiteral("Select alt text inside one editable run to "
+                                  "insert an image"))
+          : QStringLiteral("Insert a Markdown image using the selection as alt "
+                           "text"));
   if (tableMenu_) {
     tableMenu_->menuAction()->setEnabled(continuousMode_);
     for (auto* tableAction : tableMenu_->actions()) {
@@ -1132,6 +1225,202 @@ bool MainWindow::applySource(const std::string& source, int cursor) {
   }
   refreshEditor(cursor);
   return true;
+}
+
+void MainWindow::applyMarkdownInline(markdown::InlineStyle style) {
+  const auto marker = style == markdown::InlineStyle::kBold
+                          ? QStringLiteral("**")
+                          : style == markdown::InlineStyle::kItalic
+                                ? QStringLiteral("*")
+                                : QStringLiteral("~~");
+  auto cursor = editor_->textCursor();
+  const auto start = cursor.selectionStart();
+  auto selected = cursor.selectedText();
+  selected.replace(QChar::ParagraphSeparator, QChar('\n'));
+  if (!cursor.hasSelection()) {
+    cursor.insertText(marker + marker);
+    cursor.movePosition(QTextCursor::PreviousCharacter, QTextCursor::MoveAnchor,
+                        int(marker.size()));
+  } else if (selected.startsWith(marker) && selected.endsWith(marker) &&
+             selected.size() >= 2 * marker.size()) {
+    const auto inner = selected.mid(marker.size(),
+                                    selected.size() - 2 * marker.size());
+    cursor.insertText(inner);
+    cursor.setPosition(start + int(marker.size()));
+    cursor.setPosition(start + int(marker.size() + inner.size()),
+                       QTextCursor::KeepAnchor);
+  } else {
+    cursor.insertText(marker + selected + marker);
+    cursor.setPosition(start + int(marker.size()));
+    cursor.setPosition(start + int(marker.size() + selected.size()),
+                       QTextCursor::KeepAnchor);
+  }
+  editor_->setTextCursor(cursor);
+  editor_->setFocus();
+}
+
+void MainWindow::applyMarkdownHeading(int level) {
+  auto cursor = editor_->textCursor();
+  const int start = cursor.selectionStart();
+  const int end = cursor.selectionEnd();
+  const auto source = editor_->toPlainText();
+  const int lineStart = start > 0 ? source.lastIndexOf(QChar('\n'), start - 1) + 1 : 0;
+  int lineEnd = source.indexOf(QChar('\n'), end);
+  if (lineEnd < 0) {
+    lineEnd = int(source.size());
+  }
+  const auto selected = source.mid(lineStart, lineEnd - lineStart);
+  auto lines = selected.split(QChar('\n'));
+  const QRegularExpression headingPattern(
+      QStringLiteral("^ {0,3}#{1,6}(?:\\s+|$)"));
+  for (auto& line : lines) {
+    line.remove(headingPattern);
+    if (level > 0) {
+      line.prepend(QString(level, QChar('#')) + QChar(' '));
+    }
+  }
+  cursor.setPosition(lineStart);
+  cursor.setPosition(lineEnd, QTextCursor::KeepAnchor);
+  cursor.insertText(lines.join(QChar('\n')));
+  editor_->setTextCursor(cursor);
+  editor_->setFocus();
+}
+
+void MainWindow::toggleMarkdownBlockquote() {
+  auto cursor = editor_->textCursor();
+  const int start = cursor.selectionStart();
+  const int end = cursor.selectionEnd();
+  const auto source = editor_->toPlainText();
+  const int lineStart = start > 0 ? source.lastIndexOf(QChar('\n'), start - 1) + 1 : 0;
+  int lineEnd = source.indexOf(QChar('\n'), end);
+  if (lineEnd < 0) {
+    lineEnd = int(source.size());
+  }
+  auto lines = source.mid(lineStart, lineEnd - lineStart).split(QChar('\n'));
+  const bool allQuoted = std::all_of(
+      lines.begin(), lines.end(), [](const QString& line) {
+        return line.trimmed().isEmpty() || line.startsWith(QStringLiteral(">"));
+      });
+  for (auto& line : lines) {
+    if (allQuoted) {
+      line.remove(QRegularExpression(QStringLiteral("^> ?")));
+    } else if (!line.startsWith(QStringLiteral(">"))) {
+      line.prepend(QStringLiteral("> "));
+    }
+  }
+  cursor.setPosition(lineStart);
+  cursor.setPosition(lineEnd, QTextCursor::KeepAnchor);
+  cursor.insertText(lines.join(QChar('\n')));
+  editor_->setTextCursor(cursor);
+  editor_->setFocus();
+}
+
+void MainWindow::changeMarkdownListKind(bool ordered) {
+  auto cursor = editor_->textCursor();
+  const int start = cursor.selectionStart();
+  const int end = cursor.selectionEnd();
+  const auto source = editor_->toPlainText();
+  const int lineStart = start > 0 ? source.lastIndexOf(QChar('\n'), start - 1) + 1 : 0;
+  int lineEnd = source.indexOf(QChar('\n'), end);
+  if (lineEnd < 0) {
+    lineEnd = int(source.size());
+  }
+  auto lines = source.mid(lineStart, lineEnd - lineStart).split(QChar('\n'));
+  const QRegularExpression marker(
+      QStringLiteral("^\\s*(?:[-+*]|\\d{1,9}[.)])\\s+"));
+  int number = 1;
+  for (auto& line : lines) {
+    line.remove(marker);
+    if (!line.trimmed().isEmpty()) {
+      line.prepend(ordered ? QStringLiteral("%1. ").arg(number++)
+                           : QStringLiteral("- "));
+    }
+  }
+  cursor.setPosition(lineStart);
+  cursor.setPosition(lineEnd, QTextCursor::KeepAnchor);
+  cursor.insertText(lines.join(QChar('\n')));
+  editor_->setTextCursor(cursor);
+  editor_->setFocus();
+}
+
+void MainWindow::insertMarkdownCode() {
+  auto cursor = editor_->textCursor();
+  auto selected = cursor.selectedText();
+  selected.replace(QChar::ParagraphSeparator, QChar('\n'));
+  const auto block = selected.isEmpty()
+                         ? QStringLiteral("```\n\n```")
+                         : QStringLiteral("```\n%1\n```").arg(selected);
+  cursor.insertText(block);
+  editor_->setTextCursor(cursor);
+  editor_->setFocus();
+}
+
+void MainWindow::insertMarkdownHorizontalRule() {
+  auto cursor = editor_->textCursor();
+  cursor.insertText(QStringLiteral("\n---\n"));
+  editor_->setTextCursor(cursor);
+  editor_->setFocus();
+}
+
+void MainWindow::insertMarkdownLink() {
+  const auto url = dialogs_.chooseLink(this);
+  if (!url) {
+    return;
+  }
+  auto cursor = editor_->textCursor();
+  auto label = cursor.selectedText();
+  label.replace(QChar::ParagraphSeparator, QChar('\n'));
+  if (label.isEmpty()) {
+    label = QStringLiteral("text");
+  }
+  cursor.insertText(QStringLiteral("[%1](%2)").arg(label, *url));
+  editor_->setTextCursor(cursor);
+  editor_->setFocus();
+}
+
+void MainWindow::insertMarkdownImage() {
+  const auto source = dialogs_.chooseImage(this);
+  if (!source) {
+    return;
+  }
+  auto cursor = editor_->textCursor();
+  auto label = cursor.selectedText();
+  label.replace(QChar::ParagraphSeparator, QChar('\n'));
+  if (label.isEmpty()) {
+    label = QStringLiteral("alt");
+  }
+  cursor.insertText(QStringLiteral("![%1](%2)").arg(label, *source));
+  editor_->setTextCursor(cursor);
+  editor_->setFocus();
+}
+
+void MainWindow::insertMarkdownTable(size_t columns, size_t rows) {
+  if (columns == 0) {
+    return;
+  }
+  QString table = QStringLiteral("|");
+  for (size_t column = 0; column < columns; ++column) {
+    table += QStringLiteral(" Column %1 |").arg(column + 1);
+  }
+  table += QStringLiteral("\n|");
+  for (size_t column = 0; column < columns; ++column) {
+    table += QStringLiteral(" --- |");
+  }
+  for (size_t row = 0; row < rows; ++row) {
+    table += QStringLiteral("\n|");
+    for (size_t column = 0; column < columns; ++column) {
+      table += QStringLiteral("  |");
+    }
+  }
+  table += QChar('\n');
+  auto cursor = editor_->textCursor();
+  if (cursor.position() > 0 &&
+      editor_->toPlainText().at(cursor.position() - 1) != QChar('\n')) {
+    table.prepend(QChar('\n'));
+  }
+  cursor.insertText(table);
+  editor_->setTextCursor(cursor);
+  editor_->setFocus();
 }
 
 bool MainWindow::setContinuousMode(bool enabled) {

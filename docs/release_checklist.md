@@ -122,7 +122,8 @@ Tracking: [Task 047](tasks/task_047.md).
 
 ### Toolbar
 
-Tracking: [Task 048](tasks/task_048.md).
+Tracking: [Task 048](tasks/task_048.md). Status: fixed on `feature/task_048`;
+owner re-review required.
 
 1.The toolbar buttons are not workable in the Markdown editor. They do not respond to clicks or perform the expected actions.
 2. Pressing to the header buttons or to the switch mode button does not activate drop-down menu.

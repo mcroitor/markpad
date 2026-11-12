@@ -21,6 +21,7 @@
 #include <QTextLayout>
 #include <QTextTable>
 #include <QToolBar>
+#include <QToolButton>
 #include <QUrl>
 #include <QtTest/QtTest>
 #include <algorithm>
@@ -867,7 +868,7 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(window->saveDocument());
     QCOMPARE(get(path), prefix + expected + suffix);
     window->setContinuousMode(false);
-    QVERIFY(!command->isEnabled());
+    QVERIFY(command->isEnabled());
     QVERIFY(window->editor()->toPlainText().contains(
         QString::fromUtf8(expected).trimmed()));
     window->undo();
@@ -1435,6 +1436,94 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(dialogs.errors.empty());
   }
 
+  void markdownToolbarActions() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    auto* editor = window->editor();
+    editor->insertPlainText(QStringLiteral("alpha\n"));
+    QVERIFY(!window->continuousMode());
+
+    auto* toolbar =
+        window->findChild<QToolBar*>(QStringLiteral("mainToolBar"));
+    QVERIFY(toolbar);
+    for (const auto* menuName :
+         {"headingMenuAction", "listMenuAction", "switchModeAction"}) {
+      auto* button = qobject_cast<QToolButton*>(
+          toolbar->widgetForAction(action(window, menuName)));
+      QVERIFY(button);
+      QCOMPARE(button->popupMode(), QToolButton::InstantPopup);
+    }
+
+    auto* bold = action(window, "boldAction");
+    QVERIFY(bold->isEnabled());
+    auto cursor = editor->textCursor();
+    cursor.setPosition(0);
+    cursor.setPosition(5, QTextCursor::KeepAnchor);
+    editor->setTextCursor(cursor);
+    bold->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("**alpha**\n"));
+    QCOMPARE(editor->toPlainText(), QStringLiteral("**alpha**\n"));
+
+    auto* heading = action(window, "heading2Action");
+    QVERIFY(heading->isEnabled());
+    cursor = editor->textCursor();
+    cursor.setPosition(0);
+    editor->setTextCursor(cursor);
+    heading->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("## **alpha**\n"));
+
+    auto* unordered = action(window, "unorderedListAction");
+    QVERIFY(unordered->isEnabled());
+    cursor = editor->textCursor();
+    cursor.setPosition(0);
+    editor->setTextCursor(cursor);
+    unordered->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("- ## **alpha**\n"));
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void markdownToolbarInsertions() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    auto* editor = window->editor();
+    editor->insertPlainText(QStringLiteral("label\n"));
+    auto cursor = editor->textCursor();
+    cursor.setPosition(0);
+    cursor.setPosition(5, QTextCursor::KeepAnchor);
+    editor->setTextCursor(cursor);
+    dialogs.linkUrl = QStringLiteral("https://example.test");
+    auto* link = action(window, "linkAction");
+    QVERIFY(link->isEnabled());
+    link->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("[label](https://example.test)\n"));
+
+    auto* table = action(window, "tableAction");
+    QVERIFY(table->isEnabled());
+    cursor = editor->textCursor();
+    cursor.setPosition(editor->toPlainText().size());
+    editor->setTextCursor(cursor);
+    table->trigger();
+    QVERIFY(window->session().snapshot().source.find("| Column 1 | Column 2 |") !=
+            std::string::npos);
+    QCOMPARE(dialogs.tablePrompts, 1);
+
+    auto* code = action(window, "codeAction");
+    QVERIFY(code->isEnabled());
+    cursor = editor->textCursor();
+    cursor.setPosition(editor->toPlainText().size());
+    editor->setTextCursor(cursor);
+    code->trigger();
+    QVERIFY(window->session().snapshot().source.find("```") !=
+            std::string::npos);
+    QVERIFY(dialogs.errors.empty());
+  }
+
   void continuousTableRenderingAndCellEdit() {
     const QByteArray source =
         "pre\n\n| L | C | R |\n| :--- | :---: | ---: |\n"
@@ -1718,7 +1807,7 @@ class MainWindowSmokeTest : public QObject {
     const auto original = window->session().snapshot();
     auto* table = action(window, "tableAction");
     QVERIFY(table);
-    QVERIFY(!table->isEnabled());
+    QVERIFY(table->isEnabled());
     QVERIFY(window->setContinuousMode(true));
     QVERIFY(table->isEnabled());
     auto* rich = window->continuousEditor()->editor();
@@ -1745,7 +1834,7 @@ class MainWindowSmokeTest : public QObject {
     window->undo();
     QCOMPARE(window->session().snapshot().source, original.source);
     QVERIFY(window->setContinuousMode(false));
-    QVERIFY(!table->isEnabled());
+    QVERIFY(table->isEnabled());
     QVERIFY(dialogs.errors.empty());
 
     auto* empty = controller.newDocument();
@@ -1781,8 +1870,8 @@ class MainWindowSmokeTest : public QObject {
     auto* rule = action(window, "horizontalLineAction");
     QVERIFY(code);
     QVERIFY(rule);
-    QVERIFY(!code->isEnabled());
-    QVERIFY(!rule->isEnabled());
+    QVERIFY(code->isEnabled());
+    QVERIFY(rule->isEnabled());
     QVERIFY(window->setContinuousMode(true));
     QVERIFY(code->isEnabled());
     QVERIFY(rule->isEnabled());
@@ -1814,8 +1903,8 @@ class MainWindowSmokeTest : public QObject {
     window->undo();
     QCOMPARE(window->session().snapshot().source, original.source);
     QVERIFY(window->setContinuousMode(false));
-    QVERIFY(!code->isEnabled());
-    QVERIFY(!rule->isEnabled());
+    QVERIFY(code->isEnabled());
+    QVERIFY(rule->isEnabled());
     QVERIFY(dialogs.errors.empty());
   }
 
@@ -1828,7 +1917,7 @@ class MainWindowSmokeTest : public QObject {
     const auto original = window->session().snapshot();
     auto* link = action(window, "linkAction");
     QVERIFY(link);
-    QVERIFY(!link->isEnabled());
+    QVERIFY(link->isEnabled());
     QVERIFY(window->setContinuousMode(true));
     auto* rich = window->continuousEditor()->editor();
     auto cursor = rich->document()->find(QStringLiteral("alpha"));
@@ -1857,7 +1946,7 @@ class MainWindowSmokeTest : public QObject {
     rich->setTextCursor(collapsed);
     QVERIFY(!link->isEnabled());
     QVERIFY(window->setContinuousMode(false));
-    QVERIFY(!link->isEnabled());
+    QVERIFY(link->isEnabled());
     QVERIFY(dialogs.errors.empty());
   }
 
@@ -1870,7 +1959,7 @@ class MainWindowSmokeTest : public QObject {
     const auto original = window->session().snapshot();
     auto* image = action(window, "imageAction");
     QVERIFY(image);
-    QVERIFY(!image->isEnabled());
+    QVERIFY(image->isEnabled());
     QVERIFY(window->setContinuousMode(true));
     auto* rich = window->continuousEditor()->editor();
     auto cursor = rich->document()->find(QStringLiteral("alpha"));
@@ -1899,7 +1988,7 @@ class MainWindowSmokeTest : public QObject {
     rich->setTextCursor(collapsed);
     QVERIFY(!image->isEnabled());
     QVERIFY(window->setContinuousMode(false));
-    QVERIFY(!image->isEnabled());
+    QVERIFY(image->isEnabled());
     QVERIFY(dialogs.errors.empty());
   }
 
@@ -2209,9 +2298,9 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(!unordered->isEnabled());
     QCOMPARE(window->session().snapshot().source, original.source);
     QVERIFY(window->setContinuousMode(false));
-    QVERIFY(!quote->isEnabled());
-    QVERIFY(!ordered->isEnabled());
-    QVERIFY(!unordered->isEnabled());
+    QVERIFY(quote->isEnabled());
+    QVERIFY(ordered->isEnabled());
+    QVERIFY(unordered->isEnabled());
     QCOMPARE(window->session().dirty(), originalDirty);
     QVERIFY(dialogs.errors.empty());
   }
