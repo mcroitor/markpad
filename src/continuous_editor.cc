@@ -238,7 +238,8 @@ QString ContinuousEditor::render(const DocumentSnapshot& snapshot) {
   return parsed.error;
 }
 
-void ContinuousEditor::beginBlock(QTextCursor& cursor, int depth) {
+void ContinuousEditor::beginBlock(QTextCursor& cursor, int depth,
+                                  bool justify) {
   if (!firstBlock_) {
     cursor.insertBlock();
   }
@@ -246,6 +247,7 @@ void ContinuousEditor::beginBlock(QTextCursor& cursor, int depth) {
   QTextBlockFormat block;
   block.setLeftMargin(depth * 20);
   block.setBottomMargin(8);
+  block.setAlignment(justify ? Qt::AlignJustify : Qt::AlignLeft);
   cursor.setBlockFormat(block);
   cursor.setCharFormat(QTextCharFormat{});
 }
@@ -441,7 +443,8 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
   }
   if (node.type == MD_BLOCK_P || node.type == MD_BLOCK_H ||
       node.type == MD_BLOCK_LI) {
-    beginBlock(cursor, depth);
+    beginBlock(cursor, depth,
+               node.type == MD_BLOCK_P || node.type == MD_BLOCK_LI);
     const int start = cursor.position();
     QTextCharFormat format;
     if (node.type == MD_BLOCK_H) {
@@ -1351,6 +1354,10 @@ bool ContinuousEditor::eventFilter(QObject* watched, QEvent* event) {
     }
   }
   return QWidget::eventFilter(watched, event);
+}
+
+void ContinuousEditor::setNormalLineWrapMode(QTextEdit::LineWrapMode mode) {
+  editor_->setNormalLineWrapMode(mode);
 }
 
 void ContinuousEditor::setPaged(bool paged) {

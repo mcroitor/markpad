@@ -22,6 +22,8 @@ class PageTextEdit : public QTextEdit {
   QString layoutWarning() const;
   const PageLayoutResult& pageLayout() const { return layout_; }
   QMargins viewportPageMargins() const { return viewportMargins(); }
+  qreal viewScale() const;
+  void setNormalLineWrapMode(QTextEdit::LineWrapMode mode);
   void refreshPageLayout();
 
  protected:
@@ -40,6 +42,7 @@ class PageTextEdit : public QTextEdit {
   bool layoutScheduled_ = false;
   bool adjusting_ = false;
   qreal normalMargin_ = 4.0;
+  QTextEdit::LineWrapMode normalWrapMode_ = QTextEdit::WidgetWidth;
 };
 
 }  // namespace markpad

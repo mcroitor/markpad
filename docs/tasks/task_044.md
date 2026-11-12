@@ -161,3 +161,18 @@ Option A was implemented without introducing a second editor:
   `docs/qa/task_044/paged-page-gap.png`.
 - Remaining: PDF parity is still [Task 047](task_047.md); owner visual sign-off
   is still required.
+
+### Follow-up: A4 scaling, margins and justification (2026-11-12)
+
+- The first page-sheet pass interpreted A4 point dimensions as screen pixels,
+  which made the sheet look like A5/A6. `PageTextEdit` now scales page size and
+  margins by `logicalDotsPerInch / 72`; at 96 DPI an A4 page is about
+  794 x 1123 px, so a 12 pt single-spaced page holds the expected 400-500 words.
+- `QTextDocument::textWidth` is the total document width, not the content width.
+  The page now sets text width to the full page width and lets the document
+  margin produce the content area, so left and right margins are equal
+  (verified by a regression assertion).
+- Body paragraphs and list text use `Qt::AlignJustify`; headings, code and table
+  cells retain their own alignment.
+- QA evidence was regenerated in light and dark themes:
+  `docs/qa/task_044/paged.png`, `paged-page-gap.png` and `dark/*.png`.

@@ -2,10 +2,12 @@
 
 #include <QAbstractTextDocumentLayout>
 #include <QFontMetrics>
+#include <QGuiApplication>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPalette>
 #include <QResizeEvent>
+#include <QScreen>
 #include <QScrollBar>
 #include <QSet>
 #include <QSignalBlocker>
@@ -29,6 +31,10 @@ qreal mm(double value) {
   return value * kMmToPoints;
 }
 
+qreal px(double value, qreal scale) {
+  return mm(value) * scale;
+}
+
 }  // namespace
 
 PageTextEdit::PageTextEdit(QWidget* parent) : QTextEdit(parent) {
@@ -44,6 +50,19 @@ PageTextEdit::PageTextEdit(QWidget* parent) : QTextEdit(parent) {
   updatePageWidth();
 }
 
+qreal PageTextEdit::viewScale() const {
+  const auto* screen = QGuiApplication::primaryScreen();
+  const auto dpi = screen ? screen->logicalDotsPerInch() : 96.0;
+  return dpi > 0.0 ? dpi / 72.0 : 96.0 / 72.0;
+}
+
+void PageTextEdit::setNormalLineWrapMode(QTextEdit::LineWrapMode mode) {
+  normalWrapMode_ = mode;
+  if (!paged_) {
+    setLineWrapMode(mode);
+  }
+}
+
 void PageTextEdit::setPaged(bool paged) {
   if (paged_ == paged) {
     return;
@@ -56,6 +75,8 @@ void PageTextEdit::setPaged(bool paged) {
   updatePageWidth();
   if (paged_) {
     refreshPageLayout();
+  } else {
+    setLineWrapMode(normalWrapMode_);
   }
   viewport()->update();
 }
@@ -86,17 +107,25 @@ void PageTextEdit::updatePageWidth() {
     return;
   }
 
-  const auto page = PageLayoutEngine::pageSize(setup_);
-  const auto left = mm(setup_.marginLeftMm);
-  const auto right = mm(setup_.marginRightMm);
+  const auto scale = viewScale();
+  const auto page = PageLayoutEngine::pageSize(setup_, scale);
+  const auto left = px(setup_.marginLeftMm, scale);
+  const auto right = px(setup_.marginRightMm, scale);
   const auto content = page.width() - left - right;
+  const auto documentWidth = page.width() + left - right;
   document()->setDocumentMargin(left);
   if (content > 0.0) {
-    document()->setTextWidth(content);
+    setLineWrapMode(QTextEdit::FixedPixelWidth);
+    setLineWrapColumnOrWidth(qRound(documentWidth));
+    document()->setTextWidth(documentWidth);
   }
-  // Center the page in the available widget area. The viewport margins also
-  // keep the QTextEdit scrollbar outside the page sheet.
-  const auto pageX = std::max(0.0, (width() - page.width()) / 2.0);
+  // Center the page in the available widget area. Account for the vertical
+  // scrollbar so the page's right border is not clipped.
+  const auto scrollbarWidth =
+      verticalScrollBar() ? verticalScrollBar()->sizeHint().width() : 0;
+  const auto available = width() - scrollbarWidth;
+  const auto pageX =
+      std::max(0.0, (available - page.width()) / 2.0 - 2.0);
   setViewportMargins(qRound(pageX), 0, qRound(pageX), 0);
   adjusting_ = false;
 }
@@ -150,15 +179,17 @@ void PageTextEdit::refreshPageLayout() {
   layoutScheduled_ = false;
   updatePageWidth();
   resetPageMargins();
-  layout_ = PageLayoutEngine::layout(*document(), setup_);
+  const auto scale = viewScale();
+  layout_ = PageLayoutEngine::layout(*document(), setup_, scale);
   if (layout_.pages.empty()) {
     relayouting_ = false;
     viewport()->update();
     return;
   }
 
-  const auto page = PageLayoutEngine::pageSize(setup_);
-  const auto top = mm(setup_.marginTopMm);
+  const auto page = PageLayoutEngine::pageSize(setup_, scale);
+  const auto top = px(setup_.marginTopMm, scale);
+  const auto gap = kPageGap * scale;
   std::vector<int> firstBlocks(layout_.pages.size(), -1);
   for (const auto& placement : layout_.placements) {
     if (placement.page < 0 ||
@@ -183,7 +214,7 @@ void PageTextEdit::refreshPageLayout() {
     const auto current =
         document()->documentLayout()->blockBoundingRect(block).top();
     const auto desired =
-        qreal(pageIndex) * (page.height() + kPageGap) + top;
+        qreal(pageIndex) * (page.height() + gap) + top;
     const auto delta = desired - current;
     if (delta <= 0.5) {
       continue;
@@ -233,10 +264,12 @@ void PageTextEdit::paintEvent(QPaintEvent* event) {
   if (!paged_) {
     return;
   }
-  const auto page = PageLayoutEngine::pageSize(setup_);
+  const auto scale = viewScale();
+  const auto page = PageLayoutEngine::pageSize(setup_, scale);
   const auto pageHeight = page.height();
   const auto pageWidth = page.width();
-  const auto bottom = mm(setup_.marginBottomMm);
+  const auto bottom = px(setup_.marginBottomMm, scale);
+  const auto gap = kPageGap * scale;
   const auto pages = std::max(1, int(layout_.pages.size()));
   const auto scroll =
       qreal(verticalScrollBar() ? verticalScrollBar()->value() : 0);
@@ -252,12 +285,17 @@ void PageTextEdit::paintEvent(QPaintEvent* event) {
 
   for (int pageIndex = 0; pageIndex < pages; ++pageIndex) {
     const auto top =
-        qreal(pageIndex) * (pageHeight + kPageGap) - scroll;
+        qreal(pageIndex) * (pageHeight + gap) - scroll;
     const QRectF sheetRect(0.0, top, pageWidth, pageHeight);
     if (pageIndex + 1 < pages) {
       painter.fillRect(QRectF(0.0, top + pageHeight, viewport()->width(),
-                              kPageGap),
+                              gap),
                        gapColor);
+    }
+    if (pageWidth < viewport()->width()) {
+      painter.fillRect(
+          QRectF(pageWidth, top, viewport()->width() - pageWidth, pageHeight),
+          gapColor);
     }
     painter.setPen(QPen(borderColor, 1.0));
     painter.drawRect(sheetRect);
@@ -267,6 +305,14 @@ void PageTextEdit::paintEvent(QPaintEvent* event) {
       painter.drawText(footer, Qt::AlignHCenter | Qt::AlignVCenter,
                        QString::number(pageIndex + 1));
     }
+  }
+  const auto lastBottom =
+      qreal(pages - 1) * (pageHeight + gap) + pageHeight - scroll;
+  if (lastBottom < viewport()->height()) {
+    painter.fillRect(
+        QRectF(0.0, lastBottom, viewport()->width(),
+               viewport()->height() - lastBottom),
+        gapColor);
   }
   if (layout_.overflow) {
     painter.setPen(QColor(170, 80, 20));

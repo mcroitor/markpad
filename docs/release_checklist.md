@@ -109,8 +109,9 @@ owner re-review required (`continuous.png`, `dark/continuous.png`,
 Tracking: [Task 044](tasks/task_044.md), with shared visual fixes from
 [Task 045](tasks/task_045.md) and [Task 046](tasks/task_046.md). Status: fixed
 on `feature/task_044`; paged mode now draws centered page sheets, desk gaps,
-page borders/page numbers, keeps tables and fenced code blocks whole, and
-preserves source/token/history. Evidence:
+page borders/page numbers, keeps tables and fenced code blocks whole, scales A4
+to logical screen DPI, uses equal left/right content margins, justifies body
+paragraphs, and preserves source/token/history. Evidence:
 `docs/qa/task_044/paged.png` and `docs/qa/task_044/paged-page-gap.png`. Owner
 visual re-review remains required.
 

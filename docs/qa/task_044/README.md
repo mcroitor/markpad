@@ -4,7 +4,7 @@ Windows 11, MSYS2 UCRT64, Qt 6.11.2, local Debug build.
 
 | File | Contents |
 |---|---|
-| `paged.png` | Paged WYSIWYG opened from `fixture.md`; the page is centered on the desk, with the page content inset by the configured margins. |
+| `paged.png` | Paged WYSIWYG opened from `fixture.md`; the A4 page is rendered at the screen's logical DPI (approximately 794 x 1123 device-independent pixels at 96 DPI), centered on the desk, with 20 mm content margins and justified body paragraphs. |
 | `paged-page-gap.png` | Scrolled to the page break. Shows two separate page sheets, the gray gap, page numbers, and a table/code block kept whole on the first page. |
 | `dark/*.png` | The same paged-mode views with the dark theme selected. |
 
@@ -15,8 +15,9 @@ owner sign-off. The fixture is
 
 Automated checks:
 
-- `markpad_layout_tests`: page partition, atomic table/code blocks, overflow
-  warning, page-for-position.
-- `markpad_smoke`: page sheet presence, non-zero page margin on page 2, source
-  and token preservation, in-place editing and undo in paged mode.
-- Windows Debug CTest: 6/6.
+- `markpad_layout_tests`: page partition, view-DPI scaling, atomic table/code
+  blocks, overflow warning, page-for-position.
+- `markpad_smoke`: page sheet presence, A4-scale page width, equal left/right
+  content margins, justified paragraph alignment, non-zero page margin on page
+  2, source and token preservation, in-place editing and undo in paged mode.
+- Windows Debug/Release CTest: 6/6.

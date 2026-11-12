@@ -52,6 +52,20 @@ class PageLayoutTest : public QObject {
     QVERIFY(!result.overflow);
   }
 
+  void viewScaleGeometry() {
+    const auto points = PageLayoutEngine::pageSize(a4());
+    const auto pixels = PageLayoutEngine::pageSize(a4(), 96.0 / 72.0);
+    QVERIFY(pixels.width() > points.width() * 1.3);
+    QVERIFY(pixels.height() > points.height() * 1.3);
+    const auto layout = PageLayoutEngine::layout(
+        *documentFor("<p>one</p>", a4()), a4(), 96.0 / 72.0);
+    QCOMPARE(layout.pages.size(), size_t(1));
+    QVERIFY(layout.pages.front().contentRect.width() >
+            PageLayoutEngine::layout(*documentFor("<p>one</p>", a4()), a4())
+                .pages.front()
+                .contentRect.width());
+  }
+
   void paragraphFlowAndMargins() {
     QByteArray html;
     for (int i = 0; i < 180; ++i) {

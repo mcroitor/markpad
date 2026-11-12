@@ -291,3 +291,8 @@ applies page-break top margins, centers the page with viewport margins, and pain
 page sheets, desk gaps and page numbers. The Markdown source, token, source ranges
 and custom undo/redo are not changed by page formatting. PDF export still uses its
 own Qt layout path; parity is tracked in Task 047.
+Task 044 follow-up: page and margin dimensions are converted from points to
+logical screen pixels (`logicalDotsPerInch / 72`) for the paged editor. The
+document text width is the full page width; document margins produce the content
+area. Body paragraphs/lists are justified, headings/code/tables keep their own
+alignment. PDF export retains its separate point-based layout path (Task 047).

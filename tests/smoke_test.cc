@@ -1249,13 +1249,36 @@ class MainWindowSmokeTest : public QObject {
       source += "Paragraph " + QByteArray::number(i) + "\n\n";
     }
     window->editor()->setPlainText(QString::fromUtf8(source));
+    window->resize(1100, 760);
+    QTest::qWait(50);
     const auto before = window->session().snapshot();
     QVERIFY(window->setPagedMode(true));
     auto* paged =
         dynamic_cast<PageTextEdit*>(window->continuousEditor()->editor());
     QVERIFY(paged);
+    QTest::qWait(50);
     QVERIFY(paged->pageCount() >= 2);
     QVERIFY(paged->viewportPageMargins().left() > 0);
+    const auto scale = paged->viewScale();
+    const auto pageWidth =
+        PageLayoutEngine::pageSize(paged->pageSetup(), scale).width();
+    QVERIFY(pageWidth > 700.0);
+    const auto paragraph =
+        paged->document()->find(QStringLiteral("Paragraph 0"));
+    QVERIFY(!paragraph.isNull());
+    QCOMPARE(paragraph.block().blockFormat().alignment(),
+             Qt::Alignment(Qt::AlignJustify));
+    const auto paragraphWidth =
+        paged->document()
+            ->documentLayout()
+            ->blockBoundingRect(paragraph.block())
+            .width();
+    const auto expectedContent =
+        pageWidth - 2.0 * paged->document()->documentMargin();
+    QVERIFY(qAbs(paragraphWidth - expectedContent) < 1.0);
+    const auto expectedRight =
+        pageWidth - paragraphWidth - paged->document()->documentMargin();
+    QVERIFY(qAbs(expectedRight - 20.0 * 72.0 / 25.4 * scale) < 1.0);
     const auto layout = paged->pageLayout();
     QVERIFY(layout.pages.size() >= 2);
     int firstSecondPage = -1;
@@ -1284,6 +1307,7 @@ class MainWindowSmokeTest : public QObject {
     QCOMPARE(window->session().snapshot().source, before.source);
     QVERIFY(dialogs.errors.empty());
   }
+
   void pagedModeLayoutAndSettings() {
     TestDialogs dialogs;
     ApplicationController controller(dialogs);

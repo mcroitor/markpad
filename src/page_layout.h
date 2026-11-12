@@ -42,11 +42,12 @@ struct PageLayoutResult {
 // and produces an explicit warning.
 class PageLayoutEngine final {
  public:
-  static QSizeF pageSize(const PageSetup& setup);
+  static QSizeF pageSize(const PageSetup& setup, qreal scale = 1.0);
   static PageLayoutResult layout(const QTextDocument& document,
-                                 const PageSetup& setup);
+                                 const PageSetup& setup, qreal scale = 1.0);
   static int pageForPosition(const QTextDocument& document,
-                             const PageSetup& setup, int position);
+                             const PageSetup& setup, int position,
+                             qreal scale = 1.0);
 };
 
 }  // namespace markpad

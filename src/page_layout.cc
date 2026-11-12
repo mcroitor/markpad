@@ -14,8 +14,8 @@ namespace {
 
 constexpr double kMmToPoints = 72.0 / 25.4;
 
-double mm(double value) {
-  return value * kMmToPoints;
+double mm(double value, qreal scale = 1.0) {
+  return value * kMmToPoints * scale;
 }
 
 PageSetup normalized(const PageSetup& setup) {
@@ -32,18 +32,18 @@ PageSetup normalized(const PageSetup& setup) {
 
 }  // namespace
 
-QSizeF PageLayoutEngine::pageSize(const PageSetup& setup) {
+QSizeF PageLayoutEngine::pageSize(const PageSetup& setup, qreal scale) {
   QSizeF size;
   switch (setup.size) {
     case PageSize::kLetter:
-      size = QSizeF(mm(215.9), mm(279.4));
+      size = QSizeF(mm(215.9, scale), mm(279.4, scale));
       break;
     case PageSize::kLegal:
-      size = QSizeF(mm(215.9), mm(355.6));
+      size = QSizeF(mm(215.9, scale), mm(355.6, scale));
       break;
     case PageSize::kA4:
     default:
-      size = QSizeF(mm(210.0), mm(297.0));
+      size = QSizeF(mm(210.0, scale), mm(297.0, scale));
       break;
   }
   if (setup.orientation == PageOrientation::kLandscape) {
@@ -53,14 +53,16 @@ QSizeF PageLayoutEngine::pageSize(const PageSetup& setup) {
 }
 
 PageLayoutResult PageLayoutEngine::layout(const QTextDocument& document,
-                                          const PageSetup& setup) {
+                                          const PageSetup& setup,
+                                          qreal scale) {
   const auto page = normalized(setup);
-  const auto size = pageSize(page);
-  const auto content = QRectF(mm(page.marginLeftMm), mm(page.marginTopMm),
-                              size.width() - mm(page.marginLeftMm) -
-                                  mm(page.marginRightMm),
-                              size.height() - mm(page.marginTopMm) -
-                                  mm(page.marginBottomMm));
+  const auto size = pageSize(page, scale);
+  const auto content = QRectF(mm(page.marginLeftMm, scale),
+                              mm(page.marginTopMm, scale),
+                              size.width() - mm(page.marginLeftMm, scale) -
+                                  mm(page.marginRightMm, scale),
+                              size.height() - mm(page.marginTopMm, scale) -
+                                  mm(page.marginBottomMm, scale));
   PageLayoutResult result;
   if (content.width() <= 0.0 || content.height() <= 0.0) {
     result.pages.push_back(PageGeometry{size, content});
@@ -158,8 +160,9 @@ PageLayoutResult PageLayoutEngine::layout(const QTextDocument& document,
 }
 
 int PageLayoutEngine::pageForPosition(const QTextDocument& document,
-                                      const PageSetup& setup, int position) {
-  const auto result = layout(document, setup);
+                                      const PageSetup& setup, int position,
+                                      qreal scale) {
+  const auto result = layout(document, setup, scale);
   const auto block = document.findBlock(position).blockNumber();
   for (const auto& placement : result.placements) {
     if (block >= placement.block && block <= placement.endBlock) {
