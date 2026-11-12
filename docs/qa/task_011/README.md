@@ -18,6 +18,8 @@ owner sign-off.
 | `print-to-pdf.txt` | `pdftotext` extraction of the printed PDF for quick content review. |
 | `fixture.md` | Source fixture used for the screenshots and print check. |
 | `ci-artifact.txt` | Final GitHub Actions run, artifact checksum and clean-PATH launch evidence. |
+| `overflow.md`, `overflow/paged.png` | Oversized single-block page overflow fixture and Windows status-bar evidence. |
+| `release-qa/export.html` | HTML export produced through the native export dialog from the Windows portable package. |
 
 ## Findings and follow-up
 

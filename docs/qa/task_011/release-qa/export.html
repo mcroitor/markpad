@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Markpad export</title>
+<style>body{font-family:system-ui,sans-serif;line-height:1.5;max-width:60rem;margin:2rem auto;padding:0 1rem;}table{border-collapse:collapse;margin:1rem 0;}th,td{border:1px solid #999;padding:.35rem .6rem;}pre{background:#f4f4f4;padding:.75rem;overflow:auto;}code{font-family:monospace;}blockquote{border-left:4px solid #ccc;margin-left:0;padding-left:1rem;color:#444;}.raw-html{white-space:pre-wrap;}</style>
+</head>
+<body>
+<h1>Markpad release QA</h1>
+<h2>Continuous formatting</h2>
+<p>Paragraph with <strong>bold</strong>, <em>italic</em>, <del>strikethrough</del> and <code>inline code</code>.</p>
+<blockquote>
+<p>Quoted text with a <a href="https://example.test" rel="noopener noreferrer">link</a> and an inert image label:
+<img src="https://example.test/image.png" alt="alt" loading="lazy"></p>
+</blockquote>
+<ul>
+<li>one</li>
+<li>two</li>
+<li>three</li>
+</ul>
+<pre><code>const x = 1;
+const y = 2;
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Header A</th>
+<th>Header B</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>B</td>
+</tr>
+<tr>
+<td>C</td>
+<td>D</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<pre class="raw-html">&lt;div&gt;raw html stays protected&lt;/div&gt;
+</pre>
+<h2>Longer content for pagination</h2>
+<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer euismod,
+lorem at vulputate facilisis, lacus urna tincidunt justo, vitae posuere
+nulla quam at nibh. Suspendisse potenti.</p>
+<ol>
+<li>Ordered item</li>
+<li>Second ordered item</li>
+<li>Third ordered item</li>
+</ol>
+<p>Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad
+minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea
+commodo consequat.</p>
+<h3>Another section</h3>
+<ul>
+<li>A list with a longer line so the page layout has more than one block.</li>
+<li>Another item with <strong>emphasis</strong> and <code>code</code>.</li>
+<li>A final item.</li>
+</ul>
+<blockquote>
+<p>A second blockquote with multiple lines.
+It should remain visually distinct in both WYSIWYG modes.</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>Column one</th>
+<th align="center">Column two</th>
+<th align="right">Column three</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>left</td>
+<td align="center">center</td>
+<td align="right">right</td>
+</tr>
+<tr>
+<td>more text</td>
+<td align="center">more text</td>
+<td align="right">more text</td>
+</tr>
+<tr>
+<td>end</td>
+<td align="center">end</td>
+<td align="right">end</td>
+</tr>
+</tbody>
+</table>
+<p>The final paragraph is deliberately long enough to exercise page placement,
+line wrapping, and the status bar page count in the paginated view. It also
+serves as a fixture for comparing the page engine output with the generated
+PDF in the release checklist.</p>
+</body>
+</html>

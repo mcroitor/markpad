@@ -101,10 +101,15 @@ Markpad должен работать на Windows и Linux, открывать/
 - WYSIWYG typography settings реализованы в [Task 043](task_043.md) (per-block
   controls на Page); настоящая постраничная поверхность выделена в
   [Task 044](task_044.md) и остаётся release-блокером до реализации.
+- Additional Windows release QA: HTML export через native export dialog из
+  portable package создаёт корректный файл; oversized single-block fixture
+  показывает `Overflow warning` в paged status bar. Evidence — в
+  `docs/qa/task_011/release-qa` и `docs/qa/task_011/overflow`.
 - Physical printer, Linux CUPS, native File Open/Save/Save As, unsaved-close,
-  SDI routing, oversized-block overflow, Linux native visual QA и owner sign-off
-  остаются незакрытыми. PR не создан: GitHub CLI token не имеет permission на
-  создание PR; ветка запушена и CI уже прошёл.
+  SDI routing, Linux native visual QA и owner sign-off остаются незакрытыми.
+  Native Save As automation did not complete; automated save/close/SDI tests
+  проходят. PR не создан: GitHub CLI token не имеет permission на создание PR;
+  ветка запушена и CI уже прошёл.
 - Решение о готовности: `In Progress`/не заявляется до owner sign-off,
   Task 043/044 и оставшихся ручных проверок; автоматические ворота и functional
   dependency 005 больше не блокируют задачу.

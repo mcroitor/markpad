@@ -49,7 +49,8 @@ Owner sign-off: ____________________  Date: __________
 
 ## Export and print
 
-- [ ] HTML export opens and matches supported GFM structure.
+- [x] HTML export opens and matches supported GFM structure from the Windows
+      portable package. Evidence: `docs/qa/task_011/release-qa/export.html`.
 - [x] PDF export creates a readable file for a fixed fixture (automated suite).
 - [x] Microsoft Print to PDF produces a readable A4 PDF on Windows.
       Evidence: `docs/qa/task_011/print-to-pdf.pdf`.
@@ -57,7 +58,8 @@ Owner sign-off: ____________________  Date: __________
       **3 pages** in paged WYSIWYG while Microsoft Print to PDF produces **2 A4
       pages**. This is the documented Task 008 engine-vs-Qt-layout limitation;
       owner sign-off required.
-- [ ] Oversized-block overflow is visible/warned.
+- [x] Oversized-block overflow is visible/warned in the paged status bar.
+      Evidence: `docs/qa/task_011/overflow/paged.png` and `overflow.md`.
 - [ ] Physical printer test: not run; no physical job was sent.
 - [ ] Linux CUPS/print-dialog test: not run; limitation recorded.
 
