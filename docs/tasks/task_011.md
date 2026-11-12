@@ -93,7 +93,8 @@ Markpad должен работать на Windows и Linux, открывать/
   Linux ASan/UBSan, Windows Debug и Windows Release portable прошли. CI artifact
   `markpad-0.1.0-windows-ucrt64` содержит 176 файлов, `markpad.exe` SHA-256
   `5162839752ea55857f97caf35f89b1fd78ff4b832eabdfa49ed47b9157fc6676`,
-  запускается без Qt в `PATH`.
+  запускается без Qt в `PATH`. PR #7 был слит в `main` на `ff535a1`; дальнейшие
+  QA-исправления и Task 043 находятся в ветке `feature/task_043`.
 - QA follow-up (2026-11-12): исправлена подсветка `**bold**` в Markdown-редакторе
   (больше не отображается как italic); Settings dialog переведён на вкладки
   General/Editor/Page/Shortcut и покрыт GUI-тестом.

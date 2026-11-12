@@ -89,5 +89,7 @@ WYSIWYG-режим использует собственные жёстко за
 - Continuous и paged WYSIWYG применяют эти стили; zoom масштабирует размеры.
 - Добавлены Settings round-trip/fallback tests и GUI-тесты
   `continuousTypographySettings` / `settingsDialogUsesTabs`.
-- Windows CTest 7/7; CI для предыдущего commit зелёный. Финальный CI для этого
-  изменения запускается после push.
+- Локально Windows CTest 7/7. CI run
+  [43164711440](https://github.com/mcroitor/markpad/actions/runs/43164711440)
+  на commit `0f8f617` прошёл для Windows Debug/Release, Ubuntu Debug/Release и
+  Ubuntu ASan/UBSan; portable artifact собран.
