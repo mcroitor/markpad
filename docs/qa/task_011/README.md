@@ -11,7 +11,7 @@ These screenshots were captured from the Windows portable Release package on Win
 | `paged.png` | Paged WYSIWYG, light theme, page count visible. |
 | `settings.png` | Settings dialog General tab with deferred Auto Save. |
 | `settings-page.png` | Settings Page tab with page setup and per-block WYSIWYG typography controls. |
-| `dark/*.png` | The same views with the dark theme selected. |
+| `dark/*.png` | The same views with the dark theme selected; `dark/menu.png` shows the corrected menu contrast. |
 | `print-to-pdf.pdf` | Output from Microsoft Print to PDF through the native print dialog. |
 | `print-to-pdf.txt` | `pdftotext` extraction of the printed PDF for quick content review. |
 | `fixture.md` | Source fixture used for the screenshots and print check. |

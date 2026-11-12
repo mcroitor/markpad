@@ -88,7 +88,8 @@ Notes:
 
 ### Dark theme
 
-Tracking: [Task 045](tasks/task_045.md).
+Tracking: [Task 045](tasks/task_045.md). Status: fixed on `feature/task_045`;
+owner re-review required (`dark/menu.png`, `dark/settings.png`).
 
 1. Any menu is not seen in the dark mode (text color is dark on dark background).
 2. In the Settings window the most options are unseen in dark mode (text color is white on light background).

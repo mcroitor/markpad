@@ -1936,6 +1936,7 @@ class MainWindowSmokeTest : public QObject {
     settings.theme = Theme::kDark;
     QString error;
     QVERIFY2(window->applySettings(settings, &error), qPrintable(error));
+    QVERIFY(!qApp->styleSheet().isEmpty());
     auto* rich = window->continuousEditor()->editor();
     auto cursor = rich->document()->find(QStringLiteral("alpha"));
     QVERIFY(!cursor.isNull());
@@ -1957,6 +1958,7 @@ class MainWindowSmokeTest : public QObject {
                 .lightness() < 128);
     settings.theme = Theme::kLight;
     QVERIFY2(window->applySettings(settings, &error), qPrintable(error));
+    QVERIFY(qApp->styleSheet().isEmpty());
     QVERIFY(dialogs.errors.empty());
   }
 
