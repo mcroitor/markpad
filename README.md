@@ -38,6 +38,18 @@ $env:PATH = "C:\msys64\ucrt64\bin;C:\msys64\usr\bin;$env:PATH"
 
 Keep `C:\msys64\ucrt64\bin` on `PATH` when running the application or tests so Windows can find Qt runtime DLLs.
 
+For a redistributable Release directory, build with `-DCMAKE_BUILD_TYPE=Release`
+and then run the packaging script from an MSYS2 UCRT64 shell:
+
+```sh
+bash scripts/package_windows.sh build-release package-windows 0.1.0
+```
+
+The script deploys the Qt/GCC runtime DLLs, copies `LICENSE`,
+`MD4C-LICENSE.md`, README and third-party license texts, and writes
+`markpad.exe.sha256`. CI uploads the same directory as the
+`markpad-0.1.0-windows-ucrt64` artifact.
+
 ### Linux (Ubuntu)
 
 Install the build dependencies:
@@ -72,8 +84,9 @@ documented follow-ups.
 Pass file paths as command-line arguments (for example, `markpad document.md`).
 Local `QFileOpenEvent` requests are handled too; OS file associations and
 single-instance IPC are not installed. Clean builds and automated tests pass
-locally on Windows UCRT64 and Ubuntu in WSL. Task 005 changes have not yet run in remote CI;
-native-dialog and visual manual QA remain to be performed.
+locally on Windows UCRT64 and Ubuntu in WSL. Task 005 is accepted for the
+supported top-level scope; remote CI, native-dialog and visual manual QA remain
+release checks.
 
 ### Document core and file formats
 
@@ -105,7 +118,7 @@ heuristic, not a GFM parser; raw HTML remains inert text and no external resourc
 are loaded. GUI tests inject dialogs and run offscreen. See
 [Task 004](docs/tasks/task_004.md).
 
-### Continuous WYSIWYG (first slice)
+### Continuous WYSIWYG
 
 Continuous mode formats headings, paragraphs, emphasis/strong/strikethrough and
 list/quote content. Blue-background text runs support local text edits; grey
@@ -274,14 +287,16 @@ The MD4C tests pass locally on Windows and Ubuntu, including Linux ASan/UBSan.
 See [Task 002](docs/tasks/task_002.md) for limits, licensing and reproduction.
 See [Task 012](docs/tasks/task_012.md) for structural edits and snapshot guarantees.
 See [Task 013](docs/tasks/task_013.md) for the unified command contract and nested
-mapping limits. Task 015 (tables) is accepted. The remaining release work is
-cross-platform acceptance, manual visual QA and any follow-up defects rather
-than missing export/settings/paged-mode slices.
+mapping limits. Task 015 (tables) is accepted. The current release deliverable is
+a Windows portable binary; the exact gates, screenshots, print checks, packaging
+steps and known limitations are tracked in the
+[release checklist](docs/release_checklist.md). Installer/signing/update channels
+remain out of scope.
 The agreed [reference-definition policy](docs/tasks/task_025.md) uses document-wide
 scope: future structural edits reject normalized label collisions or changes to
 surviving reference bindings, and reject removal of a definition still in use.
-Definitions are not silently renamed or moved. Parser characterization is tested;
-the definition inventory and structural commands are not yet implemented.
+Definitions are not silently renamed or moved; the definition inventory and
+structural commands are part of the supported source-preserving edit pipeline.
 CI enables the MD4C regression suite on both platforms.
 
 The earlier `cmark-gfm`/Qt comparison remains available separately through

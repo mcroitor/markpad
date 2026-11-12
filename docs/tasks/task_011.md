@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Blocked` (Task 005 Done; остаются native visual/PDF/printer QA, remote CI и ручной release checklist)
+- Статус: `In Progress` (решения по unblock приняты; ветка `feature/task_011` от `main`)
 - Владелец: архитектор/координатор; тестировщик и DevOps по необходимости
 - Приоритет: P2
 
@@ -24,7 +24,19 @@ Markpad должен работать на Windows и Linux, открывать/
 - Сверка README, sketch, AGENTS, architecture и task статусов с фактическим поведением.
 - Запись известных ограничений, совместимых версий и инструкций для разработчиков.
 
-**Не включено:** выбор автодоставки/installer/signing/update channel; внедрять их только по отдельному требованию.
+**Не включено:** installer/signing/update channel; внедрять их только по отдельному требованию.
+
+**Принятые решения для unblock (2026-11-11):**
+
+- Remote CI: push `feature/task_011` и открыть PR; GitHub Actions — обязательное evidence.
+- Visual QA: автоматизированные Windows/Linux снимки + ручная sign-off владельца.
+- Print: проверить QPrinter/PDF и Microsoft Print to PDF; physical-printer и Linux CUPS
+  ограничения документировать, не выдавать за выполненные.
+- Feature gaps: текущие задокументированные ограничения (nested code/table, HTML,
+  link/image address/title, rich/multiline cells, syntax highlighting) не блокируют
+  этот релиз.
+- Deliverable: Windows portable binary с Qt runtime и лицензиями; installer/signing
+  остаются вне scope.
 
 ## Ограничения и предположения
 
@@ -43,8 +55,14 @@ Markpad должен работать на Windows и Linux, открывать/
 
 - Запустить полные CTest suites и workflow обеих платформ.
 - Пройти ручной checklist UI/файловых операций/режимов/экспорта.
-- Сравнить paginated mode и PDF на фиксированных fixtures.
-- Проверить чистый checkout/build и отсутствие незадокументированных runtime dependencies.
+- Сравнить paginated mode и PDF на фиксированных fixtures структурно; pixel-perfect
+  equality не является критерием.
+- Проверить Windows Release portable package с Qt runtime, `MD4C-LICENSE.md` и
+  запуском без Qt из `PATH`.
+- Проверить Microsoft Print to PDF; physical-printer и Linux CUPS явно записать как
+  limitations, если они не выполнялись.
+- Собрать screenshots и провести owner sign-off по
+  [release checklist](../release_checklist.md).
 
 ## Зависимости и открытые вопросы
 
@@ -58,9 +76,28 @@ Markpad должен работать на Windows и Linux, открывать/
 ## Итог выполнения
 
 - Dependency Task 005 снята: continuous scoped объём принят Task 042.
-- Полный CTest 7/7 стабильно проходит на Windows и Ubuntu WSL, включая Linux
-  ASan/UBSan/leaks; MD4C и GUI acceptance suites проходят.
-- Остаются native visual QA, printer hardware, ручной UI/PDF checklist и
-  remote CI. Автоматические offscreen-тесты их не заменяют.
-- Решение о готовности: заблокировано этими release/manual проверками, а не
-  функциональным dependency 005.
+- Создана ветка `feature/task_011` от `main` (`6df04da`), зафиксированы решения
+  по unblock и release checklist: [docs/release_checklist.md](../release_checklist.md).
+- Локальные ворота пройдены: Windows Debug/Release CTest 7/7, Ubuntu
+  Debug/Release CTest 7/7, Linux ASan/UBSan/leaks CTest 7/7; MD4C suite входит
+  в CTest. Windows portable package собран, содержит Qt/GCC/runtime DLL,
+  `LICENSE`, `MD4C-LICENSE.md` и каталог лицензий; запускается без Qt в `PATH`.
+- Добавлены Windows screenshots light/dark и Settings dialog в
+  [docs/qa/task_011](../qa/task_011/README.md). Visual QA выявил недостаточный
+  контраст dark WYSIWYG; цвета сделаны palette-aware, добавлен runtime
+  re-render и regression test `continuousDarkThemeColors`.
+- Microsoft Print to PDF выполнен: получен читаемый A4 PDF. Paged view показал
+  3 страницы, print/PDF — 2 страницы; это известное ограничение Task 008
+  (PageLayoutEngine vs Qt text layout), требуется owner sign-off.
+- Remote CI green: run `43155710816` на commit `d769c68`; Linux Debug/Release,
+  Linux ASan/UBSan, Windows Debug и Windows Release portable прошли. CI artifact
+  `markpad-0.1.0-windows-ucrt64` содержит 176 файлов, `markpad.exe` SHA-256
+  `5162839752ea55857f97caf35f89b1fd78ff4b832eabdfa49ed47b9157fc6676`,
+  запускается без Qt в `PATH`.
+- Physical printer, Linux CUPS, native File Open/Save/Save As, unsaved-close,
+  SDI routing, oversized-block overflow, Linux native visual QA и owner sign-off
+  остаются незакрытыми. PR не создан: GitHub CLI token не имеет permission на
+  создание PR; ветка запушена и CI уже прошёл.
+- Решение о готовности: `In Progress`/не заявляется до owner sign-off и
+  оставшихся ручных проверок; автоматические ворота и functional dependency 005
+  больше не блокируют задачу.

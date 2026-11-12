@@ -1,0 +1,23 @@
+Task 011 CI artifact evidence
+================================
+
+Workflow run: 43155710816
+Commit: d769c682d15c7803fec3d373586c6fd55e86414f
+Workflow: Build and test
+Result: success
+
+Jobs:
+- Ubuntu / GCC / Debug: success
+- Ubuntu / GCC / Release: success
+- Ubuntu / ASan+UBSan: success
+- Windows / MSYS2 UCRT64 / Debug: success
+- Windows / MSYS2 UCRT64 / Release portable: success
+
+Artifact: markpad-0.1.0-windows-ucrt64
+Files: 176
+Qt in package metadata: 6.12.0
+markpad.exe SHA-256:
+5162839752ea55857f97caf35f89b1fd78ff4b832eabdfa49ed47b9157fc6676  *markpad.exe
+
+The downloaded artifact was launched with Qt removed from PATH; the process
+remained running until it was stopped by the QA command.

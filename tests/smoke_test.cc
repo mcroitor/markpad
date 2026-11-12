@@ -1849,6 +1849,42 @@ class MainWindowSmokeTest : public QObject {
     QVERIFY(dialogs.errors.empty());
   }
 
+  void continuousDarkThemeColors() {
+    const QByteArray source =
+        "alpha\n\n```\ncode\n```\n\n| h |\n| --- |\n| a |\n";
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->insertPlainText(QString::fromUtf8(source));
+    QVERIFY(window->setContinuousMode(true));
+    Settings settings;
+    settings.theme = Theme::kDark;
+    QString error;
+    QVERIFY2(window->applySettings(settings, &error), qPrintable(error));
+    auto* rich = window->continuousEditor()->editor();
+    auto cursor = rich->document()->find(QStringLiteral("alpha"));
+    QVERIFY(!cursor.isNull());
+    QVERIFY(cursor.charFormat().background().color().lightness() < 128);
+    cursor = rich->document()->find(QStringLiteral("code"));
+    QVERIFY(!cursor.isNull());
+    QVERIFY(cursor.charFormat().background().color().lightness() < 128);
+    QTextTable* table = nullptr;
+    for (auto* frame : rich->document()->rootFrame()->childFrames()) {
+      if ((table = dynamic_cast<QTextTable*>(frame))) {
+        break;
+      }
+    }
+    QVERIFY(table);
+    QVERIFY(table->cellAt(0, 0)
+                .format()
+                .background()
+                .color()
+                .lightness() < 128);
+    settings.theme = Theme::kLight;
+    QVERIFY2(window->applySettings(settings, &error), qPrintable(error));
+    QVERIFY(dialogs.errors.empty());
+  }
+
   void continuousAcceptanceMatrix() {
     const QByteArray source =
         "# Heading\n\n"

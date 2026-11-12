@@ -6,8 +6,12 @@ on:
 
 jobs:
   linux:
-    name: Ubuntu / GCC
+    name: Ubuntu / GCC / ${{ matrix.build_type }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
     steps:
       - uses: actions/checkout@v4
 
@@ -17,16 +21,52 @@ jobs:
           sudo apt-get install --yes cmake ninja-build g++ qt6-base-dev
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMARKPAD_BUILD_MD4C_SPIKE=ON
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DMARKPAD_BUILD_MD4C_SPIKE=ON
 
       - name: Build
         run: cmake --build build --parallel
 
       - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build --output-on-failure
+
+  linux-sanitize:
+    name: Ubuntu / ASan+UBSan
+    runs-on: ubuntu-latest
+    env:
+      ASAN_OPTIONS: detect_leaks=1
+      UBSAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes cmake ninja-build g++ qt6-base-dev
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DMARKPAD_BUILD_MD4C_SPIKE=ON
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: ctest --test-dir build --output-on-failure
 
   windows-ucrt64:
-    name: Windows / MSYS2 UCRT64 / GCC
+    name: Windows / MSYS2 UCRT64 / Debug
     runs-on: windows-latest
     defaults:
       run:
@@ -51,4 +91,47 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: ctest --test-dir build --output-on-failure
+
+  windows-portable:
+    name: Windows / MSYS2 UCRT64 / Release portable
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-qt6-base
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$MINGW_PREFIX" -DMARKPAD_BUILD_MD4C_SPIKE=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Package portable Windows build
+        run: bash scripts/package_windows.sh build package-windows 0.1.0 "${GITHUB_SHA:-unknown}"
+
+      - name: Upload portable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: markpad-0.1.0-windows-ucrt64
+          path: package-windows/
+          if-no-files-found: error
+          retention-days: 14

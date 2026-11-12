@@ -1,0 +1,60 @@
+# Markpad release QA
+
+## Continuous formatting
+
+Paragraph with **bold**, *italic*, ~~strikethrough~~ and `inline code`.
+
+> Quoted text with a [link](https://example.test) and an inert image label:
+> ![alt](https://example.test/image.png)
+
+- one
+- two
+- three
+
+```js
+const x = 1;
+const y = 2;
+```
+
+| Header A | Header B |
+| --- | --- |
+| A | B |
+| C | D |
+
+---
+
+<div>raw html stays protected</div>
+
+## Longer content for pagination
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer euismod,
+lorem at vulputate facilisis, lacus urna tincidunt justo, vitae posuere
+nulla quam at nibh. Suspendisse potenti.
+
+1. Ordered item
+2. Second ordered item
+3. Third ordered item
+
+Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad
+minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea
+commodo consequat.
+
+### Another section
+
+- A list with a longer line so the page layout has more than one block.
+- Another item with **emphasis** and `code`.
+- A final item.
+
+> A second blockquote with multiple lines.
+> It should remain visually distinct in both WYSIWYG modes.
+
+| Column one | Column two | Column three |
+| --- | :---: | ---: |
+| left | center | right |
+| more text | more text | more text |
+| end | end | end |
+
+The final paragraph is deliberately long enough to exercise page placement,
+line wrapping, and the status bar page count in the paginated view. It also
+serves as a fixture for comparing the page engine output with the generated
+PDF in the release checklist.
