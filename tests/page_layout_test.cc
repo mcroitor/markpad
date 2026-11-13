@@ -259,6 +259,124 @@ class PageLayoutTest : public QObject {
     QVERIFY(!result.warning.isEmpty());
     QCOMPARE(result.pages.size(), size_t(1));
   }
+
+  void pagePlanGeometryAndBreaks() {
+    QByteArray html;
+    for (int i = 0; i < 120; ++i) {
+      html += "<p>paragraph " + QByteArray::number(i) + "</p>";
+    }
+    auto document = documentFor(html, a4());
+    const auto plan = PagePlanner::plan(*document, a4());
+    QVERIFY(plan.pages.size() > 2);
+    QVERIFY(plan.units.size() > 2);
+    QCOMPARE(plan.pages.front().documentTop, 0.0);
+    QVERIFY(plan.pages[1].documentTop > 0.0);
+    QCOMPARE(plan.pages.front().firstBlock, plan.units.front().firstBlock);
+    for (size_t i = 0; i < plan.units.size(); ++i) {
+      const auto& unit = plan.units[i];
+      QVERIFY(unit.page >= 0);
+      QVERIFY(unit.page < int(plan.pages.size()));
+      QVERIFY(unit.height > 0.0);
+      if (i > 0) {
+        QVERIFY(unit.page >= plan.units[i - 1].page);
+        if (unit.page != plan.units[i - 1].page) {
+          const auto& previous = plan.units[i - 1];
+          QVERIFY(previous.documentTop + previous.height <=
+                  plan.pages[size_t(unit.page)].documentTop + 0.5);
+        }
+      }
+    }
+    for (size_t page = 0; page < plan.pages.size(); ++page) {
+      QVERIFY(plan.pages[page].firstBlock >= 0);
+      QVERIFY(plan.pages[page].lastBlock >= plan.pages[page].firstBlock);
+    }
+  }
+
+  void pagePlanDoesNotMutateDocument() {
+    QByteArray html =
+        "<h1>Heading</h1><p>Text</p>"
+        "<table border=\"1\"><tr><th>h</th></tr><tr><td>cell</td></tr></table>"
+        "<pre>code line</pre>";
+    auto document = documentFor(html, a4());
+    const auto before = document->toHtml();
+    const auto width = document->textWidth();
+    const auto margin = document->documentMargin();
+    const auto modified = document->isModified();
+    const auto plan = PagePlanner::plan(*document, a4());
+    QVERIFY(!plan.pages.empty());
+    QCOMPARE(document->toHtml(), before);
+    QCOMPARE(document->textWidth(), width);
+    QCOMPARE(document->documentMargin(), margin);
+    QCOMPARE(document->isModified(), modified);
+  }
+
+  void pagePlanAtomicUnitsAndOverflow() {
+    QByteArray html;
+    for (int i = 0; i < 12; ++i) {
+      html += "<p>paragraph " + QByteArray::number(i) + "</p>";
+    }
+    html += "<p>code line 1</p><p>code line 2</p><p>code line 3</p>";
+    for (int i = 0; i < 12; ++i) {
+      html += "<p>tail " + QByteArray::number(i) + "</p>";
+    }
+    auto document = documentFor(html, a4());
+    int firstCode = -1;
+    int lastCode = -1;
+    for (auto block = document->begin(); block.isValid(); block = block.next()) {
+      if (block.text().startsWith(QStringLiteral("code line"))) {
+        auto format = block.blockFormat();
+        format.setProperty(kPageUnitProperty, 999);
+        format.setTopMargin(0);
+        format.setBottomMargin(0);
+        QTextCursor cursor(block);
+        cursor.setBlockFormat(format);
+        if (firstCode < 0) {
+          firstCode = block.blockNumber();
+        }
+        lastCode = block.blockNumber();
+      }
+    }
+    QVERIFY(firstCode >= 0);
+    const auto plan = PagePlanner::plan(*document, a4());
+    int covering = 0;
+    for (const auto& unit : plan.units) {
+      if (unit.firstBlock <= firstCode && unit.lastBlock >= lastCode) {
+        ++covering;
+        QCOMPARE(unit.firstBlock, firstCode);
+        QCOMPARE(unit.lastBlock, lastCode);
+      }
+    }
+    QCOMPARE(covering, 1);
+
+    const auto oversized = PagePlanner::plan(
+        *documentFor("<p style=\"font-size:300pt\">huge</p>", a4()), a4());
+    QVERIFY(oversized.overflow);
+    QVERIFY(!oversized.warning.isEmpty());
+    QCOMPARE(oversized.units.size(), size_t(1));
+    QVERIFY(oversized.units.front().overflow);
+    QCOMPARE(oversized.units.front().page, 0);
+    QVERIFY(oversized.pages.front().overflow);
+  }
+
+  void legacyLayoutMatchesPlan() {
+    QByteArray html;
+    for (int i = 0; i < 60; ++i) {
+      html += "<p>paragraph " + QByteArray::number(i) + "</p>";
+    }
+    auto document = documentFor(html, a4());
+    const auto legacy = PageLayoutEngine::layout(*document, a4());
+    const auto plan = PagePlanner::plan(*document, a4());
+    QCOMPARE(legacy.pages.size(), plan.pages.size());
+    QCOMPARE(legacy.placements.size(), plan.units.size());
+    for (size_t i = 0; i < plan.units.size(); ++i) {
+      QCOMPARE(legacy.placements[i].block, plan.units[i].firstBlock);
+      QCOMPARE(legacy.placements[i].endBlock, plan.units[i].lastBlock);
+      QCOMPARE(legacy.placements[i].page, plan.units[i].page);
+      QCOMPARE(legacy.placements[i].overflow, plan.units[i].overflow);
+      QVERIFY(qAbs(legacy.placements[i].rect.height() - plan.units[i].height) <
+              0.5);
+    }
+  }
 };
 
 }  // namespace markpad

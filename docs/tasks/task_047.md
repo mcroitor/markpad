@@ -2,84 +2,88 @@
 
 ## Статус и владелец
 
-- Статус: `Ready` (ждёт Task 044 и Task 046).
-- Владелец: архитектор/координатор; `cpp-developer`, `test-writer`.
-- Приоритет: P1 (release blocker по owner QA).
-- Источник: [release checklist, PDF export](../release_checklist.md#pdf-export).
+- Статус: `Done`; владелец: архитектор/координатор, исполнитель: C++/Qt.
+- Контракт: [Task 051](task_051.md).
 
 ## Контекст
 
-Пользователь сообщает, что exported PDF не совпадает с ожидаемой раскладкой:
-размер страницы или размер текста не соответствует Paged WYSIWYG/эталонному
-представлению. Сейчас PDF export использует Qt text layout, а paged status —
-`PageLayoutEngine`; на QA fixture paged view показывает 3 страницы, а PDF — 2.
-Требуется устранить расхождение или явно определить эквивалентность layout.
+Текущий PDF использует отдельный `QTextDocument::print` путь; page count и
+разрывы расходятся с paged WYSIWYG (QA fixture 3 vs 2). Контракт 051 требует
+общий `PagePlan` и явную ошибку при oversized-блоке вместо обрезания.
 
 ## Цель
 
-Сделать PDF export визуально и структурно эквивалентным согласованной page
-layout модели (page size, margins, typography, block order, page breaks) и
-убрать неожиданное расхождение page count/масштаба.
+Сделать PDF и печать эквивалентными общему page plan по размеру, полям,
+порядку блоков и разрывам; устранить скрытое расхождение.
 
 ## Область работ
 
-**Включено:**
-
-- Проверить PDF page size, margins, font family/size, line wrapping и block
-  pagination на фиксированных fixtures.
-- Согласовать PDF layout с Task 044 page-surface и Task 046 block styles.
-- Исправить расхождения; если pixel-perfect Qt/PDF невозможен, зафиксировать
-  точный structural contract и допустимые отличия.
-- Добавить regression tests: page count, page size, отсутствие потери блоков,
-  сравнение текста/порядка; visual fixture при возможности.
-- Обновить README/Task 008 ограничения и release checklist.
-
-**Не включено:**
-
-- Новый PDF/HTML engine без архитектурного обоснования.
-- Изменение GFM AST или пользовательского документа.
-- Физическая печать/принтеры — Task 011 external checks.
+**Включено:** рендер PDF по `PagePlan`, page size/margins/typography, явная
+ошибка overflow, атомарная запись, тесты page count/order/size, обновление
+README/release checklist. **Не включено:** новый PDF SDK, изменение GFM,
+физическая печать как release-проверка, альтернативная пагинация.
 
 ## Ограничения и предположения
 
-- PDF не обязан быть pixel-perfect относительно QTextEdit, если это явно
-  задокументировано; текущее расхождение 3 vs 2 страницы считается дефектом до
-  решения owner.
-- PDF должен сохранять page size/margins/шрифты и порядок блоков.
-- Исправления не должны менять source/token/history.
+- PDF обязан использовать тот же `PagePlan`, что canvas 054; `QTextDocument::print`
+  с автоматической пагинацией запрещён.
+- Unit не пересекает границу; при overflow экспорт завершается ошибкой и не
+  создаёт/не перезаписывает целевой файл.
+- Pixel-perfect растеризация не требуется; требуется структурная эквивалентность
+  для документов без overflow.
+- Ошибки записи и отмены печати не маскируются.
 
 ## Критерии приёмки
 
-1. PDF page size/margins соответствуют PageSetup и paged mode.
-2. Body/heading/code/quote typography соответствует WYSIWYG-настройкам (Task 043)
-   и Task 046.
-3. Page count и размещение блоков совпадают с paged layout для fixtures либо
-   расхождение явно принято owner с точным описанием.
-4. Нет потери/дублирования блоков, таблиц, code, ссылок и изображений;
-   raw HTML остаётся безопасным.
-5. Тесты покрывают page count/size, порядок блоков и typography; screenshots/PDF
-   evidence обновлены.
+1. Для fixtures без overflow page size, margins, порядок units и page count
+   совпадают с paged canvas/PagePlan.
+2. Typography (body/heading/code/quote) соответствует настройкам и Task 046.
+3. При oversized/wide unit экспорт возвращает явную ошибку с указанием блока;
+   файл не создаётся и существующий не повреждается.
+4. Нет потери/дублирования блоков, таблиц, code, ссылок и изображений; raw HTML
+   остаётся безопасным.
+5. Тесты покрывают count/size/order/typography и overflow; evidence обновлено.
 
 ## План проверок
 
-- PDF export tests с фиксированными fixtures; `pdfinfo`/текстовая проверка.
-- Сравнение page count paged mode и PDF.
-- Windows Debug/Release и Ubuntu Debug/Release/ASan CTest.
-- Visual review exported PDF и paged screenshots.
+- PDF tests на фиксированных fixtures; структурная проверка page count/текста.
+- Сравнение с canvas/PagePlan; Windows/Linux Debug/Release CTest.
+- Визуальная проверка PDF и отчёта об ошибке overflow; непроведённые проверки
+  указать явно.
 
 ## Зависимости и открытые вопросы
 
-- Зависимости: Task 044 (page surface), Task 046 (block presentation/typography).
-- Нужно подтвердить owner: допустимо ли структурное, а не pixel-perfect
-  совпадение, и какой эталон считать основным — Paged WYSIWYG или PDF.
+051 Done, 052 Done, 054 Done. Физическая печать и native visual QA остаются
+внешними проверками Task 011/055.
 
 ## Исполнительский промпт
 
-После завершения Task 044/046 сравни PDF с page-layout моделью на fixtures,
-исправь page size/margins/typography/pagination и добавь regression tests.
-Не объявляй PDF эквивалентным без проверки page count и порядка блоков; при
-невозможности устранить расхождение остановись и верни точный структурный diff.
+Реализуй PDF/печать по `PagePlan` и контракту 051. Не используй автоматическую
+пагинацию Qt и не вводи второй layout. Обеспечь явный отказ при overflow без
+повреждения файла. Покрой тестами parity и ошибки, обнови документацию; при
+невозможности структурного совпадения остановись с точным diff.
 
 ## Итог выполнения
 
-Ожидает Task 044/046 и решения owner по эталону.
+Реализовано:
+
+- PDF и печать рисуют `PagePlan` вручную через `QPainter`: каждая страница
+  клипается по content rect, unit не разрезается. `QTextDocument::print` с
+  автоматической пагинацией больше не используется.
+- `exportPdfFromDocument`/`printDocumentFromDocument` клонируют WYSIWYG-проекцию,
+  поэтому UI-документ, cursor и formatting не меняются. Приложение экспортирует
+  именно projection из `ContinuousEditor`, а не отдельный HTML-layout.
+- Layout использует logical 96 DPI для измерений и затем масштабируется в
+  реальную страницу PDF; это сохраняет переносы строк и page breaks эквивалентными
+  canvas. Для standalone `markdown::Document` остаётся HTML-путь.
+- Overflow (высота/ширина unit) возвращает явную ошибку `PDF export refused...`
+  и не создаёт/не перезаписывает целевой файл; печать также отказывает.
+- Обновлены README, ARCHITECTURE и release checklist.
+
+Проверки: Windows UCRT64 Debug и Ubuntu WSL GCC 15.2 Debug — полный CTest 8/8.
+`markpad_pdf_export`: A4/Letter MediaBox, фактическое число PDF-страниц равно
+`pageCount`, overflow сохраняет существующий файл, print отказывает. Smoke:
+paged canvas и PDF дают одинаковые 5 страниц на fixture из 140 абзацев.
+Внешняя проверка MiKTeX `pdfinfo`/`pdftotext`: A4 595x842, 5 страниц, извлекаемый
+текст присутствует. Native visual PDF review и реальная печать не выполнялись;
+pixel-perfect не заявлен, структурная parity на проверенных fixtures достигнута.

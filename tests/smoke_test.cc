@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QFileOpenEvent>
 #include <QIcon>
+#include <QImage>
 #include <QLabel>
 #include <QMenu>
 #include <QMimeData>
@@ -28,7 +29,9 @@
 
 #include "application_controller.h"
 #include "continuous_editor.h"
+#include "page_canvas.h"
 #include "page_text_edit.h"
+#include "pdf_export.h"
 #include "settings_dialog.h"
 
 namespace markpad {
@@ -115,6 +118,14 @@ QByteArray get(const QString& path) {
 
 QAction* action(MainWindow* window, const char* name) {
   return window->findChild<QAction*>(QString::fromLatin1(name));
+}
+
+std::filesystem::path nativePath(const QString& path) {
+#ifdef _WIN32
+  return std::filesystem::path(path.toStdWString());
+#else
+  return std::filesystem::path(path.toStdString());
+#endif
 }
 
 }  // namespace
@@ -500,6 +511,127 @@ class MainWindowSmokeTest : public QObject {
         QStringLiteral("settingsWysiwygQuoteFont")));
   }
 
+  void continuousListMarkersAndIndentation() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->setPlainText(
+        QStringLiteral("- one\n  - nested\n- two\n- [x] task\n"));
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    auto* document = rich->document();
+    const auto one = document->find(QStringLiteral("one"));
+    const auto nested = document->find(QStringLiteral("nested"));
+    const auto two = document->find(QStringLiteral("two"));
+    const auto task = document->find(QStringLiteral("task"));
+    QVERIFY(!one.isNull());
+    QVERIFY(!nested.isNull());
+    QVERIFY(!two.isNull());
+    QVERIFY(!task.isNull());
+    QCOMPARE(one.block().blockFormat().leftMargin(), 20.0);
+    QCOMPARE(two.block().blockFormat().leftMargin(), 20.0);
+    QCOMPARE(task.block().blockFormat().leftMargin(), 20.0);
+    QCOMPARE(nested.block().blockFormat().leftMargin(), 40.0);
+
+    const auto markerFormat = [&](const QTextCursor& text) {
+      QTextCursor cursor(document);
+      cursor.setPosition(text.block().position() + 1);
+      return cursor.charFormat();
+    };
+    for (const auto& text : {one, two, nested, task}) {
+      const auto format = markerFormat(text);
+      QCOMPARE(format.background().style(), Qt::NoBrush);
+      QVERIFY(format.foreground().style() == Qt::NoBrush ||
+              format.foreground().color() ==
+                  QApplication::palette().color(QPalette::Text));
+    }
+    QVERIFY(window->setPagedMode(true));
+    const auto pagedOne = document->find(QStringLiteral("one"));
+    const auto pagedNested = document->find(QStringLiteral("nested"));
+    QVERIFY(!pagedOne.isNull());
+    QVERIFY(!pagedNested.isNull());
+    QCOMPARE(pagedOne.block().blockFormat().leftMargin(), 20.0);
+    QCOMPARE(pagedNested.block().blockFormat().leftMargin(), 40.0);
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousSpecialCharactersToggle() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->setPlainText(QStringLiteral("a b\n\nc\n"));
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    window->editor()->setFocus();
+    QApplication::processEvents();
+    const auto off = rich->grab().toImage();
+    auto* toggle = action(window, "specialCharactersAction");
+    QVERIFY(toggle);
+    QVERIFY(toggle->isCheckable());
+    toggle->setChecked(true);
+    QVERIFY(window->continuousEditor()->showSpecialCharacters());
+    QApplication::processEvents();
+    const auto on = rich->grab().toImage();
+    QVERIFY(off != on);
+    QVERIFY(window->setPagedMode(true));
+    auto* canvas = window->continuousEditor()->canvas();
+    QVERIFY(canvas->showSpecialCharacters());
+    toggle->setChecked(false);
+    QVERIFY(!window->continuousEditor()->showSpecialCharacters());
+    QVERIFY(!canvas->showSpecialCharacters());
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void continuousLineBreakDeletion() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->setPlainText(QStringLiteral("a\nb\n\nc  \nd\n"));
+    QVERIFY(window->setContinuousMode(true));
+    auto* rich = window->continuousEditor()->editor();
+    QVERIFY(!rich->toPlainText().contains(QStringLiteral("Read-only")));
+    const auto b = rich->document()->find(QStringLiteral("b"));
+    QVERIFY(!b.isNull());
+    QCOMPARE(b.block().text(), QStringLiteral("a b"));
+    auto cursor = rich->textCursor();
+    cursor.setPosition(b.block().position() + 2);
+    rich->setTextCursor(cursor);
+    QTest::keyClick(rich, Qt::Key_Backspace);
+    QCOMPARE(window->session().snapshot().source, std::string("a b\n\nc  \nd\n"));
+
+    const auto d = rich->document()->find(QStringLiteral("d"));
+    QVERIFY(!d.isNull());
+    const auto dStart = d.selectionStart();
+    auto selection = rich->textCursor();
+    selection.setPosition(dStart - 1);
+    selection.setPosition(dStart, QTextCursor::KeepAnchor);
+    rich->setTextCursor(selection);
+    QTest::keyClick(rich, Qt::Key_Delete);
+    QVERIFY2(window->session().snapshot().source == "a b\n\nc d\n",
+             qPrintable(QStringLiteral("doc '%1' errors '%2'")
+                            .arg(rich->toPlainText())
+                            .arg(dialogs.errors.join(QStringLiteral(" | ")))));
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void pagedListMarkerDeletion() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->setPlainText(QStringLiteral("- a\n- b\n"));
+    QVERIFY(window->setPagedMode(true));
+    auto* canvas = window->continuousEditor()->canvas();
+    const auto b = canvas->document()->find(QStringLiteral("b"));
+    QVERIFY(!b.isNull());
+    auto selection = canvas->textCursor();
+    selection.setPosition(b.block().position());
+    selection.setPosition(b.block().position() + 2, QTextCursor::KeepAnchor);
+    canvas->setTextCursor(selection);
+    QTest::keyClick(canvas, Qt::Key_Delete);
+    QCOMPARE(window->session().snapshot().source, std::string("- a\n\nb\n"));
+    QVERIFY(dialogs.errors.empty());
+  }
+
   void continuousTextAndHistory() {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -715,10 +847,11 @@ class MainWindowSmokeTest : public QObject {
     window->setContinuousMode(false);
     window->editor()->setTextCursor(sourceCursor);
     window->setContinuousMode(true);
-    QVERIFY(window->continuousEditor()
-                ->findChild<QLabel*>("continuousNotice")
-                ->text()
-                .contains("nearest mapped boundary"));
+    QApplication::processEvents();
+    QVERIFY(window->statusBar()->currentMessage().contains(
+        "nearest mapped boundary"));
+    QVERIFY(!window->continuousEditor()->findChild<QLabel*>(
+        QStringLiteral("continuousNotice")));
     QCOMPARE(window->session().snapshot().source, source.toStdString());
     QApplication::clipboard()->clear();
   }
@@ -1253,59 +1386,188 @@ class MainWindowSmokeTest : public QObject {
     QTest::qWait(50);
     const auto before = window->session().snapshot();
     QVERIFY(window->setPagedMode(true));
-    auto* paged =
-        dynamic_cast<PageTextEdit*>(window->continuousEditor()->editor());
-    QVERIFY(paged);
+    auto* canvas = window->continuousEditor()->canvas();
+    QVERIFY(canvas);
+    QVERIFY(canvas->isVisible());
+    QVERIFY(!window->continuousEditor()->editor()->isVisible());
     QTest::qWait(50);
-    QVERIFY(paged->pageCount() >= 2);
-    QVERIFY(paged->viewportPageMargins().left() > 0);
-    const auto scale = paged->viewScale();
-    const auto pageWidth =
-        PageLayoutEngine::pageSize(paged->pageSetup(), scale).width();
-    QVERIFY(pageWidth > 700.0);
-    const auto paragraph =
-        paged->document()->find(QStringLiteral("Paragraph 0"));
+    QVERIFY(canvas->pageCount() >= 2);
+    QCOMPARE(window->continuousEditor()->pageCount(), canvas->pageCount());
+    const auto first = canvas->pageRect(0);
+    const auto second = canvas->pageRect(1);
+    QVERIFY(first.width() > 700.0);
+    QVERIFY(second.top() > first.bottom());
+    const auto paragraph = canvas->document()->find(QStringLiteral("Paragraph 0"));
     QVERIFY(!paragraph.isNull());
-    QCOMPARE(paragraph.block().blockFormat().alignment(),
-             Qt::Alignment(Qt::AlignJustify));
-    const auto paragraphWidth =
-        paged->document()
-            ->documentLayout()
-            ->blockBoundingRect(paragraph.block())
-            .width();
-    const auto expectedContent =
-        pageWidth - 2.0 * paged->document()->documentMargin();
-    QVERIFY(qAbs(paragraphWidth - expectedContent) < 1.0);
-    const auto expectedRight =
-        pageWidth - paragraphWidth - paged->document()->documentMargin();
-    QVERIFY(qAbs(expectedRight - 20.0 * 72.0 / 25.4 * scale) < 1.0);
-    const auto layout = paged->pageLayout();
-    QVERIFY(layout.pages.size() >= 2);
-    int firstSecondPage = -1;
-    for (const auto& placement : layout.placements) {
-      if (placement.page == 1) {
-        firstSecondPage = placement.block;
-        break;
-      }
-    }
-    QVERIFY(firstSecondPage >= 0);
-    const auto block = paged->document()->findBlockByNumber(firstSecondPage);
-    QVERIFY(block.blockFormat().topMargin() > 0.0);
+    QCOMPARE(paragraph.block().blockFormat().topMargin(), 0.0);
     QCOMPARE(window->session().snapshot().source, before.source);
     QCOMPARE(window->session().snapshot().token.revision,
              before.token.revision);
 
-    auto cursor = paged->document()->find(QStringLiteral("Paragraph 0"));
-    QVERIFY(!cursor.isNull());
-    cursor.movePosition(QTextCursor::EndOfBlock);
-    paged->setTextCursor(cursor);
-    paged->insertPlainText(QStringLiteral(" edited"));
-    QVERIFY(window->session().snapshot().source.find("Paragraph 0 edited") !=
-            std::string::npos);
+    int firstOnSecondPage = -1;
+    for (const auto& unit : canvas->pagePlan().units) {
+      if (unit.page == 1) {
+        firstOnSecondPage = unit.firstBlock;
+        break;
+      }
+    }
+    QVERIFY(firstOnSecondPage >= 0);
+    const auto block = canvas->document()->findBlockByNumber(firstOnSecondPage);
+    auto cursor = canvas->textCursor();
+    cursor.setPosition(block.position() + block.length() - 1);
+    canvas->setTextCursor(cursor);
+    const auto expected = (block.text() + QStringLiteral("x")).toStdString();
+    QVERIFY2(canvas->textCursor().blockNumber() == firstOnSecondPage,
+             qPrintable(QStringLiteral("cursor block %1 expected %2, units %3")
+                            .arg(canvas->textCursor().blockNumber())
+                            .arg(firstOnSecondPage)
+                            .arg(canvas->pagePlan().units.size())));
+    auto edit = canvas->textCursor();
+    edit.insertText(QStringLiteral("x"));
+    QVERIFY2(window->session().snapshot().source.find(expected) !=
+                 std::string::npos,
+             qPrintable(QStringLiteral("first %1 expected '%2' doc '%3' errors '%4'")
+                            .arg(firstOnSecondPage)
+                            .arg(QString::fromStdString(expected))
+                            .arg(canvas->document()->toPlainText().right(40))
+                            .arg(dialogs.errors.join(QStringLiteral(" | ")))));
     QVERIFY(window->session().dirty());
+    QCOMPARE(canvas->textCursor().blockNumber(), firstOnSecondPage);
     window->undo();
     QCOMPARE(window->session().snapshot().source, before.source);
     QVERIFY(dialogs.errors.empty());
+  }
+
+  void pagedCanvasHeadingAndModeSwitch() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->setPlainText(QStringLiteral("paragraph\n\nsecond\n"));
+    QVERIFY(window->setPagedMode(true));
+    auto* canvas = window->continuousEditor()->canvas();
+    QVERIFY(canvas->isVisible());
+    auto cursor = canvas->document()->find(QStringLiteral("second"));
+    QVERIFY(!cursor.isNull());
+    cursor.movePosition(QTextCursor::EndOfBlock);
+    canvas->setTextCursor(cursor);
+    QCoreApplication::processEvents();
+    auto* heading = action(window, "heading1Action");
+    QVERIFY(heading->isEnabled());
+    heading->trigger();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("paragraph\n\n# second\n"));
+    QVERIFY(window->setPagedMode(false));
+    QVERIFY(!canvas->isVisible());
+    auto* rich = window->continuousEditor()->editor();
+    QVERIFY(rich->isVisible());
+    QVERIFY(rich->document()->documentMargin() > 0.0);
+    QCOMPARE(window->session().snapshot().source,
+             std::string("paragraph\n\n# second\n"));
+    QVERIFY(window->setPagedMode(true));
+    QVERIFY(canvas->isVisible());
+    QVERIFY(canvas->pageCount() >= 1);
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void pagedCanvasTableCellEdit() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    window->editor()->setPlainText(
+        QStringLiteral("| H |\n| --- |\n| cell |\n"));
+    QVERIFY(window->setPagedMode(true));
+    auto* canvas = window->continuousEditor()->canvas();
+    auto cursor = canvas->document()->find(QStringLiteral("cell"));
+    QVERIFY(!cursor.isNull());
+    QVERIFY(cursor.currentTable());
+    cursor.movePosition(QTextCursor::EndOfBlock);
+    canvas->setTextCursor(cursor);
+    QTest::keyClicks(canvas, QStringLiteral("x"));
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| H |\n| --- |\n| cellx |\n"));
+    window->undo();
+    QCOMPARE(window->session().snapshot().source,
+             std::string("| H |\n| --- |\n| cell |\n"));
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void pagedAndPdfPageCountsMatch() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    QByteArray source;
+    for (int i = 0; i < 140; ++i) {
+      source += "Paragraph " + QByteArray::number(i) + "\n\n";
+    }
+    window->editor()->setPlainText(QString::fromUtf8(source));
+    QVERIFY(window->setPagedMode(true));
+    auto* canvas = window->continuousEditor()->canvas();
+    QTest::qWait(50);
+    QString projectionError;
+    auto* projection = window->continuousEditor()->ensureProjection(
+        window->session().snapshot(), &projectionError);
+    QVERIFY2(projection, qPrintable(projectionError));
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    PdfExportOptions options;
+    options.page = canvas->pageSetup();
+    const auto path = directory.filePath(QStringLiteral("parity.pdf"));
+    const auto result = exportPdfFromDocument(
+        *projection, options.page, nativePath(path), options);
+    QVERIFY2(result.success(), qPrintable(result.error.value_or(QString{})));
+    QCOMPARE(result.pageCount, canvas->pageCount());
+    QVERIFY(dialogs.errors.empty());
+  }
+
+  void pagedComplexPdfParityAndOverflow() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    QByteArray source =
+        "# Heading\n\nA **bold** paragraph with `inline`.\n\n"
+        "> quote\n\n- one\n- two\n\n"
+        "```cpp\nint x = 1;\n```\n\n"
+        "| h | i |\n| --- | --- |\n| a | b |\n\n";
+    for (int i = 0; i < 80; ++i) {
+      source += "Paragraph " + QByteArray::number(i) + "\n\n";
+    }
+    window->editor()->setPlainText(QString::fromUtf8(source));
+    QVERIFY(window->setPagedMode(true));
+    auto* canvas = window->continuousEditor()->canvas();
+    QTest::qWait(50);
+    QString error;
+    auto* projection =
+        window->continuousEditor()->ensureProjection(window->session().snapshot(),
+                                                      &error);
+    QVERIFY2(projection, qPrintable(error));
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto path = directory.filePath(QStringLiteral("complex.pdf"));
+    const auto result = exportPdfFromDocument(
+        *projection, canvas->pageSetup(), nativePath(path), PdfExportOptions{});
+    QVERIFY2(result.success(), qPrintable(result.error.value_or(QString{})));
+    QCOMPARE(result.pageCount, canvas->pageCount());
+    QVERIFY(dialogs.errors.empty());
+
+    auto* overflowWindow = controller.newDocument();
+    overflowWindow->editor()->setPlainText(
+        QString::fromUtf8(QByteArray("word ").repeated(20000)));
+    QVERIFY(overflowWindow->setPagedMode(true));
+    QTest::qWait(50);
+    auto* overflowCanvas = overflowWindow->continuousEditor()->canvas();
+    QVERIFY(overflowCanvas->hasOverflow());
+    QVERIFY(!overflowCanvas->layoutWarning().isEmpty());
+    auto* overflowProjection =
+        overflowWindow->continuousEditor()->ensureProjection(
+            overflowWindow->session().snapshot(), &error);
+    QVERIFY2(overflowProjection, qPrintable(error));
+    const auto overflowPath = directory.filePath(QStringLiteral("overflow.pdf"));
+    const auto refused = exportPdfFromDocument(
+        *overflowProjection, overflowCanvas->pageSetup(),
+        nativePath(overflowPath), PdfExportOptions{});
+    QVERIFY(!refused.success());
+    QVERIFY(refused.overflow);
+    QVERIFY(!QFileInfo::exists(overflowPath));
   }
 
   void pagedModeLayoutAndSettings() {
@@ -1417,6 +1679,7 @@ class MainWindowSmokeTest : public QObject {
                           QStringLiteral("zoomInAction"),
                           QStringLiteral("zoomOutAction"),
                           QStringLiteral("resetZoomAction"),
+                          QStringLiteral("specialCharactersAction"),
                           QStringLiteral("switchModeAction")}));
     auto* modes =
         window->findChild<QMenu*>(QStringLiteral("switchModeMenu"));

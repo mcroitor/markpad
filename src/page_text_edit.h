@@ -2,7 +2,10 @@
 #define MARKPAD_SRC_PAGE_TEXT_EDIT_H_
 
 #include <QMargins>
+#include <QSet>
 #include <QTextEdit>
+
+class QPainter;
 
 #include "page_layout.h"
 #include "settings.h"
@@ -24,6 +27,9 @@ class PageTextEdit : public QTextEdit {
   QMargins viewportPageMargins() const { return viewportMargins(); }
   qreal viewScale() const;
   void setNormalLineWrapMode(QTextEdit::LineWrapMode mode);
+  void setShowSpecialCharacters(bool show);
+  bool showSpecialCharacters() const { return showSpecialCharacters_; }
+  void setBreakPositions(const QSet<int>& positions);
   void refreshPageLayout();
 
  protected:
@@ -34,6 +40,7 @@ class PageTextEdit : public QTextEdit {
   void updatePageWidth();
   void schedulePageLayout();
   void resetPageMargins();
+  void paintSpecialCharacters(QPainter& painter);
 
   PageSetup setup_;
   PageLayoutResult layout_;
@@ -41,6 +48,8 @@ class PageTextEdit : public QTextEdit {
   bool relayouting_ = false;
   bool layoutScheduled_ = false;
   bool adjusting_ = false;
+  bool showSpecialCharacters_ = false;
+  QSet<int> breakPositions_;
   qreal normalMargin_ = 4.0;
   QTextEdit::LineWrapMode normalWrapMode_ = QTextEdit::WidgetWidth;
 };

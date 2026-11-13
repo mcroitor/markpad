@@ -63,8 +63,25 @@ void PageTextEdit::setNormalLineWrapMode(QTextEdit::LineWrapMode mode) {
   }
 }
 
+void PageTextEdit::setShowSpecialCharacters(bool show) {
+  if (showSpecialCharacters_ == show) {
+    return;
+  }
+  showSpecialCharacters_ = show;
+  viewport()->update();
+}
+
+void PageTextEdit::setBreakPositions(const QSet<int>& positions) {
+  breakPositions_ = positions;
+  viewport()->update();
+}
+
 void PageTextEdit::setPaged(bool paged) {
   if (paged_ == paged) {
+    if (!paged) {
+      // Another surface may have changed document width/margin (page canvas).
+      updatePageWidth();
+    }
     return;
   }
   paged_ = paged;
@@ -259,9 +276,81 @@ QString PageTextEdit::layoutWarning() const {
   return paged_ ? layout_.warning : QString{};
 }
 
+void PageTextEdit::paintSpecialCharacters(QPainter& painter) {
+  if (!document()) {
+    return;
+  }
+  const auto first = cursorForPosition(QPoint(0, 0)).block();
+  const auto last = cursorForPosition(
+                        QPoint(viewport()->width() - 1,
+                               viewport()->height() - 1))
+                        .block();
+  if (!first.isValid() || !last.isValid()) {
+    return;
+  }
+  QFont specialFont = font();
+  specialFont.setPointSize(std::max(7, specialFont.pointSize() - 2));
+  painter.setFont(specialFont);
+  QColor color = palette().color(QPalette::PlaceholderText);
+  color.setAlpha(190);
+  painter.setPen(color);
+  int visited = 0;
+  for (auto block = first; block.isValid() && visited < 2000;
+       block = block.next(), ++visited) {
+    const auto text = block.text();
+    for (int offset = 0; offset < text.size(); ++offset) {
+      const auto character = text.at(offset);
+      if (character != QChar(' ') && character != QChar('\t') &&
+          character != QChar(QChar::Nbsp) &&
+          character != QChar(QChar::LineSeparator)) {
+        continue;
+      }
+      QTextCursor position(document());
+      position.setPosition(block.position() + offset);
+      const auto rect = cursorRect(position);
+      if (rect.isEmpty() || rect.bottom() < 0 ||
+          rect.top() > viewport()->height()) {
+        continue;
+      }
+      if (character == QChar('\t')) {
+        painter.drawText(rect.topLeft() + QPoint(0, rect.height() - 3),
+                         QStringLiteral("\u2192"));
+      } else if (character == QChar(QChar::LineSeparator)) {
+        painter.drawText(rect.topLeft() + QPoint(0, rect.height() - 3),
+                         QStringLiteral("\u21b5"));
+      } else if (breakPositions_.contains(block.position() + offset)) {
+        painter.drawText(rect.topLeft() + QPoint(0, rect.height() - 3),
+                         QStringLiteral("\u21b5"));
+      } else {
+        QTextCursor next(document());
+        next.setPosition(block.position() + offset + 1);
+        const auto nextRect = cursorRect(next);
+        const auto width = std::max(1, nextRect.left() - rect.left());
+        painter.drawEllipse(
+            QPointF(rect.left() + width / 2.0, rect.center().y()), 1.3, 1.3);
+      }
+    }
+    QTextCursor end(document());
+    end.setPosition(block.position() + block.length() - 1);
+    const auto rect = cursorRect(end);
+    if (!rect.isEmpty() && rect.left() < viewport()->width() &&
+        rect.bottom() > 0 && rect.top() < viewport()->height()) {
+      painter.drawText(rect.topLeft() + QPoint(1, rect.height() - 2),
+                       QStringLiteral("\u00b6"));
+    }
+    if (block == last) {
+      break;
+    }
+  }
+}
+
 void PageTextEdit::paintEvent(QPaintEvent* event) {
   QTextEdit::paintEvent(event);
   if (!paged_) {
+    if (showSpecialCharacters_) {
+      QPainter painter(viewport());
+      paintSpecialCharacters(painter);
+    }
     return;
   }
   const auto scale = viewScale();
@@ -320,6 +409,9 @@ void PageTextEdit::paintEvent(QPaintEvent* event) {
                             metrics.height() + 4.0),
                      Qt::AlignLeft | Qt::AlignTop,
                      QStringLiteral("Page overflow"));
+  }
+  if (showSpecialCharacters_) {
+    paintSpecialCharacters(painter);
   }
 }
 

@@ -52,20 +52,24 @@ QSizeF PageLayoutEngine::pageSize(const PageSetup& setup, qreal scale) {
   return size;
 }
 
-PageLayoutResult PageLayoutEngine::layout(const QTextDocument& document,
-                                          const PageSetup& setup,
-                                          qreal scale) {
-  const auto page = normalized(setup);
-  const auto size = pageSize(page, scale);
-  const auto content = QRectF(mm(page.marginLeftMm, scale),
-                              mm(page.marginTopMm, scale),
-                              size.width() - mm(page.marginLeftMm, scale) -
-                                  mm(page.marginRightMm, scale),
-                              size.height() - mm(page.marginTopMm, scale) -
-                                  mm(page.marginBottomMm, scale));
-  PageLayoutResult result;
-  if (content.width() <= 0.0 || content.height() <= 0.0) {
-    result.pages.push_back(PageGeometry{size, content});
+PagePlan PagePlanner::plan(const QTextDocument& document,
+                           const PageSetup& givenSetup, qreal scale) {
+  const auto setup = normalized(givenSetup);
+  PagePlan result;
+  result.setup = setup;
+  result.scale = scale;
+  result.pageSize = PageLayoutEngine::pageSize(setup, scale);
+  const auto size = result.pageSize;
+  const auto left = mm(setup.marginLeftMm, scale);
+  const auto top = mm(setup.marginTopMm, scale);
+  const auto right = mm(setup.marginRightMm, scale);
+  const auto bottom = mm(setup.marginBottomMm, scale);
+  result.contentRect =
+      QRectF(left, top, size.width() - left - right, size.height() - top - bottom);
+  if (result.contentRect.width() <= 0.0 || result.contentRect.height() <= 0.0) {
+    PageSlice slice;
+    slice.contentRect = result.contentRect;
+    result.pages.push_back(slice);
     result.overflow = true;
     result.warning =
         QStringLiteral("Page margins leave no usable content area");
@@ -74,16 +78,11 @@ PageLayoutResult PageLayoutEngine::layout(const QTextDocument& document,
 
   auto* layout = document.documentLayout();
   if (!layout) {
-    result.pages.push_back(PageGeometry{size, content});
+    PageSlice slice;
+    slice.contentRect = result.contentRect;
+    result.pages.push_back(slice);
     return result;
   }
-
-  int pageIndex = 0;
-  double cursorY = 0.0;
-  const auto addPage = [&result, size, content]() {
-    result.pages.push_back(PageGeometry{size, content});
-  };
-  addPage();
 
   struct BlockInfo {
     QTextBlock block;
@@ -110,6 +109,14 @@ PageLayoutResult PageLayoutEngine::layout(const QTextDocument& document,
     blocks.push_back({block, rect, unit, table, format.bottomMargin()});
   }
 
+  struct UnitInfo {
+    int firstBlock;
+    int lastBlock;
+    qreal documentTop;
+    qreal height;
+    qreal width;
+  };
+  std::vector<UnitInfo> units;
   for (size_t index = 0; index < blocks.size();) {
     size_t end = index;
     if (blocks[index].table) {
@@ -124,38 +131,89 @@ PageLayoutResult PageLayoutEngine::layout(const QTextDocument& document,
         ++end;
       }
     }
-    const auto top = blocks[index].rect.top();
-    const auto bottom =
+    const auto unitTop = blocks[index].rect.top();
+    const auto unitBottom =
         blocks[end].rect.bottom() + blocks[end].bottomMargin;
-    const auto height = std::max(0.0, bottom - top);
-    if (height <= 0.0) {
-      index = end + 1;
-      continue;
-    }
-    const bool oversized = height > content.height();
-    if (cursorY > 0.0 && cursorY + height > content.height() + 0.01) {
-      ++pageIndex;
-      addPage();
-      cursorY = 0.0;
-    }
-    BlockPlacement placement;
-    placement.block = blocks[index].block.blockNumber();
-    placement.endBlock = blocks[end].block.blockNumber();
-    placement.page = pageIndex;
-    placement.overflow = oversized;
-    placement.rect = QRectF(0.0, cursorY, content.width(), height);
-    result.placements.push_back(placement);
-    if (oversized) {
-      result.overflow = true;
-      if (result.warning.isEmpty()) {
-        result.warning = QStringLiteral(
-            "A block is taller than the usable page height and overflows "
-            "the page");
+    const auto height = std::max(0.0, unitBottom - unitTop);
+    if (height > 0.0) {
+      qreal width = 0.0;
+      for (size_t block = index; block <= end; ++block) {
+        width = std::max(width, blocks[block].rect.width());
       }
+      units.push_back({blocks[index].block.blockNumber(),
+                       blocks[end].block.blockNumber(), unitTop, height, width});
     }
-    cursorY += height;
     index = end + 1;
   }
+
+  const auto capacity = result.contentRect.height();
+  PageSlice page;
+  page.documentTop = 0.0;
+  page.contentRect = result.contentRect;
+  result.pages.push_back(page);
+  qreal used = 0.0;
+  for (const auto& unit : units) {
+    if (used > 0.0 && used + unit.height > capacity + 0.01) {
+      PageSlice next;
+      next.documentTop = unit.documentTop;
+      next.contentRect = result.contentRect;
+      result.pages.push_back(next);
+      used = 0.0;
+    }
+    const bool taller = unit.height > capacity;
+    const bool wider = unit.width > result.contentRect.width() + 0.5;
+    const bool overflow = taller || wider;
+    PageUnit placement;
+    placement.firstBlock = unit.firstBlock;
+    placement.lastBlock = unit.lastBlock;
+    placement.page = int(result.pages.size()) - 1;
+    placement.documentTop = unit.documentTop;
+    placement.height = unit.height;
+    placement.overflow = overflow;
+    result.units.push_back(placement);
+    auto& slice = result.pages.back();
+    if (slice.firstBlock < 0) {
+      slice.firstBlock = unit.firstBlock;
+    }
+    slice.lastBlock = unit.lastBlock;
+    slice.overflow = slice.overflow || overflow;
+    if (overflow) {
+      result.overflow = true;
+      if (result.warning.isEmpty()) {
+        result.warning =
+            taller ? QStringLiteral(
+                         "A block is taller than the usable page height and "
+                         "overflows the page")
+                   : QStringLiteral(
+                         "A block is wider than the usable page width");
+      }
+    }
+    used += unit.height;
+  }
+  return result;
+}
+
+PageLayoutResult PageLayoutEngine::layout(const QTextDocument& document,
+                                          const PageSetup& setup,
+                                          qreal scale) {
+  const auto plan = PagePlanner::plan(document, setup, scale);
+  PageLayoutResult result;
+  for (const auto& page : plan.pages) {
+    result.pages.push_back(PageGeometry{plan.pageSize, page.contentRect});
+  }
+  for (const auto& unit : plan.units) {
+    BlockPlacement placement;
+    placement.block = unit.firstBlock;
+    placement.endBlock = unit.lastBlock;
+    placement.page = unit.page;
+    placement.overflow = unit.overflow;
+    placement.rect = QRectF(
+        0.0, unit.documentTop - plan.pages[size_t(unit.page)].documentTop,
+        plan.contentRect.width(), unit.height);
+    result.placements.push_back(placement);
+  }
+  result.overflow = plan.overflow;
+  result.warning = plan.warning;
   return result;
 }
 

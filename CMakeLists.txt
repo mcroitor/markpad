@@ -72,6 +72,8 @@ add_library(markpad_ui
     src/continuous_editor.h
     src/page_text_edit.cc
     src/page_text_edit.h
+    src/page_canvas.cc
+    src/page_canvas.h
     src/settings_dialog.cc
     src/settings_dialog.h
     src/toolbar_icons.cc
@@ -102,6 +104,13 @@ include(CTest)
 
 option(MARKPAD_BUILD_GFM_SPIKE "Build the isolated Task 002 GFM experiment" OFF)
 option(MARKPAD_BUILD_MD4C_SPIKE "Build the isolated Task 002 MD4C experiment" OFF)
+option(MARKPAD_BUILD_PAGES_SPIKE "Build the isolated Task 050 pages experiment" OFF)
+if(MARKPAD_BUILD_PAGES_SPIKE AND NOT BUILD_TESTING)
+    message(FATAL_ERROR "Pages spike requires BUILD_TESTING=ON")
+endif()
+if(MARKPAD_BUILD_PAGES_SPIKE)
+    add_subdirectory(experiments/pages)
+endif()
 if((MARKPAD_BUILD_GFM_SPIKE OR MARKPAD_BUILD_MD4C_SPIKE) AND NOT BUILD_TESTING)
     message(FATAL_ERROR "Markdown spikes require BUILD_TESTING=ON")
 endif()
@@ -162,6 +171,26 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME markpad_layout COMMAND markpad_layout_tests)
     set_tests_properties(markpad_layout PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+    )
+
+    add_executable(markpad_markdown_edit_tests tests/markdown_edit_test.cc)
+    target_link_libraries(markpad_markdown_edit_tests PRIVATE markpad_markdown
+        Qt6::Test)
+    target_compile_features(markpad_markdown_edit_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(markpad_markdown_edit_tests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME markpad_markdown_edit COMMAND markpad_markdown_edit_tests)
+
+    add_executable(markpad_page_canvas_tests tests/page_canvas_test.cc)
+    target_link_libraries(markpad_page_canvas_tests PRIVATE markpad_ui Qt6::Test)
+    target_compile_features(markpad_page_canvas_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(markpad_page_canvas_tests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME markpad_page_canvas COMMAND markpad_page_canvas_tests)
+    set_tests_properties(markpad_page_canvas PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 
