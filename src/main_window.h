@@ -108,6 +108,7 @@ class MainWindow final : public QMainWindow {
   QAction* markdownAction_;
   QAction* continuousAction_;
   QAction* pagedAction_;
+  QAction* specialCharactersAction_ = nullptr;
   std::vector<QAction*> headingActions_;
   std::vector<QAction*> inlineActions_;
   QAction* taskAction_;

@@ -33,6 +33,7 @@
 #include <algorithm>
 
 #include "continuous_editor.h"
+#include "page_canvas.h"
 #include "html_export.h"
 #include "markdown_highlighter.h"
 #include "pdf_export.h"
@@ -226,6 +227,7 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   workspace_->addWidget(continuous_);
   setCentralWidget(workspace_);
   continuous_->editor()->installEventFilter(this);
+  continuous_->canvas()->installEventFilter(this);
   new MarkdownHighlighter(editor_->document());
   auto* file = menuBar()->addMenu(text(QStringLiteral("menu.file"),
                                       QStringLiteral("&File")));
@@ -600,6 +602,18 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
   resetZoom->setObjectName(QStringLiteral("resetZoomAction"));
   resetZoom->setShortcut(QKeySequence(QStringLiteral("Ctrl+0")));
   connect(resetZoom, &QAction::triggered, this, [setZoom] { setZoom(1.0); });
+  specialCharactersAction_ = view->addAction(
+      text(QStringLiteral("view.specialCharacters"),
+           QStringLiteral("Show Special Characters")));
+  specialCharactersAction_->setObjectName(
+      QStringLiteral("specialCharactersAction"));
+  specialCharactersAction_->setCheckable(true);
+  specialCharactersAction_->setShortcut(
+      QKeySequence(QStringLiteral("Ctrl+Shift+8")));
+  connect(specialCharactersAction_, &QAction::toggled, this,
+          [this](bool enabled) {
+            continuous_->setShowSpecialCharacters(enabled);
+          });
   view->addSeparator();
   auto* modes = view->addMenu(
       text(QStringLiteral("view.switchMode"), QStringLiteral("Switch Mode")));
@@ -634,7 +648,8 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
       undoAction_, redoAction_, cutAction_, copyAction_, pasteAction,
       selectAllAction, headingActions_.front(), taskAction_};
   for (auto* target : {static_cast<QWidget*>(editor_),
-                       static_cast<QWidget*>(continuous_->editor())}) {
+                       static_cast<QWidget*>(continuous_->editor()),
+                       static_cast<QWidget*>(continuous_->canvas())}) {
     for (auto* contextAction : contextActions) {
       target->addAction(contextAction);
     }
@@ -644,6 +659,7 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
     target->setContextMenuPolicy(Qt::ActionsContextMenu);
   }
   continuous_->editor()->addAction(tableMenu_->menuAction());
+  continuous_->canvas()->addAction(tableMenu_->menuAction());
   toolbar->setToolButtonStyle(Qt::ToolButtonIconOnly);
   toolbar->setIconSize(QSize(20, 20));
   toolbar->addSeparator();
@@ -690,10 +706,22 @@ MainWindow::MainWindow(DocumentFileService& files, DocumentDialogs& dialogs)
           &MainWindow::refreshState);
   connect(continuous_->editor(), &QTextEdit::selectionChanged, this,
           &MainWindow::refreshState);
+  connect(continuous_->canvas(), &PageCanvas::cursorPositionChanged, this,
+          &MainWindow::refreshState);
+  connect(continuous_->canvas(), &PageCanvas::currentPageChanged, this,
+          &MainWindow::refreshState);
+  connect(continuous_->canvas(), &PageCanvas::layoutChanged, this,
+          &MainWindow::refreshState);
   connect(continuous_, &ContinuousEditor::errorOccurred, this,
           [this](const QString& error) { dialogs_.showError(this, error); });
   connect(continuous_, &ContinuousEditor::commandRequested, this,
           &MainWindow::applyContinuousCommand);
+  connect(continuous_, &ContinuousEditor::noticeMessage, this,
+          [this](const QString& message) {
+            QTimer::singleShot(0, this, [this, message] {
+              statusBar()->showMessage(message, 6000);
+            });
+          });
   refreshEditor();
   QString settingsError;
   if (!applySettings(settings_, &settingsError)) {
@@ -764,10 +792,10 @@ bool MainWindow::saveDocumentAs() {
 
 bool MainWindow::exportPdf() {
   const auto snapshot = session_.snapshot();
-  auto parsed = markdown::parse(
-      QByteArray(snapshot.source.data(), qsizetype(snapshot.source.size())));
-  if (!parsed.document) {
-    dialogs_.showError(this, parsed.error);
+  QString projectionError;
+  auto* projection = continuous_->ensureProjection(snapshot, &projectionError);
+  if (!projection) {
+    dialogs_.showError(this, projectionError);
     return false;
   }
   QString suggested = displayPath(session_.path());
@@ -785,10 +813,8 @@ bool MainWindow::exportPdf() {
   }
   PdfExportOptions options;
   options.page = settings_.page;
-  options.fontFamily = settings_.editorFontFamily;
-  options.fontSize = settings_.editorFontSize;
-  const auto result =
-      markpad::exportPdf(*parsed.document, filePath(selected), options);
+  const auto result = markpad::exportPdfFromDocument(
+      *projection, options.page, filePath(selected), options);
   if (!result.success()) {
     dialogs_.showError(this, *result.error);
     return false;
@@ -804,12 +830,6 @@ bool MainWindow::exportPdf() {
 
 bool MainWindow::printDocument() {
   const auto snapshot = session_.snapshot();
-  auto parsed = markdown::parse(
-      QByteArray(snapshot.source.data(), qsizetype(snapshot.source.size())));
-  if (!parsed.document) {
-    dialogs_.showError(this, parsed.error);
-    return false;
-  }
   QPrinter printer(QPrinter::HighResolution);
   const auto margins = QMarginsF(
       settings_.page.marginLeftMm, settings_.page.marginTopMm,
@@ -829,12 +849,14 @@ bool MainWindow::printDocument() {
   if (dialog.exec() != QDialog::Accepted) {
     return false;
   }
-  PdfExportOptions options;
-  options.page = settings_.page;
-  options.fontFamily = settings_.editorFontFamily;
-  options.fontSize = settings_.editorFontSize;
-  if (const auto error =
-          markpad::printDocument(*parsed.document, printer, options)) {
+  QString projectionError;
+  auto* projection = continuous_->ensureProjection(snapshot, &projectionError);
+  if (!projection) {
+    dialogs_.showError(this, projectionError);
+    return false;
+  }
+  if (const auto error = markpad::printDocumentFromDocument(
+          *projection, printer, settings_.page)) {
     dialogs_.showError(this, *error);
     return false;
   }
@@ -1059,6 +1081,9 @@ void MainWindow::refreshToolbarIcons() {
 }
 
 void MainWindow::refreshState() {
+  if (specialCharactersAction_) {
+    specialCharactersAction_->setEnabled(continuousMode_);
+  }
   const auto path = displayPath(session_.path());
   const auto name =
       path.isEmpty() ? QStringLiteral("Untitled") : QFileInfo(path).fileName();
@@ -1493,7 +1518,7 @@ bool MainWindow::setContinuousMode(bool enabled) {
   workspace_->setCurrentWidget(enabled ? static_cast<QWidget*>(continuous_)
                                        : static_cast<QWidget*>(editor_));
   if (enabled) {
-    continuous_->editor()->setFocus();
+    continuous_->focusInput();
   } else {
     editor_->setFocus();
   }
@@ -1522,7 +1547,7 @@ bool MainWindow::setPagedMode(bool enabled) {
     statusBar()->showMessage(continuous_->layoutWarning(), 10000);
   }
   if (continuousMode_) {
-    continuous_->editor()->setFocus();
+    continuous_->focusInput();
   }
   return true;
 }
@@ -1674,7 +1699,8 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
-  if ((watched == editor_ || watched == continuous_->editor()) &&
+  if ((watched == editor_ || watched == continuous_->editor() ||
+       watched == continuous_->canvas()) &&
       (event->type() == QEvent::ShortcutOverride ||
        event->type() == QEvent::KeyPress)) {
     auto* key = static_cast<QKeyEvent*>(event);

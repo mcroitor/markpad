@@ -1,0 +1,8 @@
+find_package(Qt6 REQUIRED COMPONENTS Test)
+add_executable(markpad_pages_spike pages_test.cc canvas_edit.cc canvas_edit.h)
+target_link_libraries(markpad_pages_spike PRIVATE markpad_ui Qt6::Test)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(markpad_pages_spike PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+add_test(NAME markpad_pages_spike COMMAND markpad_pages_spike)
+set_tests_properties(markpad_pages_spike PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "spike;pages")

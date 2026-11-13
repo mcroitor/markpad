@@ -11,6 +11,7 @@
 #include "page_text_edit.h"
 
 class QLabel;
+class QTextDocument;
 class QTextEdit;
 class QTextCursor;
 class QTextCharFormat;
@@ -19,6 +20,7 @@ class QTextTable;
 namespace markpad {
 
 class PageTextEdit;
+class PageCanvas;
 
 class ContinuousEditor final : public QWidget {
   Q_OBJECT
@@ -26,7 +28,12 @@ class ContinuousEditor final : public QWidget {
  public:
   explicit ContinuousEditor(QWidget* parent = nullptr);
   QTextEdit* editor() const { return editor_; }
+  PageCanvas* canvas() const { return canvas_; }
+  QWidget* inputWidget() const;
+  void focusInput();
   QString render(const DocumentSnapshot& snapshot);
+  QTextDocument* ensureProjection(const DocumentSnapshot& snapshot,
+                                  QString* error);
   const DocumentToken& token() const { return token_; }
   markdown::ParseResult apply(const markdown::EditCommand& command) const;
   std::optional<qsizetype> sourcePosition(int position,
@@ -81,6 +88,8 @@ class ContinuousEditor final : public QWidget {
   PageSetup pageSetup() const { return pageSetup_; }
   void setWysiwygStyle(const WysiwygStyle& style) { style_ = style; }
   void setNormalLineWrapMode(QTextEdit::LineWrapMode mode);
+  void setShowSpecialCharacters(bool show);
+  bool showSpecialCharacters() const { return showSpecialCharacters_; }
   int pageCount() const;
   int currentPage() const;
   QString layoutWarning() const;
@@ -90,6 +99,7 @@ class ContinuousEditor final : public QWidget {
                         const markpad::markdown::EditCommand& command,
                         int cursor);
   void errorOccurred(const QString& message);
+  void noticeMessage(const QString& message);
 
  protected:
   bool eventFilter(QObject* watched, QEvent* event) override;
@@ -118,6 +128,16 @@ class ContinuousEditor final : public QWidget {
     size_t node;
     int start;
   };
+  struct BreakRun {
+    size_t node;
+    int start;
+    int length;
+  };
+  struct MarkerRun {
+    size_t item;
+    int start;
+    int length;
+  };
   struct TableContext {
     size_t node;
     int row;
@@ -142,7 +162,8 @@ class ContinuousEditor final : public QWidget {
   void renderBlock(size_t node, QTextCursor& cursor, int depth = 0,
                    QString prefix = {}, std::optional<size_t> task = {},
                    std::optional<size_t> list = {},
-                   std::optional<size_t> quote = {});
+                   std::optional<size_t> quote = {},
+                   std::optional<size_t> item = {});
   void renderCodeBlock(size_t node, QTextCursor& cursor, int depth,
                        std::optional<size_t> list,
                        std::optional<size_t> quote);
@@ -166,10 +187,12 @@ class ContinuousEditor final : public QWidget {
               std::optional<size_t> quote = {});
   void changed();
   void restore(const QString& reason);
+  void syncCursorToCanvas();
+  void syncCursorToEditor();
   const Context* context() const;
 
-  QLabel* notice_;
   PageTextEdit* editor_;
+  PageCanvas* canvas_;
   std::optional<markdown::Document> document_;
   DocumentToken token_;
   std::vector<Run> runs_;
@@ -177,6 +200,8 @@ class ContinuousEditor final : public QWidget {
   std::vector<CodeSpanRun> codeSpanRuns_;
   std::vector<TableRun> tableRuns_;
   std::vector<EmptyCellRun> emptyCellRuns_;
+  std::vector<BreakRun> breakRuns_;
+  std::vector<MarkerRun> markerRuns_;
   std::vector<Context> contexts_;
   std::vector<bool> mappedBlocks_;
   std::optional<Change> change_;
@@ -184,6 +209,8 @@ class ContinuousEditor final : public QWidget {
   bool rendering_ = false;
   bool firstBlock_ = true;
   bool paged_ = false;
+  bool syncingCursor_ = false;
+  bool showSpecialCharacters_ = false;
   PageSetup pageSetup_;
   WysiwygStyle style_;
 };

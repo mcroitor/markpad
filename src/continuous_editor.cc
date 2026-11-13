@@ -7,6 +7,7 @@
 #include <QLabel>
 #include <QMimeData>
 #include <QPalette>
+#include <QSet>
 #include <QSignalBlocker>
 #include <QStringConverter>
 #include <QTextBlockFormat>
@@ -21,15 +22,10 @@
 #include <limits>
 
 #include "page_text_edit.h"
+#include "page_canvas.h"
 
 namespace markpad {
 namespace {
-
-const QString kNotice = QStringLiteral(
-    "Limited WYSIWYG: edit within a highlighted text run. Grey fragments and "
-    "run/block boundaries are protected; use Markdown for other changes. "
-    "Links and images are inert: edit their labels/alt text only; use Markdown "
-    "for addresses, sources and titles.");
 
 class PlainTextOnlyEdit final : public PageTextEdit {
  public:
@@ -94,6 +90,15 @@ QColor imageBackground(const QPalette& palette) {
 
 QColor ruleForeground(const QPalette& palette) {
   return darkPalette(palette) ? QColor(160, 160, 160) : QColor(120, 120, 120);
+}
+
+int taskMarkerPosition(const QString& prefix) {
+  const auto unchecked = prefix.indexOf(QStringLiteral("[ ] "));
+  const auto checked = prefix.indexOf(QStringLiteral("[x] "));
+  if (unchecked >= 0) {
+    return int(unchecked);
+  }
+  return checked >= 0 ? int(checked) : -1;
 }
 
 QFont configuredCodeFont(const WysiwygStyle& style) {
@@ -177,16 +182,16 @@ bool editable(const markdown::Document& document, const markdown::Node& node) {
 
 ContinuousEditor::ContinuousEditor(QWidget* parent)
     : QWidget(parent),
-      notice_(new QLabel(kNotice, this)),
-      editor_(new PlainTextOnlyEdit(this)) {
+      editor_(new PlainTextOnlyEdit(this)),
+      canvas_(new PageCanvas(this)) {
   auto* layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);
-  notice_->setWordWrap(true);
-  notice_->setObjectName(QStringLiteral("continuousNotice"));
   editor_->setObjectName(QStringLiteral("continuousEditor"));
   editor_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  layout->addWidget(notice_);
+  canvas_->setObjectName(QStringLiteral("pagedCanvas"));
+  canvas_->hide();
   layout->addWidget(editor_);
+  layout->addWidget(canvas_);
   editor_->installEventFilter(this);
   connect(editor_->document(), &QTextDocument::contentsChange, this,
           [this](int position, int removed, int added) {
@@ -195,11 +200,33 @@ ContinuousEditor::ContinuousEditor(QWidget* parent)
             }
           });
   connect(editor_, &QTextEdit::textChanged, this, &ContinuousEditor::changed);
+  connect(editor_, &QTextEdit::cursorPositionChanged, this,
+          &ContinuousEditor::syncCursorToCanvas);
+  connect(editor_, &QTextEdit::selectionChanged, this,
+          &ContinuousEditor::syncCursorToCanvas);
+  connect(canvas_, &PageCanvas::cursorPositionChanged, this,
+          &ContinuousEditor::syncCursorToEditor);
 }
 
-QString ContinuousEditor::render(const DocumentSnapshot& snapshot) {
-  const QSignalBlocker blocker(editor_);
+QTextDocument* ContinuousEditor::ensureProjection(
+    const DocumentSnapshot& snapshot, QString* error) {
+  if (!document_ || !(token_ == snapshot.token)) {
+    const auto message = render(snapshot);
+    if (!message.isEmpty()) {
+      if (error) {
+        *error = message;
+      }
+      return nullptr;
+    }
+  }
+  return editor_->document();
+}
+
+QString ContinuousEditor::render(const DocumentSnapshot& snapshot) {  const QSignalBlocker blocker(editor_);
   rendering_ = true;
+  if (paged_ && canvas_) {
+    canvas_->setLayoutSuspended(true);
+  }
   token_ = snapshot.token;
   auto parsed = markdown::parse(QByteArray::fromStdString(snapshot.source),
                                 snapshot.token.revision);
@@ -209,6 +236,8 @@ QString ContinuousEditor::render(const DocumentSnapshot& snapshot) {
   codeSpanRuns_.clear();
   tableRuns_.clear();
   emptyCellRuns_.clear();
+  breakRuns_.clear();
+  markerRuns_.clear();
   contexts_.clear();
   mappedBlocks_.clear();
   editor_->clear();
@@ -230,9 +259,18 @@ QString ContinuousEditor::render(const DocumentSnapshot& snapshot) {
   }
   renderedText_ = rawText(editor_);
   change_.reset();
-  notice_->setText(kNotice);
-  if (paged_) {
-    editor_->refreshPageLayout();
+  QSet<int> breakPositions;
+  for (const auto& run : breakRuns_) {
+    breakPositions.insert(run.start);
+  }
+  editor_->setBreakPositions(breakPositions);
+  if (canvas_) {
+    canvas_->setBreakPositions(breakPositions);
+  }
+  if (paged_ && canvas_) {
+    canvas_->setLayoutSuspended(false);
+    canvas_->refreshLayout();
+    canvas_->setTextCursor(editor_->textCursor());
   }
   rendering_ = false;
   return parsed.error;
@@ -395,7 +433,8 @@ void ContinuousEditor::renderHorizontalRule(QTextCursor& cursor, int depth) {
 void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
                                    QString prefix, std::optional<size_t> task,
                                    std::optional<size_t> list,
-                                   std::optional<size_t> quote) {
+                                   std::optional<size_t> quote,
+                                   std::optional<size_t> item) {
   const auto& node = document_->nodes[index];
   if (node.kind != markdown::NodeKind::kBlock) {
     return;
@@ -409,6 +448,9 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
             : list;
     const auto childQuote =
         node.type == MD_BLOCK_QUOTE ? std::optional<size_t>(index) : quote;
+    const int containerDepth =
+        depth + (node.type == MD_BLOCK_QUOTE ? 1 : 0) +
+        ((node.type == MD_BLOCK_UL || node.type == MD_BLOCK_OL) ? 1 : 0);
     for (auto child : node.children) {
       QString marker;
       if (node.type == MD_BLOCK_UL) {
@@ -416,33 +458,86 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
       } else if (node.type == MD_BLOCK_OL) {
         marker = QString::number(number++) + QStringLiteral(". ");
       }
-      renderBlock(child, cursor, depth + (node.type == MD_BLOCK_QUOTE ? 1 : 0),
-                  marker, {}, childList, childQuote);
+      renderBlock(child, cursor, containerDepth, marker, {}, childList,
+                  childQuote);
     }
     return;
   }
   if (node.type == MD_BLOCK_LI) {
+    item = index;
     if (node.attributes["task"].toBool()) {
       task = index;
       prefix += node.attributes["checked"].toBool() ? QStringLiteral("[x] ")
                                                     : QStringLiteral("[ ] ");
     }
-    const bool hasBlocks = std::any_of(
-        node.children.begin(), node.children.end(), [this](size_t child) {
-          return document_->nodes[child].kind == markdown::NodeKind::kBlock;
-        });
-    if (hasBlocks) {
-      bool first = true;
-      for (auto child : node.children) {
-        renderBlock(child, cursor, depth + (first ? 0 : 1),
-                    first ? prefix : QString{}, task, list, quote);
-        first = false;
+    const auto quoteFormat = [this, quote]() {
+      QTextCharFormat format;
+      if (quote.has_value()) {
+        if (!style_.quoteFontFamily.trimmed().isEmpty()) {
+          format.setFontFamilies(QStringList{style_.quoteFontFamily});
+        }
+        format.setFontItalic(style_.quoteItalic);
+        format.setFontPointSize(std::clamp(style_.quoteFontSize, 6, 72));
       }
-      return;
+      return format;
+    };
+    bool first = true;
+    bool inlineOpen = false;
+    int inlineStart = 0;
+    for (size_t childIndex = 0;
+         childIndex < node.children.size(); ++childIndex) {
+      const auto child = node.children[childIndex];
+      const auto& childNode = document_->nodes[child];
+      if (childNode.kind != markdown::NodeKind::kBlock) {
+        auto format = quoteFormat();
+        if (!inlineOpen) {
+          beginBlock(cursor, depth, true);
+          inlineStart = cursor.position();
+          if (!prefix.isEmpty() && first) {
+            const auto taskAt = taskMarkerPosition(prefix);
+            const auto markerPart =
+                taskAt >= 0 ? prefix.left(taskAt) : prefix;
+            QTextCharFormat marker = format;
+            marker.setToolTip(QStringLiteral(
+                "List marker is protected; delete it to detach the item."));
+            if (!markerPart.isEmpty()) {
+              const int markerStart = cursor.position();
+              cursor.insertText(markerPart, marker);
+              if (item) {
+                markerRuns_.push_back(
+                    {*item, markerStart, int(markerPart.size())});
+              }
+            }
+            const auto rest = prefix.mid(markerPart.size());
+            if (!rest.isEmpty()) {
+              QTextCharFormat taskFormat = format;
+              taskFormat.setToolTip(QStringLiteral(
+                  "Task marker is protected; use Toggle task checked."));
+              cursor.insertText(rest, taskFormat);
+            }
+          }
+          inlineOpen = true;
+        }
+        renderInline(child, cursor, format);
+        first = false;
+        continue;
+      }
+      if (inlineOpen) {
+        contexts_.push_back(
+            {inlineStart, cursor.position(), {}, task, index, list, quote});
+        inlineOpen = false;
+      }
+      renderBlock(child, cursor, depth, first ? prefix : QString{}, task, list,
+                  quote);
+      first = false;
     }
+    if (inlineOpen) {
+      contexts_.push_back(
+          {inlineStart, cursor.position(), {}, task, index, list, quote});
+    }
+    return;
   }
-  if (node.type == MD_BLOCK_P || node.type == MD_BLOCK_H ||
-      node.type == MD_BLOCK_LI) {
+  if (node.type == MD_BLOCK_P || node.type == MD_BLOCK_H) {
     beginBlock(cursor, depth,
                node.type == MD_BLOCK_P || node.type == MD_BLOCK_LI);
     const int start = cursor.position();
@@ -458,11 +553,25 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
       format.setFontPointSize(std::clamp(style_.quoteFontSize, 6, 72));
     }
     if (!prefix.isEmpty()) {
-      const auto palette = QApplication::palette();
-      QTextCharFormat marker;
-      marker.setForeground(mutedForeground(palette));
-      marker.setBackground(mutedBackground(palette));
-      cursor.insertText(prefix, marker);
+      const auto taskAt = taskMarkerPosition(prefix);
+      const auto markerPart = taskAt >= 0 ? prefix.left(taskAt) : prefix;
+      QTextCharFormat marker = format;
+      marker.setToolTip(QStringLiteral(
+          "List marker is protected; delete it to detach the item."));
+      if (!markerPart.isEmpty()) {
+        const int markerStart = cursor.position();
+        cursor.insertText(markerPart, marker);
+        if (item) {
+          markerRuns_.push_back({*item, markerStart, int(markerPart.size())});
+        }
+      }
+      const auto rest = prefix.mid(markerPart.size());
+      if (!rest.isEmpty()) {
+        QTextCharFormat taskFormat = format;
+        taskFormat.setToolTip(QStringLiteral(
+            "Task marker is protected; use Toggle task checked."));
+        cursor.insertText(rest, taskFormat);
+      }
     }
     for (auto child : node.children) {
       renderInline(child, cursor, format);
@@ -598,6 +707,18 @@ void ContinuousEditor::renderInline(size_t index, QTextCursor& cursor,
   if (node.kind != markdown::NodeKind::kText) {
     return;
   }
+  if (node.type == MD_TEXT_SOFTBR || node.type == MD_TEXT_BR) {
+    QTextCharFormat breakFormat = format;
+    breakFormat.setToolTip(QStringLiteral(
+        "Line break; delete it to join the lines."));
+    const auto glyph = node.type == MD_TEXT_BR
+                           ? QString(QChar::LineSeparator)
+                           : QStringLiteral(" ");
+    const int start = cursor.position();
+    cursor.insertText(glyph, breakFormat);
+    breakRuns_.push_back({index, start, 1});
+    return;
+  }
   QString text = literal(node.text);
   const bool canEdit = allowEditing && editable(*document_, node);
   if (!canEdit) {
@@ -605,8 +726,6 @@ void ContinuousEditor::renderInline(size_t index, QTextCursor& cursor,
     format.setBackground(mutedBackground(palette));
     if (node.type == MD_TEXT_HTML) {
       text = QStringLiteral("[Read-only: inline HTML]");
-    } else if (node.type == MD_TEXT_SOFTBR || node.type == MD_TEXT_BR) {
-      text = QStringLiteral(" [Read-only: line break] ");
     }
   } else {
     if (format.toolTip().isEmpty()) {
@@ -659,6 +778,70 @@ void ContinuousEditor::changed() {
       text.mid(change->position + change->added) !=
           renderedText_.mid(change->position + change->removed)) {
     restore(QStringLiteral("Cannot map this edit. Use Markdown."));
+    return;
+  }
+  const auto overlaps = [&](int start, int length) {
+    const int offset = change->position - start;
+    return offset >= 0 && offset <= length &&
+           change->removed <= length - offset;
+  };
+  const auto overlapsEditable = [&] {
+    for (const auto& run : codeRuns_) {
+      if (overlaps(run.start, run.length)) {
+        return true;
+      }
+    }
+    for (const auto& run : runs_) {
+      if (overlaps(run.start, run.length)) {
+        return true;
+      }
+    }
+    for (const auto& run : codeSpanRuns_) {
+      if (overlaps(run.start, run.length)) {
+        return true;
+      }
+    }
+    for (const auto& run : emptyCellRuns_) {
+      if (overlaps(run.start, 0)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  for (const auto& run : breakRuns_) {
+    if (!overlaps(run.start, run.length)) {
+      continue;
+    }
+    if (overlapsEditable()) {
+      restore(QStringLiteral(
+          "Delete the line break separately from the surrounding text."));
+      return;
+    }
+    if (change->added == 0 && change->removed > 0) {
+      emit commandRequested(token_, markdown::RemoveLineBreak{run.node},
+                            editor_->textCursor().position());
+      return;
+    }
+    restore(QStringLiteral(
+        "Line breaks are edited by deleting the break character."));
+    return;
+  }
+  for (const auto& run : markerRuns_) {
+    if (!overlaps(run.start, run.length)) {
+      continue;
+    }
+    if (overlapsEditable()) {
+      restore(QStringLiteral(
+          "Delete the list marker separately from the item text."));
+      return;
+    }
+    if (change->added == 0 && change->removed > 0) {
+      emit commandRequested(token_, markdown::DetachListItem{run.item},
+                            editor_->textCursor().position());
+      return;
+    }
+    restore(QStringLiteral(
+        "List markers are edited by deleting the marker."));
     return;
   }
   const Run* target = nullptr;
@@ -1321,13 +1504,12 @@ void ContinuousEditor::insertFencedCode() {
 }
 
 void ContinuousEditor::explainCursorMapping(bool exact) {
-  notice_->setText(
-      kNotice + (exact
-                     ? QString{}
-                     : QStringLiteral(
-                           " Cursor/selection moved to the nearest mapped "
-                           "boundary: this source "
-                           "position has no editable formatted counterpart.")));
+  if (!exact) {
+    emit noticeMessage(
+        QStringLiteral("Cursor/selection moved to the nearest mapped boundary: "
+                       "this source position has no editable formatted "
+                       "counterpart."));
+  }
 }
 
 bool ContinuousEditor::eventFilter(QObject* watched, QEvent* event) {
@@ -1360,26 +1542,85 @@ void ContinuousEditor::setNormalLineWrapMode(QTextEdit::LineWrapMode mode) {
   editor_->setNormalLineWrapMode(mode);
 }
 
+void ContinuousEditor::setShowSpecialCharacters(bool show) {
+  showSpecialCharacters_ = show;
+  editor_->setShowSpecialCharacters(show);
+  canvas_->setShowSpecialCharacters(show);
+}
+
 void ContinuousEditor::setPaged(bool paged) {
+  if (paged_ == paged) {
+    return;
+  }
   paged_ = paged;
-  editor_->setPaged(paged);
+  if (!canvas_) {
+    return;
+  }
+  if (paged) {
+    editor_->setPaged(false);
+    canvas_->setDocument(editor_->document());
+    canvas_->setPageSetup(pageSetup_);
+    canvas_->setViewScale(editor_->viewScale());
+    canvas_->setLayoutSuspended(false);
+    editor_->hide();
+    canvas_->show();
+    canvas_->refreshLayout();
+    canvas_->setTextCursor(editor_->textCursor());
+  } else {
+    if (!canvas_->textCursor().isNull()) {
+      editor_->setTextCursor(canvas_->textCursor());
+    }
+    canvas_->hide();
+    editor_->show();
+    editor_->setPaged(false);
+  }
 }
 
 void ContinuousEditor::setPageSetup(const PageSetup& setup) {
   pageSetup_ = setup;
   editor_->setPageSetup(setup);
+  if (canvas_) {
+    canvas_->setPageSetup(setup);
+  }
+}
+
+QWidget* ContinuousEditor::inputWidget() const {
+  return paged_ && canvas_ ? static_cast<QWidget*>(canvas_)
+                           : static_cast<QWidget*>(editor_);
+}
+
+void ContinuousEditor::focusInput() {
+  inputWidget()->setFocus(Qt::OtherFocusReason);
+}
+
+void ContinuousEditor::syncCursorToCanvas() {
+  if (!paged_ || !canvas_ || syncingCursor_) {
+    return;
+  }
+  syncingCursor_ = true;
+  canvas_->setTextCursor(editor_->textCursor());
+  syncingCursor_ = false;
+}
+
+void ContinuousEditor::syncCursorToEditor() {
+  if (!paged_ || !canvas_ || syncingCursor_) {
+    return;
+  }
+  syncingCursor_ = true;
+  editor_->setTextCursor(canvas_->textCursor());
+  syncingCursor_ = false;
 }
 
 int ContinuousEditor::pageCount() const {
-  return editor_ ? editor_->pageCount() : 0;
+  return paged_ && canvas_ ? canvas_->pageCount() : 0;
 }
 
 int ContinuousEditor::currentPage() const {
-  return editor_ ? editor_->currentPage() : 0;
+  return paged_ && canvas_ ? canvas_->currentPage() : 0;
 }
 
 QString ContinuousEditor::layoutWarning() const {
-  return editor_ ? editor_->layoutWarning() : QString{};
+  return paged_ && canvas_ ? canvas_->layoutWarning() : QString{};
 }
 
 }  // namespace markpad

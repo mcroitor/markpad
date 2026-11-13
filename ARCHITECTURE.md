@@ -285,14 +285,38 @@ flowchart TB
 
 ## Task 044 implementation note
 
-Paged WYSIWYG remains a single editable `PageTextEdit` document. `PageLayoutEngine`
+The historical Task 044 implementation kept paged WYSIWYG in a single editable
+`PageTextEdit` document. `PageLayoutEngine`
 partitions blocks (and atomic table/fenced-code units) into pages; `PageTextEdit`
 applies page-break top margins, centers the page with viewport margins, and paints
 page sheets, desk gaps and page numbers. The Markdown source, token, source ranges
-and custom undo/redo are not changed by page formatting. PDF export still uses its
-own Qt layout path; parity is tracked in Task 047.
+and custom undo/redo are not changed by page formatting. This surface is no longer
+used for paged mode after Task 054; continuous mode still uses `PageTextEdit`.
+PDF export after Task 047 uses the same `PagePlan` and WYSIWYG projection rather
+than this historical margin-based paged surface.
 Task 044 follow-up: page and margin dimensions are converted from points to
 logical screen pixels (`logicalDotsPerInch / 72`) for the paged editor. The
 document text width is the full page width; document margins produce the content
 area. Body paragraphs/lists are justified, headings/code/tables keep their own
-alignment. PDF export retains its separate point-based layout path (Task 047).
+alignment. Task 047 removed the separate point-based PDF layout path.
+
+## Paged WYSIWYG redesign decision
+
+Owner decision (2026-11-12, Tasks 050/051): replace the Task 044 guided/spacer
+surface with **one editable `QTextDocument` rendered by a custom page canvas**.
+Pagination becomes view/export metadata from a shared `PagePlan`; no spacer
+blocks and no pagination-driven changes to document formatting. Tables and
+fenced code remain atomic units. An oversized unit is kept whole: the canvas
+extends that sheet and shows a warning, while PDF/print fail explicitly rather
+than clipping or silently splitting the block. PDF must render the same
+`PagePlan` instead of Qt's automatic text pagination.
+
+Continuous WYSIWYG continues to use `PageTextEdit`. Paged mode no longer uses it:
+Task 054 switched paged presentation and input to `PageCanvas` while sharing the
+`ContinuousEditor` document. `ContinuousEditor` synchronizes cursor/selection
+between the continuous editor and the canvas and delegates page count/warning;
+MainWindow installs the same context actions and undo/redo filter on both
+surfaces. The Task 044 paged spacer/margin path is no longer reachable from the
+UI. PDF uses the same `PagePlan` and projection after Task 047; end-to-end
+acceptance is Task 055. System IME, accessibility and native visual checks remain explicit
+release checks.

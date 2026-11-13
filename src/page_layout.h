@@ -37,6 +37,41 @@ struct PageLayoutResult {
   QString warning;
 };
 
+struct PageUnit {
+  int firstBlock = 0;
+  int lastBlock = 0;
+  int page = 0;
+  qreal documentTop = 0.0;  // Top of the unit in document coordinates.
+  qreal height = 0.0;
+  bool overflow = false;
+};
+
+struct PageSlice {
+  qreal documentTop = 0.0;  // Document coordinate shown at the content top.
+  QRectF contentRect;       // Page-local content area.
+  int firstBlock = -1;
+  int lastBlock = -1;
+  bool overflow = false;
+};
+
+// Shared view/export plan. Building it must not modify the QTextDocument.
+struct PagePlan {
+  PageSetup setup;
+  qreal scale = 1.0;
+  QSizeF pageSize;
+  QRectF contentRect;  // Page-local content area.
+  std::vector<PageSlice> pages;
+  std::vector<PageUnit> units;
+  bool overflow = false;
+  QString warning;
+};
+
+class PagePlanner final {
+ public:
+  static PagePlan plan(const QTextDocument& document, const PageSetup& setup,
+                       qreal scale = 1.0);
+};
+
 // Deterministic, window-independent page layout. Blocks are placed as units;
 // a block taller than the content area is allowed to overflow on its own page
 // and produces an explicit warning.

@@ -317,6 +317,99 @@ EditResult replaceTextSource(const Document& document, size_t index,
   return apply(document, expected, *node.source, escaped);
 }
 
+EditResult removeLineBreakSource(const Document& document, size_t index) {
+  if (index >= document.nodes.size()) {
+    return {std::nullopt, QStringLiteral("Invalid node index")};
+  }
+  const auto& node = document.nodes[index];
+  if (node.kind != NodeKind::kText ||
+      (node.type != MD_TEXT_SOFTBR && node.type != MD_TEXT_BR)) {
+    return {std::nullopt, QStringLiteral("Node is not a line break")};
+  }
+  if (!node.parent || *node.parent >= document.nodes.size()) {
+    return {std::nullopt, QStringLiteral("Line break has no parent block")};
+  }
+  const auto& parent = document.nodes[*node.parent];
+  const auto position = std::find(parent.children.begin(), parent.children.end(),
+                                  index);
+  if (position == parent.children.end()) {
+    return {std::nullopt, QStringLiteral("Line break is not in its parent")};
+  }
+  const auto sourceRange = [&document](size_t root) {
+    std::optional<SourceRange> result;
+    const auto include = [&result](SourceRange range) {
+      if (!result) {
+        result = range;
+      } else {
+        const auto end = std::max(result->offset + result->size,
+                                  range.offset + range.size);
+        result = SourceRange{std::min(result->offset, range.offset),
+                             end - std::min(result->offset, range.offset)};
+      }
+    };
+    const auto visit = [&](const auto& self, size_t current) -> void {
+      const auto& value = document.nodes[current];
+      if (value.source) {
+        include(*value.source);
+      }
+      for (auto child : value.children) {
+        self(self, child);
+      }
+    };
+    visit(visit, root);
+    return result;
+  };
+  std::optional<SourceRange> before;
+  std::optional<SourceRange> after;
+  for (auto it = parent.children.begin(); it != position; ++it) {
+    if (const auto range = sourceRange(*it)) {
+      before = range;
+    }
+  }
+  for (auto it = position + 1; it != parent.children.end(); ++it) {
+    if (const auto range = sourceRange(*it)) {
+      after = range;
+      break;
+    }
+  }
+  if (!before || !after) {
+    return {std::nullopt, QStringLiteral("Line break has no proven range")};
+  }
+  const auto leftEnd = before->offset + before->size;
+  const auto rightStart = after->offset;
+  if (rightStart <= leftEnd) {
+    return {std::nullopt, QStringLiteral("Invalid line break range")};
+  }
+  const auto gap = document.source.mid(leftEnd, rightStart - leftEnd);
+  int newlines = 0;
+  for (const auto character : gap) {
+    if (character == '\n') {
+      ++newlines;
+    } else if (character == '\r') {
+      continue;
+    } else if (node.type == MD_TEXT_BR &&
+               (character == ' ' || character == '\t' ||
+                character == '\\')) {
+      continue;
+    } else {
+      return {std::nullopt, QStringLiteral("Unsupported line break syntax")};
+    }
+  }
+  if (newlines != 1) {
+    return {std::nullopt, QStringLiteral("Unsupported line break syntax")};
+  }
+  Document expected = document;
+  auto& target = expected.nodes[index];
+  target.kind = NodeKind::kText;
+  target.type = MD_TEXT_NORMAL;
+  target.attributes = {};
+  target.text = " ";
+  target.children.clear();
+  target.source = SourceRange{leftEnd, 1};
+  return apply(document, expected, SourceRange{leftEnd, rightStart - leftEnd},
+               " ");
+}
+
 EditResult setTaskCheckedSource(const Document& document, size_t index,
                                 bool checked) {
   if (index >= document.nodes.size()) {
@@ -3066,6 +3159,96 @@ EditResult insertListItemSource(const Document& document,
   return result;
 }
 
+EditResult detachListItemSource(const Document& document,
+                                const DetachListItem& edit) {
+  QString error;
+  auto mapped = mapItem(document, edit.item, error);
+  if (!mapped) {
+    return {std::nullopt, error};
+  }
+  const auto& list = mapped->source;
+  const auto& item = list.items[mapped->index];
+  const auto& itemNode = document.nodes[edit.item];
+  if (document.nodes[mapped->list].parent != std::optional<size_t>(0)) {
+    return {std::nullopt,
+            QStringLiteral("Nested list marker deletion requires Markdown")};
+  }
+  size_t blockChildren = 0;
+  for (auto child : itemNode.children) {
+    const auto& value = document.nodes[child];
+    if (value.kind == NodeKind::kBlock) {
+      ++blockChildren;
+      if (value.type != MD_BLOCK_P) {
+        return {std::nullopt,
+                QStringLiteral("Unsupported list item structure")};
+      }
+    }
+  }
+  if (blockChildren > 1) {
+    return {std::nullopt, QStringLiteral("Unsupported list item structure")};
+  }
+  for (const auto& definition : definitionInventory(document)) {
+    if (definition.begin >= item.range.offset &&
+        definition.range.offset + definition.range.size <=
+            item.range.offset + item.range.size) {
+      return {std::nullopt,
+              QStringLiteral("Definition in list item requires Markdown")};
+    }
+  }
+
+  const auto eol = listEol(document, list);
+  auto paragraph = itemContent(document, item);
+  while (paragraph.endsWith('\n') || paragraph.endsWith('\r')) {
+    paragraph.chop(1);
+  }
+  if (itemNode.attributes["task"].toBool()) {
+    int position = 0;
+    while (position < paragraph.size() &&
+           (paragraph[position] == ' ' || paragraph[position] == '\t')) {
+      ++position;
+    }
+    const auto marker = paragraph.mid(position, 4);
+    if (marker != "[ ] " && marker != "[x] " && marker != "[X] ") {
+      return {std::nullopt,
+              QStringLiteral("Task marker has no proven range")};
+    }
+    paragraph.remove(position, 4);
+  }
+  if (paragraph.trimmed().isEmpty()) {
+    return {std::nullopt, QStringLiteral("Empty list item cannot be detached")};
+  }
+  paragraph += eol;
+  const auto listStart = list.range.offset;
+  const auto listEnd = list.range.offset + list.range.size;
+  const auto itemStart = item.range.offset;
+  const auto itemEnd = item.range.offset + item.range.size;
+  if (listStart > itemStart || itemEnd > listEnd) {
+    return {std::nullopt, QStringLiteral("Invalid list item range")};
+  }
+  const auto before = document.source.mid(listStart, itemStart - listStart);
+  const auto after = document.source.mid(itemEnd, listEnd - itemEnd);
+  QByteArray replacement;
+  if (!before.isEmpty()) {
+    replacement += before;
+    if (!replacement.endsWith('\n') && !replacement.endsWith('\r')) {
+      replacement += eol;
+    }
+    replacement += eol;
+  }
+  replacement += paragraph;
+  if (!after.isEmpty()) {
+    replacement += eol;
+    replacement += after;
+  }
+  auto changed = document.source;
+  changed.replace(listStart, list.range.size, replacement);
+  auto reparsed = parse(changed);
+  if (!reparsed.document) {
+    return {std::nullopt, reparsed.error};
+  }
+  return {std::move(changed), {}};
+}
+
 EditResult removeListItemSource(const Document& document,
                                 const RemoveListItem& edit) {
   QString error;
@@ -5347,6 +5530,10 @@ ParseResult applyEdit(const Document& document, const SnapshotToken& token,
         using Command = std::decay_t<decltype(edit)>;
         if constexpr (std::is_same_v<Command, ReplaceText>) {
           return replaceTextSource(document, edit.node, edit.text);
+        } else if constexpr (std::is_same_v<Command, RemoveLineBreak>) {
+          return removeLineBreakSource(document, edit.node);
+        } else if constexpr (std::is_same_v<Command, DetachListItem>) {
+          return detachListItemSource(document, edit);
         } else if constexpr (std::is_same_v<Command, SetTaskChecked>) {
           return setTaskCheckedSource(document, edit.node, edit.checked);
         } else if constexpr (std::is_same_v<Command, SetHeadingLevel>) {

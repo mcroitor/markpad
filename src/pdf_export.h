@@ -9,6 +9,7 @@
 #include "settings.h"
 
 class QPrinter;
+class QTextDocument;
 
 namespace markpad {
 
@@ -33,10 +34,22 @@ PdfExportResult exportPdf(const markdown::Document& document,
                           const std::filesystem::path& path,
                           const PdfExportOptions& options);
 
+// Writes an already rendered WYSIWYG QTextDocument using the same PagePlan.
+// The document is cloned, so the caller's layout, cursor and formatting are not
+// changed. Overflow is refused without silently clipping or splitting a block.
+PdfExportResult exportPdfFromDocument(const QTextDocument& document,
+                                      const PageSetup& page,
+                                      const std::filesystem::path& path,
+                                      const PdfExportOptions& options = {});
+
 // Prints the same safe rendered document with a caller-configured QPrinter.
 std::optional<QString> printDocument(const markdown::Document& document,
                                      QPrinter& printer,
                                      const PdfExportOptions& options);
+
+std::optional<QString> printDocumentFromDocument(const QTextDocument& document,
+                                                 QPrinter& printer,
+                                                 const PageSetup& page);
 
 }  // namespace markpad
 

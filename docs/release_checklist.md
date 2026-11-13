@@ -30,8 +30,8 @@ Windows captures are in [docs/qa/task_011](qa/task_011/README.md). Linux evidenc
 - [x] Dark theme menu/toolbar/workspace layout; dark WYSIWYG contrast regression covered.
 - [x] Markdown mode with syntax highlighting and line numbers/gutter per current contract.
 - [x] Continuous WYSIWYG: headings, inline formatting, quote/list, code block, link/image labels, table, horizontal rule, protected HTML/nested table.
-- [x] Paged WYSIWYG: page boundaries and page count visible.
-- [ ] Paged WYSIWYG: overflow warning for an oversized block.
+- [x] Paged WYSIWYG: page sheets, boundaries and page count visible (Task 054 canvas; automated).
+- [x] Paged WYSIWYG: oversized block expands its sheet and reports overflow; PDF/print refuse it (automated).
 - [x] Settings dialog: all sketch groups visible; deferred Auto Save/Line Numbers clearly disabled or deferred.
 - [x] Native File Open/Save/Save As dialogs exercised from the portable package: opened the fixture and saved an identical copy. Evidence: `docs/qa/task_011/release-qa/saved-copy.md`.
 - [x] Unsaved-changes close confirmation exercised with Save, Discard and Cancel. Evidence: `docs/qa/task_011/release-qa/unsaved-close.png` and `close-save.md`.
@@ -45,8 +45,8 @@ Owner sign-off: ____________________  Date: __________
 - [x] HTML export opens and matches supported GFM structure from the Windows portable package. Evidence: `docs/qa/task_011/release-qa/export.html`.
 - [x] PDF export creates a readable file for a fixed fixture (automated suite).
 - [x] Microsoft Print to PDF produces a readable A4 PDF on Windows. Evidence: `docs/qa/task_011/print-to-pdf.pdf`.
-- [ ] Paged/PDF page-count divergence reviewed and accepted. Page layout now uses true page sheets; Task 047 will compare the final paged and PDF counts. Owner sign-off required.
-- [x] Oversized-block overflow is visible/warned in the paged status bar. Evidence: `docs/qa/task_011/overflow/paged.png` and `overflow.md`.
+- [ ] Paged/PDF page-count parity measured on automated fixture (5/5 after Task 047); owner visual sign-off required.
+- [x] Oversized-block overflow is visible/warned in the paged canvas; PDF and print refuse explicitly (automated). Evidence screenshots need refresh under Task 054/055.
 - [ ] Physical printer test: not run; no physical job was sent.
 - [ ] Linux CUPS/print-dialog test: not run; limitation recorded.
 
@@ -68,8 +68,8 @@ Owner sign-off: ____________________  Date: __________
 - Syntax highlighting and language pickers for code blocks are unsupported.
 - Auto Save is deferred.
 - Installer, signing and update channels are out of scope.
-- Paged/PDF page-count parity must be re-measured after Task 044; the remaining
-  Task 047 parity work and owner sign-off are required.
+- Paged/PDF parity is measured on automated fixtures after Tasks 047/054; owner
+  visual sign-off and refreshed screenshots are still required.
 - Physical printer and Linux CUPS checks may remain unrun and must be documented if so.
 
 ## Release decision
@@ -106,21 +106,24 @@ owner re-review required (`continuous.png`, `dark/continuous.png`,
 
 ### Paged WYSIWYG
 
-Tracking: [Task 044](tasks/task_044.md), with shared visual fixes from
-[Task 045](tasks/task_045.md) and [Task 046](tasks/task_046.md). Status: fixed
-on `feature/task_044`; paged mode now draws centered page sheets, desk gaps,
-page borders/page numbers, keeps tables and fenced code blocks whole, scales A4
-to logical screen DPI, uses equal left/right content margins, justifies body
-paragraphs, and preserves source/token/history. Evidence:
-`docs/qa/task_044/paged.png` and `docs/qa/task_044/paged-page-gap.png`. Owner
-visual re-review remains required.
+Tracking: [Task 054](tasks/task_054.md), with the shared page plan and overflow
+contract from [Task 051](tasks/task_051.md). Status: paged mode now uses the
+editable `PageCanvas` backed by one QTextDocument and the shared PagePlan:
+centered sheets, page numbers, cross-sheet editing/selection, no spacer blocks,
+and an oversized block expands its sheet with a warning. Automated checks pass;
+owner visual re-review and refreshed screenshots remain required. Older
+`docs/qa/task_044` screenshots predate the canvas.
 
 1. Page layout does not match the expected output. Each page must be seen as a page. Take a look to the Microsoft Word or PDF rendering as a reference for the expected layout.
 2. The same issues observed in Continuous WYSIWYG (background color, code block rendering, table width) also affect Paged WYSIWYG and must be addressed consistently.
 
 ### PDF export
 
-Tracking: [Task 047](tasks/task_047.md).
+Tracking: [Task 047](tasks/task_047.md). Status: PDF and print now render the
+shared PagePlan from the WYSIWYG projection; automated page count on the 140-
+paragraph fixture matches the canvas (5/5), A4/Letter MediaBox and text presence
+were checked, and overflow is refused without touching an existing file. Owner
+visual PDF review remains required.
 
 1. The exported PDF does not match the expected layout. Or page size is incorrect, or text size is incorrect. The PDF rendering must be equivalent to the expected layout as seen in the Paged WYSIWYG or other reference renderings.
 

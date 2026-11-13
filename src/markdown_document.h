@@ -146,6 +146,12 @@ struct ReplaceText {
   size_t node;
   QByteArray text;
 };
+struct RemoveLineBreak {
+  size_t node;
+};
+struct DetachListItem {
+  size_t item;
+};
 struct SetTaskChecked {
   size_t node;
   bool checked;
@@ -263,7 +269,8 @@ struct InsertFencedCode {
 };
 
 using EditCommand =
-    std::variant<ReplaceText, SetTaskChecked, SetHeadingLevel, ToggleInlineStyle,
+    std::variant<ReplaceText, RemoveLineBreak, DetachListItem,
+                 SetTaskChecked, SetHeadingLevel, ToggleInlineStyle,
                  InsertListItem, RemoveListItem, SetListKind, SetItemTask,
                  WrapInLink, InsertImage, WrapInQuote, UnwrapQuote,
                  WrapInList, ReplaceCodeBody, ReplaceInlineCode,
