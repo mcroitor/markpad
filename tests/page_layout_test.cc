@@ -1,7 +1,11 @@
 #include <QFont>
+#include <QTextBlock>
+#include <QTextCursor>
 #include <QTextDocument>
+#include <QTextTable>
 #include <QtTest/QtTest>
 #include <memory>
+#include <set>
 
 #include "page_layout.h"
 
@@ -46,6 +50,20 @@ class PageLayoutTest : public QObject {
     QCOMPARE(result.pages.size(), size_t(1));
     QCOMPARE(result.placements.size(), size_t(1));
     QVERIFY(!result.overflow);
+  }
+
+  void viewScaleGeometry() {
+    const auto points = PageLayoutEngine::pageSize(a4());
+    const auto pixels = PageLayoutEngine::pageSize(a4(), 96.0 / 72.0);
+    QVERIFY(pixels.width() > points.width() * 1.3);
+    QVERIFY(pixels.height() > points.height() * 1.3);
+    const auto layout = PageLayoutEngine::layout(
+        *documentFor("<p>one</p>", a4()), a4(), 96.0 / 72.0);
+    QCOMPARE(layout.pages.size(), size_t(1));
+    QVERIFY(layout.pages.front().contentRect.width() >
+            PageLayoutEngine::layout(*documentFor("<p>one</p>", a4()), a4())
+                .pages.front()
+                .contentRect.width());
   }
 
   void paragraphFlowAndMargins() {
@@ -147,6 +165,88 @@ class PageLayoutTest : public QObject {
         QVERIFY(used <= contentHeight + 0.5);
       }
     }
+  }
+
+  void tablesStayOnOnePage() {
+    QByteArray html;
+    for (int i = 0; i < 18; ++i) {
+      html += "<p>paragraph " + QByteArray::number(i) + "</p>";
+    }
+    html += "<table border=\"1\"><tr><th>h1</th><th>h2</th></tr>";
+    for (int i = 0; i < 8; ++i) {
+      html += "<tr><td>cell " + QByteArray::number(i) +
+              "</td><td>other</td></tr>";
+    }
+    html += "</table><p>after</p>";
+    auto document = documentFor(html, a4());
+    std::set<int> tableBlocks;
+    for (auto block = document->begin(); block.isValid(); block = block.next()) {
+      QTextCursor cursor(block);
+      if (cursor.currentTable()) {
+        tableBlocks.insert(block.blockNumber());
+      }
+    }
+    QVERIFY(!tableBlocks.empty());
+    const auto result = PageLayoutEngine::layout(*document, a4());
+    int tablePage = -1;
+    int covering = 0;
+    for (const auto& placement : result.placements) {
+      bool intersects = false;
+      for (const auto block : tableBlocks) {
+        if (block >= placement.block && block <= placement.endBlock) {
+          intersects = true;
+          break;
+        }
+      }
+      if (!intersects) {
+        continue;
+      }
+      ++covering;
+      if (tablePage < 0) {
+        tablePage = placement.page;
+      }
+      QCOMPARE(placement.page, tablePage);
+      QVERIFY(placement.block <= *tableBlocks.begin());
+      QVERIFY(placement.endBlock >= *tableBlocks.rbegin());
+    }
+    QCOMPARE(covering, 1);
+  }
+
+  void atomicCodeUnitsStayOnOnePage() {
+    QByteArray html;
+    for (int i = 0; i < 12; ++i) {
+      html += "<p>paragraph " + QByteArray::number(i) + "</p>";
+    }
+    html += "<p>code line 1</p><p>code line 2</p><p>code line 3</p>";
+    for (int i = 0; i < 12; ++i) {
+      html += "<p>tail " + QByteArray::number(i) + "</p>";
+    }
+    auto document = documentFor(html, a4());
+    int marked = 0;
+    for (auto block = document->begin(); block.isValid(); block = block.next()) {
+      if (block.text().startsWith(QStringLiteral("code line"))) {
+        auto format = block.blockFormat();
+        format.setProperty(kPageUnitProperty, 1234);
+        format.setTopMargin(0);
+        format.setBottomMargin(0);
+        QTextCursor cursor(block);
+        cursor.setBlockFormat(format);
+        ++marked;
+      }
+    }
+    QCOMPARE(marked, 3);
+    const auto result = PageLayoutEngine::layout(*document, a4());
+    int codePage = -1;
+    int covering = 0;
+    for (const auto& placement : result.placements) {
+      if (placement.block <= 12 && placement.endBlock >= 14) {
+        ++covering;
+        codePage = placement.page;
+      } else if (placement.block >= 12 && placement.block <= 14) {
+        QCOMPARE(placement.page, codePage);
+      }
+    }
+    QCOMPARE(covering, 1);
   }
 
   void invalidMarginsReportError() {

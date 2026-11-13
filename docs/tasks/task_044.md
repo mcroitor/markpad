@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Ready`.
+- Статус: `Done`.
 - Владелец: архитектор/координатор; `cpp-developer`, `test-writer`, при необходимости
   `frontend-designer`.
 - Приоритет: P1 (release blocker после QA).
@@ -136,3 +136,43 @@ screenshots. Если mapping или editing ломается, останови�
 ## Итог выполнения
 
 Ожидает реализации. Код не изменялся.
+
+## Implementation result (2026-11-12)
+
+Option A was implemented without introducing a second editor:
+
+- Paged mode now draws real centered page sheets, gray desk gaps, page borders
+  and page numbers. The document margin and viewport margins follow the
+  configured page size/orientation/margins.
+- Page breaks are represented by block/table top margins, so no spacer text is
+  inserted into the Markdown document. Switching back to continuous mode and
+  re-rendering resets the page spacing.
+- `PageLayoutEngine` now includes block bottom margins in page placement and
+  treats all blocks of a table and all blocks carrying the same page-unit
+  property as one placement. Fenced code blocks are marked by `ContinuousEditor`
+  with that property, so tables/code blocks stay whole on a page.
+- Editing, selection, source ranges, token revision, custom undo/redo and dirty
+  state remain on the single editable document. Paged-mode source/token
+  preservation and an edit+undo round-trip are covered by the smoke test.
+- Automated checks: `markpad_layout_tests` covers page partition, table/code
+  atomicity, overflow and page-for-position; `markpad_smoke` covers page-sheet
+  creation, page-2 spacing, source/token preservation and paged editing.
+- Evidence: `docs/qa/task_044/paged.png`,
+  `docs/qa/task_044/paged-page-gap.png`.
+- Remaining: PDF parity is still [Task 047](task_047.md); owner visual sign-off
+  is still required.
+
+### Follow-up: A4 scaling, margins and justification (2026-11-12)
+
+- The first page-sheet pass interpreted A4 point dimensions as screen pixels,
+  which made the sheet look like A5/A6. `PageTextEdit` now scales page size and
+  margins by `logicalDotsPerInch / 72`; at 96 DPI an A4 page is about
+  794 x 1123 px, so a 12 pt single-spaced page holds the expected 400-500 words.
+- `QTextDocument::textWidth` is the total document width, not the content width.
+  The page now sets text width to the full page width and lets the document
+  margin produce the content area, so left and right margins are equal
+  (verified by a regression assertion).
+- Body paragraphs and list text use `Qt::AlignJustify`; headings, code and table
+  cells retain their own alignment.
+- QA evidence was regenerated in light and dark themes:
+  `docs/qa/task_044/paged.png`, `paged-page-gap.png` and `dark/*.png`.

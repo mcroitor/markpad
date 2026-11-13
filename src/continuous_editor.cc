@@ -122,6 +122,7 @@ void applyCodeBlockBackground(QTextCursor cursor, int start, int end,
        block.isValid() && block.position() < end; block = block.next()) {
     auto format = block.blockFormat();
     format.setBackground(color);
+    format.setProperty(kPageUnitProperty, start + 1);
     format.setTopMargin(0);
     format.setBottomMargin(block.next().isValid() &&
                                    block.next().position() < end
@@ -230,11 +231,15 @@ QString ContinuousEditor::render(const DocumentSnapshot& snapshot) {
   renderedText_ = rawText(editor_);
   change_.reset();
   notice_->setText(kNotice);
+  if (paged_) {
+    editor_->refreshPageLayout();
+  }
   rendering_ = false;
   return parsed.error;
 }
 
-void ContinuousEditor::beginBlock(QTextCursor& cursor, int depth) {
+void ContinuousEditor::beginBlock(QTextCursor& cursor, int depth,
+                                  bool justify) {
   if (!firstBlock_) {
     cursor.insertBlock();
   }
@@ -242,6 +247,7 @@ void ContinuousEditor::beginBlock(QTextCursor& cursor, int depth) {
   QTextBlockFormat block;
   block.setLeftMargin(depth * 20);
   block.setBottomMargin(8);
+  block.setAlignment(justify ? Qt::AlignJustify : Qt::AlignLeft);
   cursor.setBlockFormat(block);
   cursor.setCharFormat(QTextCharFormat{});
 }
@@ -437,7 +443,8 @@ void ContinuousEditor::renderBlock(size_t index, QTextCursor& cursor, int depth,
   }
   if (node.type == MD_BLOCK_P || node.type == MD_BLOCK_H ||
       node.type == MD_BLOCK_LI) {
-    beginBlock(cursor, depth);
+    beginBlock(cursor, depth,
+               node.type == MD_BLOCK_P || node.type == MD_BLOCK_LI);
     const int start = cursor.position();
     QTextCharFormat format;
     if (node.type == MD_BLOCK_H) {
@@ -1347,6 +1354,10 @@ bool ContinuousEditor::eventFilter(QObject* watched, QEvent* event) {
     }
   }
   return QWidget::eventFilter(watched, event);
+}
+
+void ContinuousEditor::setNormalLineWrapMode(QTextEdit::LineWrapMode mode) {
+  editor_->setNormalLineWrapMode(mode);
 }
 
 void ContinuousEditor::setPaged(bool paged) {

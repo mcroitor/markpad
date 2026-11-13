@@ -282,3 +282,17 @@ flowchart TB
 2. **Встроенный HTML и внешние ресурсы:** определить, разрешать ли безопасно санитизированный HTML и какие схемы ссылок/источников изображений поддерживаются.
 3. **Рендеринг:** выбрать версии Qt и GFM/PDF-компоненты после проверки лицензий, поддержки Windows/Linux, редактируемости WYSIWYG и согласованности пагинированного режима с PDF.
 4. **Auto Save:** определить периодичность и цель сохранения (исходный файл или восстановительная копия), а также поведение при закрытии и ошибке записи.
+
+## Task 044 implementation note
+
+Paged WYSIWYG remains a single editable `PageTextEdit` document. `PageLayoutEngine`
+partitions blocks (and atomic table/fenced-code units) into pages; `PageTextEdit`
+applies page-break top margins, centers the page with viewport margins, and paints
+page sheets, desk gaps and page numbers. The Markdown source, token, source ranges
+and custom undo/redo are not changed by page formatting. PDF export still uses its
+own Qt layout path; parity is tracked in Task 047.
+Task 044 follow-up: page and margin dimensions are converted from points to
+logical screen pixels (`logicalDotsPerInch / 72`) for the paged editor. The
+document text width is the full page width; document margins produce the content
+area. Body paragraphs/lists are justified, headings/code/tables keep their own
+alignment. PDF export retains its separate point-based layout path (Task 047).

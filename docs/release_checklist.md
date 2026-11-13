@@ -45,7 +45,7 @@ Owner sign-off: ____________________  Date: __________
 - [x] HTML export opens and matches supported GFM structure from the Windows portable package. Evidence: `docs/qa/task_011/release-qa/export.html`.
 - [x] PDF export creates a readable file for a fixed fixture (automated suite).
 - [x] Microsoft Print to PDF produces a readable A4 PDF on Windows. Evidence: `docs/qa/task_011/print-to-pdf.pdf`.
-- [ ] Paged/PDF page-count divergence reviewed and accepted. The fixture reports **3 pages** in paged WYSIWYG while Microsoft Print to PDF produces **2 A4 pages**. This is the documented Task 008 engine-vs-Qt-layout limitation; owner sign-off required.
+- [ ] Paged/PDF page-count divergence reviewed and accepted. Page layout now uses true page sheets; Task 047 will compare the final paged and PDF counts. Owner sign-off required.
 - [x] Oversized-block overflow is visible/warned in the paged status bar. Evidence: `docs/qa/task_011/overflow/paged.png` and `overflow.md`.
 - [ ] Physical printer test: not run; no physical job was sent.
 - [ ] Linux CUPS/print-dialog test: not run; limitation recorded.
@@ -68,8 +68,8 @@ Owner sign-off: ____________________  Date: __________
 - Syntax highlighting and language pickers for code blocks are unsupported.
 - Auto Save is deferred.
 - Installer, signing and update channels are out of scope.
-- Paged/PDF page-count divergence (3 vs 2 on the QA fixture) follows the accepted
-  Task 008 engine-vs-Qt-layout contract and requires owner sign-off.
+- Paged/PDF page-count parity must be re-measured after Task 044; the remaining
+  Task 047 parity work and owner sign-off are required.
 - Physical printer and Linux CUPS checks may remain unrun and must be documented if so.
 
 ## Release decision
@@ -107,9 +107,13 @@ owner re-review required (`continuous.png`, `dark/continuous.png`,
 ### Paged WYSIWYG
 
 Tracking: [Task 044](tasks/task_044.md), with shared visual fixes from
-[Task 045](tasks/task_045.md) and [Task 046](tasks/task_046.md). Status:
-background/code/table-fit shared issues fixed on `feature/task_046`; real page
-layout still blocked by Task 044.
+[Task 045](tasks/task_045.md) and [Task 046](tasks/task_046.md). Status: fixed
+on `feature/task_044`; paged mode now draws centered page sheets, desk gaps,
+page borders/page numbers, keeps tables and fenced code blocks whole, scales A4
+to logical screen DPI, uses equal left/right content margins, justifies body
+paragraphs, and preserves source/token/history. Evidence:
+`docs/qa/task_044/paged.png` and `docs/qa/task_044/paged-page-gap.png`. Owner
+visual re-review remains required.
 
 1. Page layout does not match the expected output. Each page must be seen as a page. Take a look to the Microsoft Word or PDF rendering as a reference for the expected layout.
 2. The same issues observed in Continuous WYSIWYG (background color, code block rendering, table width) also affect Paged WYSIWYG and must be addressed consistently.

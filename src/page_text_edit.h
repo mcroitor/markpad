@@ -1,6 +1,7 @@
 #ifndef MARKPAD_SRC_PAGE_TEXT_EDIT_H_
 #define MARKPAD_SRC_PAGE_TEXT_EDIT_H_
 
+#include <QMargins>
 #include <QTextEdit>
 
 #include "page_layout.h"
@@ -19,6 +20,11 @@ class PageTextEdit : public QTextEdit {
   int pageCount() const;
   int currentPage() const;
   QString layoutWarning() const;
+  const PageLayoutResult& pageLayout() const { return layout_; }
+  QMargins viewportPageMargins() const { return viewportMargins(); }
+  qreal viewScale() const;
+  void setNormalLineWrapMode(QTextEdit::LineWrapMode mode);
+  void refreshPageLayout();
 
  protected:
   void paintEvent(QPaintEvent* event) override;
@@ -26,9 +32,17 @@ class PageTextEdit : public QTextEdit {
 
  private:
   void updatePageWidth();
+  void schedulePageLayout();
+  void resetPageMargins();
 
   PageSetup setup_;
+  PageLayoutResult layout_;
   bool paged_ = false;
+  bool relayouting_ = false;
+  bool layoutScheduled_ = false;
+  bool adjusting_ = false;
+  qreal normalMargin_ = 4.0;
+  QTextEdit::LineWrapMode normalWrapMode_ = QTextEdit::WidgetWidth;
 };
 
 }  // namespace markpad

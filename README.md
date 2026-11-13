@@ -266,9 +266,11 @@ language, which takes effect after restart. Task 006 adds an editable paged
 WYSIWYG mode with a deterministic page-layout engine: A4/Letter/Legal,
 portrait/landscape, configurable margins, block-based page placement, page
 count/navigation in the status bar and an overflow warning for blocks taller than
-the page. The current page view is a guided editable rich-text surface rather
-than true page sheets; the block-based page-surface redesign is tracked in
-[Task 044](docs/tasks/task_044.md). Task 008 adds PDF export and printing through Qt
+the page. Task 044 replaces the guided surface with centered page sheets, desk
+gaps, page numbers and page-break spacing; page geometry is scaled to the screen
+DPI, body paragraphs are justified, and tables and fenced code blocks are placed
+as whole page units. PDF parity is tracked separately in
+[Task 047](docs/tasks/task_047.md). Task 008 adds PDF export and printing through Qt
 PrintSupport using the same page geometry and safe HTML rendering policy; PDF
 output is written atomically and errors are reported. Native visual PDF QA and
 real printer hardware remain manual checks.

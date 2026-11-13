@@ -28,6 +28,7 @@
 
 #include "application_controller.h"
 #include "continuous_editor.h"
+#include "page_text_edit.h"
 #include "settings_dialog.h"
 
 namespace markpad {
@@ -1237,6 +1238,74 @@ class MainWindowSmokeTest : public QObject {
     QCOMPARE(window->session().snapshot().source,
              std::string("[before](/keep \"title\")\n"));
     QApplication::clipboard()->clear();
+  }
+
+  void pagedPageSheets() {
+    TestDialogs dialogs;
+    ApplicationController controller(dialogs);
+    auto* window = controller.newDocument();
+    QByteArray source;
+    for (int i = 0; i < 140; ++i) {
+      source += "Paragraph " + QByteArray::number(i) + "\n\n";
+    }
+    window->editor()->setPlainText(QString::fromUtf8(source));
+    window->resize(1100, 760);
+    QTest::qWait(50);
+    const auto before = window->session().snapshot();
+    QVERIFY(window->setPagedMode(true));
+    auto* paged =
+        dynamic_cast<PageTextEdit*>(window->continuousEditor()->editor());
+    QVERIFY(paged);
+    QTest::qWait(50);
+    QVERIFY(paged->pageCount() >= 2);
+    QVERIFY(paged->viewportPageMargins().left() > 0);
+    const auto scale = paged->viewScale();
+    const auto pageWidth =
+        PageLayoutEngine::pageSize(paged->pageSetup(), scale).width();
+    QVERIFY(pageWidth > 700.0);
+    const auto paragraph =
+        paged->document()->find(QStringLiteral("Paragraph 0"));
+    QVERIFY(!paragraph.isNull());
+    QCOMPARE(paragraph.block().blockFormat().alignment(),
+             Qt::Alignment(Qt::AlignJustify));
+    const auto paragraphWidth =
+        paged->document()
+            ->documentLayout()
+            ->blockBoundingRect(paragraph.block())
+            .width();
+    const auto expectedContent =
+        pageWidth - 2.0 * paged->document()->documentMargin();
+    QVERIFY(qAbs(paragraphWidth - expectedContent) < 1.0);
+    const auto expectedRight =
+        pageWidth - paragraphWidth - paged->document()->documentMargin();
+    QVERIFY(qAbs(expectedRight - 20.0 * 72.0 / 25.4 * scale) < 1.0);
+    const auto layout = paged->pageLayout();
+    QVERIFY(layout.pages.size() >= 2);
+    int firstSecondPage = -1;
+    for (const auto& placement : layout.placements) {
+      if (placement.page == 1) {
+        firstSecondPage = placement.block;
+        break;
+      }
+    }
+    QVERIFY(firstSecondPage >= 0);
+    const auto block = paged->document()->findBlockByNumber(firstSecondPage);
+    QVERIFY(block.blockFormat().topMargin() > 0.0);
+    QCOMPARE(window->session().snapshot().source, before.source);
+    QCOMPARE(window->session().snapshot().token.revision,
+             before.token.revision);
+
+    auto cursor = paged->document()->find(QStringLiteral("Paragraph 0"));
+    QVERIFY(!cursor.isNull());
+    cursor.movePosition(QTextCursor::EndOfBlock);
+    paged->setTextCursor(cursor);
+    paged->insertPlainText(QStringLiteral(" edited"));
+    QVERIFY(window->session().snapshot().source.find("Paragraph 0 edited") !=
+            std::string::npos);
+    QVERIFY(window->session().dirty());
+    window->undo();
+    QCOMPARE(window->session().snapshot().source, before.source);
+    QVERIFY(dialogs.errors.empty());
   }
 
   void pagedModeLayoutAndSettings() {

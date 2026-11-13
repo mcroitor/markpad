@@ -930,7 +930,7 @@ bool MainWindow::applySettings(const Settings& settings, QString* error) {
   continuous_->editor()->setFont(continuousFont);
   editor_->setLineWrapMode(settings.wordWrap ? QPlainTextEdit::WidgetWidth
                                              : QPlainTextEdit::NoWrap);
-  continuous_->editor()->setLineWrapMode(
+  continuous_->setNormalLineWrapMode(
       settings.wordWrap ? QTextEdit::WidgetWidth : QTextEdit::NoWrap);
   dialogs_.setDefaultLocation(settings.defaultFileLocation);
 

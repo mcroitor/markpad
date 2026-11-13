@@ -2,7 +2,7 @@
 
 ## Статус и владелец
 
-- Статус: `Blocked` (ждёт Task 044 и Task 046).
+- Статус: `Ready` (ждёт Task 044 и Task 046).
 - Владелец: архитектор/координатор; `cpp-developer`, `test-writer`.
 - Приоритет: P1 (release blocker по owner QA).
 - Источник: [release checklist, PDF export](../release_checklist.md#pdf-export).

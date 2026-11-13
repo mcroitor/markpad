@@ -80,6 +80,7 @@ class ContinuousEditor final : public QWidget {
   void setPageSetup(const PageSetup& setup);
   PageSetup pageSetup() const { return pageSetup_; }
   void setWysiwygStyle(const WysiwygStyle& style) { style_ = style; }
+  void setNormalLineWrapMode(QTextEdit::LineWrapMode mode);
   int pageCount() const;
   int currentPage() const;
   QString layoutWarning() const;
@@ -158,7 +159,7 @@ class ContinuousEditor final : public QWidget {
       const TableContext& context, TableAction action) const;
   void renderInline(size_t node, QTextCursor& cursor, QTextCharFormat format,
                     bool allowEditing = true);
-  void beginBlock(QTextCursor& cursor, int depth);
+  void beginBlock(QTextCursor& cursor, int depth, bool justify = false);
   void opaque(QTextCursor& cursor, const QString& label, int depth,
               std::optional<size_t> block = {},
               std::optional<size_t> list = {},
